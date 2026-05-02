@@ -532,6 +532,8 @@ components:
           type: ["string", "null"]
         subscriptionPrice:
           type: ["number", "null"]
+        registrationTxHash:
+          type: ["string", "null"]
         createdAt:
           type: string
           format: date-time
@@ -559,6 +561,8 @@ components:
           type: ["string", "null"]
         subscriptionPrice:
           type: ["number", "null"]
+        registrationTxHash:
+          type: ["string", "null"]
         createdAt:
           type: string
           format: date-time
@@ -593,6 +597,10 @@ components:
         username:
           type: string
         avatarUrl:
+          type: ["string", "null"]
+        bio:
+          type: ["string", "null"]
+        txHash:
           type: ["string", "null"]
       required:
         - walletAddress
@@ -663,6 +671,8 @@ components:
         content:
           type: string
         imageUrl:
+          type: ["string", "null"]
+        onChainTxHash:
           type: ["string", "null"]
         authorId:
           type: integer
@@ -853,6 +863,8 @@ components:
           type: boolean
         extraInviteEarned:
           type: boolean
+        lastCheckinTxHash:
+          type: ["string", "null"]
       required:
         - userId
         - currentStreak

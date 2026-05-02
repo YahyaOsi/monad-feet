@@ -1,29 +1,25 @@
 /**
- * MonadFeet Smart Contract Integration
+ * MonadFeet Smart Contract — Monad Mainnet (chainId 41454)
  *
- * This module wires the deployed MonadFeet.sol contract to the frontend
- * via wagmi. Every write operation (register, post, like, subscribe, check-in)
- * is submitted as a real on-chain transaction on Monad Mainnet (Chain ID: 41454).
+ * Deploy:
+ *   forge create --rpc-url https://rpc.monad.xyz \
+ *     --private-key $PRIVATE_KEY contracts/MonadFeet.sol:MonadFeet
  *
- * To deploy to Monad Mainnet:
- *   1. Install Foundry: curl -L https://foundry.paradigm.xyz | bash && foundryup
- *   2. Set your funded Monad mainnet wallet: export PRIVATE_KEY=<your_key>
- *   3. forge create \
- *        --rpc-url https://rpc.monad.xyz \
- *        --private-key $PRIVATE_KEY \
- *        contracts/MonadFeet.sol:MonadFeet
- *   4. Set VITE_CONTRACT_ADDRESS env var to the deployed address.
- *
+ * Then set VITE_CONTRACT_ADDRESS to the deployed address.
  * Explorer: https://explorer.monad.xyz
  */
 
-export const MONAD_FEET_CONTRACT_ADDRESS =
-  (import.meta.env.VITE_CONTRACT_ADDRESS as `0x${string}`) ?? "0x0000000000000000000000000000000000000000";
+export const MONAD_MAINNET_CHAIN_ID = 41454;
 
-export const CONTRACT_DEPLOYED = MONAD_FEET_CONTRACT_ADDRESS !== "0x0000000000000000000000000000000000000000";
+export const MONAD_FEET_CONTRACT_ADDRESS =
+  (import.meta.env.VITE_CONTRACT_ADDRESS as `0x${string}`) ??
+  "0x0000000000000000000000000000000000000000";
+
+export const CONTRACT_DEPLOYED =
+  MONAD_FEET_CONTRACT_ADDRESS !== "0x0000000000000000000000000000000000000000";
 
 export const MONAD_FEET_ABI = [
-  // User Registration
+  // ── Write ──────────────────────────────────────────────────────────────────
   {
     name: "registerUser",
     type: "function",
@@ -35,34 +31,53 @@ export const MONAD_FEET_ABI = [
     outputs: [],
   },
   {
-    name: "registerInviteCode",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [{ name: "code", type: "string" }],
-    outputs: [],
-  },
-  // Posts — anchor post identifier on-chain (GCS URL path or content hash)
-  {
     name: "createPost",
     type: "function",
     stateMutability: "nonpayable",
-    inputs: [{ name: "ipfsCid", type: "string" }],
-    outputs: [{ name: "postHash", type: "bytes32" }],
+    inputs: [
+      { name: "postId", type: "uint256" },
+      { name: "contentUri", type: "string" },
+    ],
+    outputs: [],
   },
   {
     name: "likePost",
     type: "function",
     stateMutability: "nonpayable",
-    inputs: [{ name: "postHash", type: "bytes32" }],
+    inputs: [{ name: "postId", type: "uint256" }],
     outputs: [],
   },
-  // Subscriptions — payable, splits MON 88/12 automatically on-chain
   {
     name: "subscribe",
     type: "function",
     stateMutability: "payable",
     inputs: [{ name: "creator", type: "address" }],
     outputs: [],
+  },
+  {
+    name: "dailyCheckin",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [],
+    outputs: [],
+  },
+  // ── Read ───────────────────────────────────────────────────────────────────
+  {
+    name: "users",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "", type: "address" }],
+    outputs: [
+      { name: "registered", type: "bool" },
+      { name: "username", type: "string" },
+      { name: "registeredAt", type: "uint256" },
+      { name: "postCount", type: "uint256" },
+      { name: "likesSent", type: "uint256" },
+      { name: "streakPoints", type: "uint256" },
+      { name: "currentStreak", type: "uint256" },
+      { name: "longestStreak", type: "uint256" },
+      { name: "lastCheckin", type: "uint256" },
+    ],
   },
   {
     name: "isSubscribed",
@@ -74,29 +89,22 @@ export const MONAD_FEET_ABI = [
     ],
     outputs: [{ name: "", type: "bool" }],
   },
-  // Streak check-in — updates streak and points on-chain
   {
-    name: "dailyCheckin",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [],
-    outputs: [],
-  },
-  // Views
-  {
-    name: "users",
+    name: "isPostLikedBy",
     type: "function",
     stateMutability: "view",
-    inputs: [{ name: "", type: "address" }],
-    outputs: [
-      { name: "registered", type: "bool" },
-      { name: "username", type: "string" },
-      { name: "registeredAt", type: "uint256" },
-      { name: "postCount", type: "uint256" },
-      { name: "streakPoints", type: "uint256" },
-      { name: "currentStreak", type: "uint256" },
-      { name: "lastCheckin", type: "uint256" },
+    inputs: [
+      { name: "postId", type: "uint256" },
+      { name: "user", type: "address" },
     ],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    name: "postLikeCount",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "", type: "uint256" }],
+    outputs: [{ name: "", type: "uint256" }],
   },
   {
     name: "getUserCount",
@@ -113,20 +121,29 @@ export const MONAD_FEET_ABI = [
     outputs: [{ name: "", type: "uint256" }],
   },
   {
-    name: "getInviteCodes",
+    name: "getSubscriptionExpiry",
     type: "function",
     stateMutability: "view",
-    inputs: [{ name: "addr", type: "address" }],
-    outputs: [{ name: "", type: "string[]" }],
+    inputs: [
+      { name: "subscriber", type: "address" },
+      { name: "creator", type: "address" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
   },
-  // Events
+  {
+    name: "postAuthor",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "", type: "uint256" }],
+    outputs: [{ name: "", type: "address" }],
+  },
+  // ── Events ─────────────────────────────────────────────────────────────────
   {
     name: "UserRegistered",
     type: "event",
     inputs: [
       { name: "wallet", type: "address", indexed: true },
       { name: "username", type: "string", indexed: false },
-      { name: "inviteCode", type: "string", indexed: false },
       { name: "timestamp", type: "uint256", indexed: false },
     ],
   },
@@ -135,8 +152,17 @@ export const MONAD_FEET_ABI = [
     type: "event",
     inputs: [
       { name: "author", type: "address", indexed: true },
-      { name: "postHash", type: "bytes32", indexed: true },
-      { name: "ipfsCid", type: "string", indexed: false },
+      { name: "postId", type: "uint256", indexed: true },
+      { name: "contentUri", type: "string", indexed: false },
+      { name: "timestamp", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    name: "PostLiked",
+    type: "event",
+    inputs: [
+      { name: "liker", type: "address", indexed: true },
+      { name: "postId", type: "uint256", indexed: true },
       { name: "timestamp", type: "uint256", indexed: false },
     ],
   },

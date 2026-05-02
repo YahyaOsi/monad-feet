@@ -13,6 +13,7 @@ export const streaksTable = pgTable("streaks", {
   extraInviteEarned: boolean("extra_invite_earned").notNull().default(false),
   consecutiveLikeDays: integer("consecutive_like_days").notNull().default(0),
   lastLikeDate: timestamp("last_like_date", { withTimezone: true }),
+  lastCheckinTxHash: text("last_checkin_tx_hash"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

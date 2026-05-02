@@ -2,8 +2,9 @@ import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { useUser } from "@/context/UserContext";
 import { useAccount } from "wagmi";
-import { Home, Lock, Wallet, Trophy, User as UserIcon, Settings, LogOut, Bell } from "lucide-react";
+import { Home, Lock, Wallet, Trophy, User as UserIcon, Settings, LogOut, Bell, Link2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { CONTRACT_DEPLOYED } from "@/lib/contract";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -12,15 +13,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useUser();
   const { isConnected } = useAccount();
   const [unreadCount, setUnreadCount] = useState(0);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
 
-  // Poll unread notification count every 60 seconds
   useEffect(() => {
     if (!user) return;
     const fetchCount = () => {
       const wallet = localStorage.getItem("mf_wallet_address") ?? "";
-      fetch(`${BASE}/api/notifications`, {
-        headers: { "x-wallet-address": wallet },
-      })
+      fetch(`${BASE}/api/notifications`, { headers: { "x-wallet-address": wallet } })
         .then((r) => r.json())
         .then((d) => setUnreadCount(d.unreadCount ?? 0))
         .catch(() => {});
@@ -44,13 +43,22 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
+  const showBanner = !CONTRACT_DEPLOYED && !bannerDismissed;
+
   return (
     <div className="flex min-h-screen w-full bg-background text-foreground">
       {/* Sidebar */}
       <aside className="w-64 border-r border-sidebar-border bg-sidebar hidden md:flex flex-col justify-between fixed top-0 bottom-0 left-0 h-screen">
         <div>
           <div className="p-6">
-            <h1 className="text-2xl font-bold tracking-tight text-primary">Monad Feet</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-bold tracking-tight text-primary">Monad Feet</h1>
+              {CONTRACT_DEPLOYED && (
+                <span className="flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">
+                  <Link2 className="h-2.5 w-2.5" /> Live
+                </span>
+              )}
+            </div>
             <p className="text-sm text-sidebar-foreground/70">Exclusive Web3 Club</p>
           </div>
           <nav className="px-4 space-y-1">
@@ -94,8 +102,29 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 md:ml-64 p-4 md:p-8 max-w-4xl mx-auto w-full">
-        {children}
+      <main className="flex-1 md:ml-64 w-full">
+        {/* Contract deployment banner */}
+        {showBanner && (
+          <div className="bg-amber-50 border-b border-amber-200 px-4 py-2.5 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs text-amber-800">
+              <Link2 className="h-3.5 w-3.5 flex-shrink-0 text-amber-600" />
+              <span>
+                <strong>Deploy mode:</strong> Smart contract not yet deployed — actions save to
+                database only. Deploy{" "}
+                <code className="bg-amber-100 px-1 rounded">contracts/MonadFeet.sol</code> to Monad
+                Mainnet and set <code className="bg-amber-100 px-1 rounded">VITE_CONTRACT_ADDRESS</code>{" "}
+                to go fully on-chain.
+              </span>
+            </div>
+            <button
+              onClick={() => setBannerDismissed(true)}
+              className="flex-shrink-0 text-amber-500 hover:text-amber-700"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+        <div className="p-4 md:p-8 max-w-4xl mx-auto">{children}</div>
       </main>
 
       {/* Mobile Nav */}

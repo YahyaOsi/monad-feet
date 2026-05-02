@@ -6,11 +6,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { PostCard } from "@/components/post/PostCard";
-import { Plus, Users, Heart, MessageSquare, ImageIcon, X, Loader2, Link2 } from "lucide-react";
+import { Plus, Users, Heart, MessageSquare, ImageIcon, X, Loader2, Link2, CheckCircle2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getListPostsQueryKey, getGetFeedSummaryQueryKey } from "@workspace/api-client-react";
-import { useWriteContract } from "wagmi";
-import { MONAD_FEET_CONTRACT_ADDRESS, MONAD_FEET_ABI, CONTRACT_DEPLOYED } from "@/lib/contract";
+import { useContractActions } from "@/lib/useContractActions";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -43,21 +42,22 @@ async function anchorPostOnDB(postId: number, txHash: string): Promise<void> {
   });
 }
 
+type PostStep = "idle" | "uploading" | "saving" | "signing" | "done" | "error";
+
 export default function Feed() {
   const { user } = useUser();
   const queryClient = useQueryClient();
   const { data: feedPage, isLoading: feedLoading } = useListPosts({});
   const { data: summary } = useGetFeedSummary();
   const createPost = useCreatePost();
-  const { writeContractAsync } = useWriteContract();
+  const { contractDeployed, createPostOnChain } = useContractActions();
 
   const [isComposeOpen, setIsComposeOpen] = useState(false);
   const [content, setContent] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
+  const [postStep, setPostStep] = useState<PostStep>("idle");
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [anchoringStatus, setAnchoringStatus] = useState<"idle" | "anchoring" | "anchored" | "failed">("idle");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -82,69 +82,76 @@ export default function Feed() {
 
   const handleCreatePost = async () => {
     if (!imageFile || !user) return;
-    setUploading(true);
     setUploadError(null);
-    setAnchoringStatus("idle");
+
     try {
       // 1. Upload image to GCS
+      setPostStep("uploading");
       const { uploadURL, objectPath } = await requestUploadUrl(imageFile);
       await uploadToGCS(uploadURL, imageFile);
       const imageUrl = `${BASE}/api/storage${objectPath}`;
 
-      // 2. Create post in DB
+      // 2. Save to DB
+      setPostStep("saving");
       const post = await createPost.mutateAsync({
         data: { content: content.trim() || "", imageUrl, authorWalletAddress: user.walletAddress },
       });
 
+      // 3. Sign on-chain transaction (non-blocking on failure)
+      if (contractDeployed && post?.id) {
+        setPostStep("signing");
+        try {
+          const contentUri = `mf:${post.id}:${objectPath}`;
+          const txHash = await createPostOnChain(post.id, contentUri);
+          if (txHash) await anchorPostOnDB(post.id, txHash);
+        } catch {
+          // user declined or error — post is already saved, just skip chain anchoring
+        }
+      }
+
+      setPostStep("done");
       setIsComposeOpen(false);
       setContent("");
       clearImage();
       queryClient.invalidateQueries({ queryKey: getListPostsQueryKey() });
       queryClient.invalidateQueries({ queryKey: getGetFeedSummaryQueryKey() });
 
-      // 3. Anchor post on Monad mainnet (non-blocking — fires after dialog closes)
-      if (CONTRACT_DEPLOYED && post?.id) {
-        setAnchoringStatus("anchoring");
-        try {
-          const postIdentifier = `mf:${post.id}:${objectPath}`;
-          const txHash = await writeContractAsync({
-            address: MONAD_FEET_CONTRACT_ADDRESS,
-            abi: MONAD_FEET_ABI,
-            functionName: "createPost",
-            args: [postIdentifier],
-          });
-          await anchorPostOnDB(post.id, txHash);
-          queryClient.invalidateQueries({ queryKey: getListPostsQueryKey() });
-          setAnchoringStatus("anchored");
-        } catch {
-          setAnchoringStatus("failed");
-        }
-      }
+      // Reset step after a beat
+      setTimeout(() => setPostStep("idle"), 3000);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Failed to post. Please try again.";
       setUploadError(msg);
-    } finally {
-      setUploading(false);
+      setPostStep("error");
     }
   };
 
   const handleOpenChange = (open: boolean) => {
     setIsComposeOpen(open);
-    if (!open) { clearImage(); setContent(""); setUploadError(null); }
+    if (!open) {
+      clearImage();
+      setContent("");
+      setUploadError(null);
+      setPostStep("idle");
+    }
+  };
+
+  const isPosting = postStep === "uploading" || postStep === "saving" || postStep === "signing";
+
+  const postButtonLabel = () => {
+    if (postStep === "uploading") return "Uploading image...";
+    if (postStep === "saving") return "Saving post...";
+    if (postStep === "signing") return "Sign on Monad...";
+    return contractDeployed ? "Post & Sign on Monad" : "Post";
   };
 
   return (
     <div className="space-y-6 pb-20">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold tracking-tight">Feed</h1>
-        {anchoringStatus === "anchoring" && (
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground animate-pulse">
-            <Loader2 className="h-3 w-3 animate-spin" /> Anchoring on Monad...
-          </div>
-        )}
-        {anchoringStatus === "anchored" && (
+        {postStep === "done" && (
           <div className="flex items-center gap-1.5 text-xs text-green-600 font-medium">
-            <Link2 className="h-3 w-3" /> Anchored on Monad
+            <CheckCircle2 className="h-3.5 w-3.5" /> Posted
+            {contractDeployed ? " & anchored on Monad" : ""}
           </div>
         )}
       </div>
@@ -153,7 +160,9 @@ export default function Feed() {
         <div className="grid grid-cols-3 gap-4">
           <Card className="bg-primary/5 border-none shadow-none">
             <CardContent className="p-4 flex items-center gap-4">
-              <div className="p-3 bg-primary/10 rounded-full text-primary"><MessageSquare className="h-5 w-5" /></div>
+              <div className="p-3 bg-primary/10 rounded-full text-primary">
+                <MessageSquare className="h-5 w-5" />
+              </div>
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Total Posts</p>
                 <p className="text-2xl font-bold">{summary.totalPosts}</p>
@@ -162,7 +171,9 @@ export default function Feed() {
           </Card>
           <Card className="bg-primary/5 border-none shadow-none">
             <CardContent className="p-4 flex items-center gap-4">
-              <div className="p-3 bg-primary/10 rounded-full text-primary"><Heart className="h-5 w-5" /></div>
+              <div className="p-3 bg-primary/10 rounded-full text-primary">
+                <Heart className="h-5 w-5" />
+              </div>
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Total Likes</p>
                 <p className="text-2xl font-bold">{summary.totalLikes}</p>
@@ -171,7 +182,9 @@ export default function Feed() {
           </Card>
           <Card className="bg-primary/5 border-none shadow-none">
             <CardContent className="p-4 flex items-center gap-4">
-              <div className="p-3 bg-primary/10 rounded-full text-primary"><Users className="h-5 w-5" /></div>
+              <div className="p-3 bg-primary/10 rounded-full text-primary">
+                <Users className="h-5 w-5" />
+              </div>
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Active Today</p>
                 <p className="text-2xl font-bold">{summary.activeToday}</p>
@@ -203,7 +216,10 @@ export default function Feed() {
 
       <Dialog open={isComposeOpen} onOpenChange={handleOpenChange}>
         <DialogTrigger asChild>
-          <Button size="icon" className="fixed bottom-20 md:bottom-8 right-4 md:right-8 h-14 w-14 rounded-full shadow-lg hover:shadow-xl transition-all">
+          <Button
+            size="icon"
+            className="fixed bottom-20 md:bottom-8 right-4 md:right-8 h-14 w-14 rounded-full shadow-lg hover:shadow-xl transition-all"
+          >
             <Plus className="h-6 w-6" />
           </Button>
         </DialogTrigger>
@@ -212,7 +228,7 @@ export default function Feed() {
             <DialogTitle>Create a Post</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 pt-2">
-            {/* Image upload area — required */}
+            {/* Image upload */}
             <div>
               {imagePreview ? (
                 <div className="relative rounded-xl overflow-hidden bg-muted aspect-video">
@@ -235,7 +251,9 @@ export default function Feed() {
                   </div>
                   <div className="text-center">
                     <p className="font-semibold text-sm">Add an image</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">Required — click to browse or drop a file</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Required — click to browse or drop a file
+                    </p>
                   </div>
                 </button>
               )}
@@ -248,7 +266,6 @@ export default function Feed() {
               />
             </div>
 
-            {/* Optional caption */}
             <Textarea
               placeholder="Add a caption... (optional)"
               value={content}
@@ -256,25 +273,33 @@ export default function Feed() {
               className="min-h-[80px] resize-none"
             />
 
-            {CONTRACT_DEPLOYED && (
+            {contractDeployed && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-lg px-3 py-2">
                 <Link2 className="h-3.5 w-3.5 text-primary flex-shrink-0" />
-                <span>This post will be anchored on <strong>Monad mainnet</strong> for permanent proof of authorship.</span>
+                <span>
+                  This post will be anchored on{" "}
+                  <strong>Monad Mainnet</strong> — your wallet will prompt for a signature.
+                </span>
               </div>
             )}
 
-            {uploadError && (
-              <p className="text-sm text-destructive">{uploadError}</p>
+            {postStep === "signing" && (
+              <div className="flex items-center gap-2 text-xs text-violet-700 bg-violet-50 rounded-lg px-3 py-2">
+                <Loader2 className="h-3.5 w-3.5 animate-spin flex-shrink-0" />
+                Check your wallet — sign the transaction to anchor this post on Monad…
+              </div>
             )}
 
+            {uploadError && <p className="text-sm text-destructive">{uploadError}</p>}
+
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={uploading}>
+              <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={isPosting}>
                 Cancel
               </Button>
-              <Button onClick={handleCreatePost} disabled={!imageFile || uploading}>
-                {uploading ? (
-                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Posting...</>
-                ) : "Post"}
+              <Button onClick={handleCreatePost} disabled={!imageFile || isPosting}>
+                {isPosting ? (
+                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> {postButtonLabel()}</>
+                ) : postButtonLabel()}
               </Button>
             </div>
           </div>

@@ -65,6 +65,7 @@ router.get("/streak", async (req, res): Promise<void> => {
       lastCheckin: null,
       checkedInToday: false,
       extraInviteEarned: false,
+      lastCheckinTxHash: null,
     });
     return;
   }
@@ -79,6 +80,7 @@ router.get("/streak", async (req, res): Promise<void> => {
     lastCheckin: streak.lastCheckin,
     checkedInToday,
     extraInviteEarned: streak.extraInviteEarned,
+    lastCheckinTxHash: streak.lastCheckinTxHash,
   });
 });
 
@@ -94,6 +96,9 @@ router.post("/streak/checkin", async (req, res): Promise<void> => {
     res.status(404).json({ error: "User not found" });
     return;
   }
+
+  // Optional on-chain tx hash from dailyCheckin() call on Monad
+  const txHash = typeof req.body?.txHash === "string" ? req.body.txHash : null;
 
   let [streak] = await db
     .select()
@@ -119,6 +124,7 @@ router.post("/streak/checkin", async (req, res): Promise<void> => {
       lastCheckin: streak.lastCheckin,
       checkedInToday: true,
       extraInviteEarned: streak.extraInviteEarned,
+      lastCheckinTxHash: streak.lastCheckinTxHash,
     });
     return;
   }
@@ -136,6 +142,7 @@ router.post("/streak/checkin", async (req, res): Promise<void> => {
       longestStreak: newLongest,
       totalPoints: newPoints,
       lastCheckin: now,
+      ...(txHash ? { lastCheckinTxHash: txHash } : {}),
     })
     .where(eq(streaksTable.userId, user.id));
 
@@ -143,6 +150,9 @@ router.post("/streak/checkin", async (req, res): Promise<void> => {
     .select()
     .from(streaksTable)
     .where(eq(streaksTable.userId, user.id));
+
+  // Award bonus invite for 5-day like streak (handled in posts route)
+  // but also check here for invite generation if needed
 
   res.json({
     userId: user.id,
@@ -152,6 +162,7 @@ router.post("/streak/checkin", async (req, res): Promise<void> => {
     lastCheckin: updated.lastCheckin,
     checkedInToday: true,
     extraInviteEarned: updated.extraInviteEarned,
+    lastCheckinTxHash: updated.lastCheckinTxHash,
   });
 });
 

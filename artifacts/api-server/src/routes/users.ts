@@ -24,6 +24,8 @@ router.post("/auth/register", async (req, res): Promise<void> => {
   }
 
   const { walletAddress, inviteCode, email, name, username, avatarUrl } = parsed.data;
+  // Optional on-chain transaction hash — passed when the user signed registerUser() on Monad
+  const registrationTxHash = typeof req.body?.txHash === "string" ? req.body.txHash : null;
 
   const [invite] = await db
     .select()
@@ -62,7 +64,14 @@ router.post("/auth/register", async (req, res): Promise<void> => {
 
   const [newUser] = await db
     .insert(usersTable)
-    .values({ walletAddress: walletAddress.toLowerCase(), email, name, username, avatarUrl })
+    .values({
+      walletAddress: walletAddress.toLowerCase(),
+      email,
+      name,
+      username,
+      avatarUrl,
+      registrationTxHash,
+    })
     .returning();
 
   await db
@@ -87,6 +96,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
     username: newUser.username,
     avatarUrl: newUser.avatarUrl,
     bio: newUser.bio,
+    registrationTxHash: newUser.registrationTxHash,
     subscriptionPrice: newUser.subscriptionPrice ? Number(newUser.subscriptionPrice) : null,
     createdAt: newUser.createdAt,
   });
@@ -117,6 +127,7 @@ router.get("/users/me", async (req, res): Promise<void> => {
     username: user.username,
     avatarUrl: user.avatarUrl,
     bio: user.bio,
+    registrationTxHash: user.registrationTxHash,
     subscriptionPrice: user.subscriptionPrice ? Number(user.subscriptionPrice) : null,
     createdAt: user.createdAt,
   });
@@ -150,6 +161,7 @@ router.put("/users/me", async (req, res): Promise<void> => {
     username: user.username,
     avatarUrl: user.avatarUrl,
     bio: user.bio,
+    registrationTxHash: user.registrationTxHash,
     subscriptionPrice: user.subscriptionPrice ? Number(user.subscriptionPrice) : null,
     createdAt: user.createdAt,
   });
@@ -197,6 +209,7 @@ router.get("/users/:userId", async (req, res): Promise<void> => {
     username: user.username,
     avatarUrl: user.avatarUrl,
     bio: user.bio,
+    registrationTxHash: user.registrationTxHash,
     subscriptionPrice: user.subscriptionPrice ? Number(user.subscriptionPrice) : null,
     createdAt: user.createdAt,
     postCount: postCountResult[0]?.count ?? 0,

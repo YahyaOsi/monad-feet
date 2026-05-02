@@ -20,6 +20,7 @@ export const postLikesTable = pgTable("post_likes", {
   id: serial("id").primaryKey(),
   postId: integer("post_id").notNull().references(() => postsTable.id),
   userId: integer("user_id").notNull().references(() => usersTable.id),
+  onChainTxHash: text("on_chain_tx_hash"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

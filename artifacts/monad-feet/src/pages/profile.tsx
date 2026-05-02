@@ -1,50 +1,107 @@
+import { useState } from "react";
 import { useParams } from "wouter";
 import { useUser } from "@/context/UserContext";
-import { useGetUser, useListPosts, useListBadges, useGetCreatorSubscriptionPrice, useCreateSubscription } from "@workspace/api-client-react";
+import { useGetUser, useListPosts, useListBadges, useGetCreatorSubscriptionPrice } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Badge as UiBadge } from "@/components/ui/badge";
 import { PostCard } from "@/components/post/PostCard";
-import { Trophy, Calendar, Flame, Lock } from "lucide-react";
+import { Trophy, Calendar, Flame, Lock, ExternalLink, Link2, Loader2, CheckCircle2 } from "lucide-react";
 import { format } from "date-fns";
+import { useContractActions } from "@/lib/useContractActions";
+import { useQueryClient } from "@tanstack/react-query";
+import { getGetUserQueryKey } from "@workspace/api-client-react";
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+type SubState = "idle" | "signing" | "syncing" | "done" | "error";
+
+async function apiSubscribe(creatorId: number, txHash: string | null): Promise<void> {
+  const wallet = localStorage.getItem("mf_wallet_address") ?? "";
+  const res = await fetch(`${BASE}/api/subscriptions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-wallet-address": wallet },
+    body: JSON.stringify({
+      subscriberWalletAddress: wallet,
+      creatorId,
+      txHash,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error ?? "Subscription failed");
+  }
+}
 
 export default function Profile() {
   const params = useParams();
   const userId = Number(params.userId);
   const { user: currentUser } = useUser();
+  const queryClient = useQueryClient();
   const isOwnProfile = currentUser?.id === userId;
 
   const { data: profile, isLoading } = useGetUser(userId, { query: { enabled: !!userId } });
-  
-  // Custom posts fetch - assuming useListPosts can filter by author, but our generated API schema doesn't have an author filter in ListPostsParams.
-  // We'll just fetch all and filter client side for demo, or assume backend doesn't support it and just show user's stats
   const { data: postsPage } = useListPosts({});
-  const userPosts = postsPage?.posts.filter(p => p.authorId === userId) || [];
-
+  const userPosts = postsPage?.posts.filter((p) => p.authorId === userId) ?? [];
   const { data: badges } = useListBadges({ query: { enabled: isOwnProfile } });
-  const { data: subPrice } = useGetCreatorSubscriptionPrice(userId, { query: { enabled: !isOwnProfile && !!userId } });
-  
-  const createSub = useCreateSubscription();
+  const { data: subPrice } = useGetCreatorSubscriptionPrice(userId, {
+    query: { enabled: !isOwnProfile && !!userId },
+  });
+
+  const { contractDeployed, subscribeOnChain } = useContractActions();
+  const [subState, setSubState] = useState<SubState>("idle");
+  const [subError, setSubError] = useState<string | null>(null);
 
   const handleSubscribe = async () => {
-    if (!subPrice || !currentUser) return;
+    if (!subPrice || !currentUser || !profile) return;
+    setSubState("idle");
+    setSubError(null);
+
+    let txHash: string | null = null;
+
+    // Step 1: On-chain subscription payment (88% → creator, 12% → platform)
+    if (contractDeployed && subPrice.pricePerMonth > 0) {
+      setSubState("signing");
+      try {
+        txHash = await subscribeOnChain(
+          profile.walletAddress as `0x${string}`,
+          String(subPrice.pricePerMonth)
+        );
+      } catch (e: unknown) {
+        const err = e as Error;
+        // User declined or insufficient balance
+        setSubError(err.message?.includes("insufficient") ? "Insufficient MON balance" : null);
+        setSubState("idle");
+        return;
+      }
+    }
+
+    // Step 2: Record in DB
+    setSubState("syncing");
     try {
-      // In reality, a wallet TX would happen here
-      await createSub.mutateAsync({
-        data: {
-          creatorId: userId,
-          subscriberWalletAddress: currentUser.walletAddress,
-          txHash: "0x_mock_tx_hash"
-        }
-      });
-      alert("Subscribed successfully!");
-    } catch (e) {
-      console.error(e);
+      await apiSubscribe(userId, txHash);
+      queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(userId) });
+      setSubState("done");
+    } catch (e: unknown) {
+      const err = e as Error;
+      setSubError(err.message ?? "Subscription failed");
+      setSubState("idle");
     }
   };
 
   if (isLoading || !profile) return <div className="py-12 text-center">Loading...</div>;
+
+  const isSubPending = subState === "signing" || subState === "syncing";
+  const subLabel = () => {
+    if (subState === "signing") return "Sign transaction...";
+    if (subState === "syncing") return "Confirming...";
+    if (subState === "done") return "Subscribed!";
+    if (!subPrice || subPrice.pricePerMonth === 0) return "Subscribe (Free)";
+    return contractDeployed
+      ? `Sign & Subscribe • ${subPrice.pricePerMonth} MON/mo`
+      : `Subscribe • ${subPrice.pricePerMonth} MON/mo`;
+  };
 
   return (
     <div className="space-y-6">
@@ -54,33 +111,65 @@ export default function Profile() {
           <div className="flex flex-col sm:flex-row gap-4 sm:items-end -mt-12 sm:-mt-16 mb-4">
             <Avatar className="h-24 w-24 sm:h-32 sm:w-32 border-4 border-background bg-background shadow-sm">
               <AvatarImage src={profile.avatarUrl || ""} />
-              <AvatarFallback className="text-2xl">{profile.name?.slice(0,2).toUpperCase()}</AvatarFallback>
+              <AvatarFallback className="text-2xl">
+                {profile.name?.slice(0, 2).toUpperCase()}
+              </AvatarFallback>
             </Avatar>
             <div className="flex-1 pb-2">
               <h1 className="text-2xl font-bold">{profile.name}</h1>
               <p className="text-muted-foreground font-medium">@{profile.username}</p>
             </div>
-            {!isOwnProfile && subPrice && subPrice.pricePerMonth > 0 && (
-              <div className="pb-2">
-                <Button onClick={handleSubscribe} disabled={createSub.isPending} className="gap-2">
-                  <Lock className="h-4 w-4" />
-                  Subscribe • {subPrice.pricePerMonth} MON/mo
+
+            {!isOwnProfile && subPrice && (
+              <div className="pb-2 flex flex-col items-start gap-1">
+                <Button
+                  onClick={handleSubscribe}
+                  disabled={isSubPending || subState === "done"}
+                  className="gap-2"
+                >
+                  {isSubPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : subState === "done" ? (
+                    <CheckCircle2 className="h-4 w-4" />
+                  ) : (
+                    <Lock className="h-4 w-4" />
+                  )}
+                  {subLabel()}
                 </Button>
+                {subError && <p className="text-xs text-destructive">{subError}</p>}
               </div>
             )}
           </div>
 
           <p className="text-foreground/90 max-w-2xl mb-4">{profile.bio || "No bio provided."}</p>
-          
-          <div className="flex flex-wrap gap-y-2 gap-x-6 text-sm text-muted-foreground">
-            <div className="flex items-center gap-1.5">
+
+          <div className="flex flex-wrap gap-y-2 gap-x-5 text-sm text-muted-foreground">
+            <a
+              href={`https://explorer.monad.xyz/address/${profile.walletAddress}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 hover:text-primary transition-colors"
+            >
               <span className="font-mono bg-muted px-1.5 py-0.5 rounded text-xs">
-                {profile.walletAddress.slice(0,6)}...{profile.walletAddress.slice(-4)}
+                {profile.walletAddress.slice(0, 6)}…{profile.walletAddress.slice(-4)}
               </span>
-            </div>
+              <ExternalLink className="h-3 w-3" />
+            </a>
             <div className="flex items-center gap-1.5">
-              <Calendar className="h-4 w-4" /> Joined {format(new Date(profile.createdAt), "MMMM yyyy")}
+              <Calendar className="h-4 w-4" />
+              Joined {format(new Date(profile.createdAt), "MMMM yyyy")}
             </div>
+            {profile.registrationTxHash && (
+              <a
+                href={`https://explorer.monad.xyz/tx/${profile.registrationTxHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-violet-600 hover:text-violet-800 transition-colors"
+              >
+                <Link2 className="h-3 w-3" /> On-chain registration
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -120,8 +209,12 @@ export default function Profile() {
         <div className="space-y-4">
           <h3 className="font-semibold text-lg">Badges</h3>
           <div className="flex flex-wrap gap-2">
-            {badges.map(b => (
-              <UiBadge key={b.id} variant="secondary" className="px-3 py-1.5 text-sm gap-1.5 bg-primary/10 text-primary hover:bg-primary/20">
+            {badges.map((b) => (
+              <UiBadge
+                key={b.id}
+                variant="secondary"
+                className="px-3 py-1.5 text-sm gap-1.5 bg-primary/10 text-primary hover:bg-primary/20"
+              >
                 <Trophy className="h-3.5 w-3.5" />
                 {b.label}
               </UiBadge>
@@ -135,7 +228,7 @@ export default function Profile() {
         {userPosts.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">No posts yet.</div>
         ) : (
-          userPosts.map(post => <PostCard key={post.id} post={post} />)
+          userPosts.map((post) => <PostCard key={post.id} post={post} />)
         )}
       </div>
     </div>

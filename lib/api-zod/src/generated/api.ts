@@ -26,6 +26,8 @@ export const RegisterUserBody = zod.object({
   name: zod.string(),
   username: zod.string(),
   avatarUrl: zod.string().nullish(),
+  bio: zod.string().nullish(),
+  txHash: zod.string().nullish(),
 });
 
 /**
@@ -40,6 +42,7 @@ export const GetMeResponse = zod.object({
   avatarUrl: zod.string().nullish(),
   bio: zod.string().nullish(),
   subscriptionPrice: zod.number().nullish(),
+  registrationTxHash: zod.string().nullish(),
   createdAt: zod.coerce.date(),
 });
 
@@ -63,6 +66,7 @@ export const UpdateMeResponse = zod.object({
   avatarUrl: zod.string().nullish(),
   bio: zod.string().nullish(),
   subscriptionPrice: zod.number().nullish(),
+  registrationTxHash: zod.string().nullish(),
   createdAt: zod.coerce.date(),
 });
 
@@ -82,6 +86,7 @@ export const GetUserResponse = zod.object({
   avatarUrl: zod.string().nullish(),
   bio: zod.string().nullish(),
   subscriptionPrice: zod.number().nullish(),
+  registrationTxHash: zod.string().nullish(),
   createdAt: zod.coerce.date(),
   postCount: zod.number(),
   totalLikes: zod.number(),
@@ -127,6 +132,7 @@ export const ListPostsResponse = zod.object({
       id: zod.number(),
       content: zod.string(),
       imageUrl: zod.string().nullish(),
+      onChainTxHash: zod.string().nullish(),
       authorId: zod.number(),
       authorName: zod.string().nullish(),
       authorUsername: zod.string().nullish(),
@@ -160,6 +166,7 @@ export const GetPostResponse = zod.object({
   id: zod.number(),
   content: zod.string(),
   imageUrl: zod.string().nullish(),
+  onChainTxHash: zod.string().nullish(),
   authorId: zod.number(),
   authorName: zod.string().nullish(),
   authorUsername: zod.string().nullish(),
@@ -292,6 +299,7 @@ export const GetStreakResponse = zod.object({
   lastCheckin: zod.coerce.date().nullish(),
   checkedInToday: zod.boolean(),
   extraInviteEarned: zod.boolean(),
+  lastCheckinTxHash: zod.string().nullish(),
 });
 
 /**
@@ -305,6 +313,7 @@ export const DailyCheckinResponse = zod.object({
   lastCheckin: zod.coerce.date().nullish(),
   checkedInToday: zod.boolean(),
   extraInviteEarned: zod.boolean(),
+  lastCheckinTxHash: zod.string().nullish(),
 });
 
 /**
@@ -344,6 +353,7 @@ export const GetFeedSummaryResponse = zod.object({
       id: zod.number(),
       content: zod.string(),
       imageUrl: zod.string().nullish(),
+      onChainTxHash: zod.string().nullish(),
       authorId: zod.number(),
       authorName: zod.string().nullish(),
       authorUsername: zod.string().nullish(),

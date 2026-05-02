@@ -11,6 +11,7 @@ export const usersTable = pgTable("users", {
   avatarUrl: text("avatar_url"),
   bio: text("bio"),
   subscriptionPrice: numeric("subscription_price", { precision: 18, scale: 8 }),
+  registrationTxHash: text("registration_tx_hash"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

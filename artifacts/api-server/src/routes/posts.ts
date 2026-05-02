@@ -195,8 +195,15 @@ router.post("/posts/:postId/like", async (req, res): Promise<void> => {
     .from(postLikesTable)
     .where(and(eq(postLikesTable.postId, params.data.postId), eq(postLikesTable.userId, currentUser.id)));
 
+  // Optional on-chain tx hash from likePost() call on Monad
+  const likeTxHash = typeof req.body?.txHash === "string" ? req.body.txHash : null;
+
   if (!existing) {
-    await db.insert(postLikesTable).values({ postId: params.data.postId, userId: currentUser.id });
+    await db.insert(postLikesTable).values({
+      postId: params.data.postId,
+      userId: currentUser.id,
+      ...(likeTxHash ? { onChainTxHash: likeTxHash } : {}),
+    });
 
     // Notify post author if they have likes notifications enabled
     if (post.authorId !== currentUser.id && (await shouldNotify(post.authorId, "like"))) {

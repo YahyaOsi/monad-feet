@@ -1,32 +1,81 @@
+import { useState } from "react";
 import { Link } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
-import { Post } from "@workspace/api-client-react/src/generated/api.schemas";
-import { useLikePost, useUnlikePost, getListPostsQueryKey, getGetPostQueryKey } from "@workspace/api-client-react";
+import type { Post } from "@workspace/api-client-react";
+import { useUnlikePost, getListPostsQueryKey, getGetPostQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Heart, ExternalLink } from "lucide-react";
+import { Heart, ExternalLink, Loader2 } from "lucide-react";
+import { useContractActions } from "@/lib/useContractActions";
 
-type PostWithChain = Post & { onChainTxHash?: string | null };
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-export function PostCard({ post }: { post: PostWithChain }) {
+export function PostCard({ post }: { post: Post }) {
   const queryClient = useQueryClient();
-  const likePost = useLikePost();
   const unlikePost = useUnlikePost();
+  const { contractDeployed, likePostOnChain } = useContractActions();
+
+  const [liking, setLiking] = useState(false);
+  const [optimisticLiked, setOptimisticLiked] = useState<boolean | null>(null);
+  const [optimisticCount, setOptimisticCount] = useState<number | null>(null);
+
+  const isLiked = optimisticLiked !== null ? optimisticLiked : post.likedByMe;
+  const likeCount = optimisticCount !== null ? optimisticCount : (post.likeCount ?? 0);
 
   const handleLikeToggle = async () => {
-    try {
-      if (post.likedByMe) {
-        await unlikePost.mutateAsync({ data: { postId: post.id } });
-      } else {
-        await likePost.mutateAsync({ data: { postId: post.id } });
+    if (liking) return;
+    setLiking(true);
+
+    const wasLiked = isLiked;
+
+    if (!wasLiked) {
+      // Optimistic update
+      setOptimisticLiked(true);
+      setOptimisticCount(likeCount + 1);
+
+      let txHash: string | null = null;
+
+      // 1. Sign on-chain like (non-blocking on failure)
+      if (contractDeployed) {
+        try {
+          txHash = await likePostOnChain(post.id);
+        } catch {
+          // User declined or already liked on chain — continue with DB update
+        }
       }
-      queryClient.invalidateQueries({ queryKey: getListPostsQueryKey() });
-      queryClient.invalidateQueries({ queryKey: getGetPostQueryKey(post.id) });
-    } catch (e) {
-      console.error(e);
+
+      // 2. Record in DB with optional txHash
+      try {
+        const wallet = localStorage.getItem("mf_wallet_address") ?? "";
+        await fetch(`${BASE}/api/posts/${post.id}/like`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-wallet-address": wallet },
+          body: JSON.stringify({ txHash }),
+        });
+        queryClient.invalidateQueries({ queryKey: getListPostsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetPostQueryKey(post.id) });
+      } catch {
+        // Revert optimistic update
+        setOptimisticLiked(wasLiked);
+        setOptimisticCount(likeCount);
+      }
+    } else {
+      // Unlike — on-chain likes are immutable, only un-like in DB
+      setOptimisticLiked(false);
+      setOptimisticCount(Math.max(0, likeCount - 1));
+      try {
+        await unlikePost.mutateAsync({ postId: post.id });
+        queryClient.invalidateQueries({ queryKey: getListPostsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetPostQueryKey(post.id) });
+      } catch {
+        setOptimisticLiked(wasLiked);
+        setOptimisticCount(likeCount);
+      }
     }
+
+    setLiking(false);
   };
 
   const initials = post.authorName ? post.authorName.slice(0, 2).toUpperCase() : "??";
@@ -36,7 +85,7 @@ export function PostCard({ post }: { post: PostWithChain }) {
 
   return (
     <Card className="hover-elevate overflow-hidden transition-all duration-200 group">
-      {/* Mandatory image — displayed prominently at the top */}
+      {/* Mandatory image at the top */}
       {post.imageUrl && (
         <div className="w-full overflow-hidden bg-muted">
           <img
@@ -51,7 +100,9 @@ export function PostCard({ post }: { post: PostWithChain }) {
         <Link href={`/profile/${post.authorId}`}>
           <Avatar className="h-9 w-9 cursor-pointer ring-2 ring-transparent hover:ring-primary/30 transition-all">
             <AvatarImage src={post.authorAvatarUrl || ""} alt={post.authorName || "User"} />
-            <AvatarFallback className="bg-primary/10 text-primary font-medium text-xs">{initials}</AvatarFallback>
+            <AvatarFallback className="bg-primary/10 text-primary font-medium text-xs">
+              {initials}
+            </AvatarFallback>
           </Avatar>
         </Link>
         <div className="flex flex-col flex-1 min-w-0">
@@ -65,16 +116,16 @@ export function PostCard({ post }: { post: PostWithChain }) {
           </div>
         </div>
 
-        {/* On-chain badge */}
+        {/* On-chain anchor badge */}
         {explorerUrl && (
           <a
             href={explorerUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="flex-shrink-0 flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 hover:bg-violet-200 transition-colors"
-            title={`View on Monad Explorer: ${post.onChainTxHash}`}
+            title={`View on Monad Explorer`}
           >
-            <span>On Monad</span>
+            On Monad
             <ExternalLink className="h-2.5 w-2.5" />
           </a>
         )}
@@ -93,15 +144,19 @@ export function PostCard({ post }: { post: PostWithChain }) {
           variant="ghost"
           size="sm"
           className={`gap-1.5 rounded-full transition-colors ${
-            post.likedByMe
+            isLiked
               ? "text-red-500 hover:text-red-600 hover:bg-red-50"
               : "text-muted-foreground hover:text-foreground"
           }`}
           onClick={handleLikeToggle}
-          disabled={likePost.isPending || unlikePost.isPending}
+          disabled={liking}
         >
-          <Heart className={`h-4 w-4 ${post.likedByMe ? "fill-current" : ""}`} />
-          <span className="font-medium">{post.likeCount}</span>
+          {liking && !isLiked ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Heart className={`h-4 w-4 ${isLiked ? "fill-current" : ""}`} />
+          )}
+          <span className="font-medium">{likeCount}</span>
         </Button>
 
         {post.onChainTxHash && (

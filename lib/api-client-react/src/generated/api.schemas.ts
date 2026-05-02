@@ -28,6 +28,8 @@ export interface User {
   bio?: string | null;
   /** @nullable */
   subscriptionPrice?: number | null;
+  /** @nullable */
+  registrationTxHash?: string | null;
   createdAt: string;
 }
 
@@ -46,6 +48,8 @@ export interface UserWithStats {
   bio?: string | null;
   /** @nullable */
   subscriptionPrice?: number | null;
+  /** @nullable */
+  registrationTxHash?: string | null;
   createdAt: string;
   postCount: number;
   totalLikes: number;
@@ -62,6 +66,10 @@ export interface RegisterUserBody {
   username: string;
   /** @nullable */
   avatarUrl?: string | null;
+  /** @nullable */
+  bio?: string | null;
+  /** @nullable */
+  txHash?: string | null;
 }
 
 export interface UpdateUserBody {
@@ -99,6 +107,8 @@ export interface Post {
   content: string;
   /** @nullable */
   imageUrl?: string | null;
+  /** @nullable */
+  onChainTxHash?: string | null;
   authorId: number;
   /** @nullable */
   authorName?: string | null;
@@ -193,6 +203,8 @@ export interface StreakInfo {
   lastCheckin?: string | null;
   checkedInToday: boolean;
   extraInviteEarned: boolean;
+  /** @nullable */
+  lastCheckinTxHash?: string | null;
 }
 
 export interface Badge {
