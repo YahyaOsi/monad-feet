@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import { db, streaksTable, usersTable, inviteCodesTable, badgesTable } from "@workspace/db";
 import { nanoid } from "nanoid";
+import { checkMilestones } from "../milestones";
 
 const router: IRouter = Router();
 
@@ -164,6 +165,9 @@ router.post("/streak/checkin", async (req, res): Promise<void> => {
     extraInviteEarned: updated.extraInviteEarned,
     lastCheckinTxHash: updated.lastCheckinTxHash,
   });
+
+  // Fire-and-forget: check if the user crossed any streak milestones
+  void checkMilestones(user.id);
 });
 
 router.get("/badges", async (req, res): Promise<void> => {

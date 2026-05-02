@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CONTRACT_DEPLOYED } from "@/lib/contract";
-import { usePresence, useTrendingAlert } from "@/hooks/usePresence";
+import { usePresence, useTrendingAlert, useBadgeAlert } from "@/hooks/usePresence";
 import { useToast } from "@/hooks/use-toast";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -21,6 +21,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const { onlineCount } = usePresence();
   const { alert: trendingAlert, dismiss: dismissTrending } = useTrendingAlert();
+  const { alert: badgeAlert, dismiss: dismissBadge } = useBadgeAlert();
   const { toast } = useToast();
 
   useEffect(() => {
@@ -51,6 +52,17 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     });
     dismissTrending();
   }, [trendingAlert?.postId, trendingAlert?.seenAt]);
+
+  // Show a toast when the user earns a milestone badge
+  useEffect(() => {
+    if (!badgeAlert) return;
+    toast({
+      title: `${badgeAlert.badge.emoji} Badge earned: ${badgeAlert.badge.label}`,
+      description: badgeAlert.badge.description,
+      duration: 8_000,
+    });
+    dismissBadge();
+  }, [badgeAlert?.badge.badgeType, badgeAlert?.seenAt]);
 
   const navItems = [
     { label: "Feed", href: "/feed", icon: Home },

@@ -16,7 +16,15 @@ export type ActivityEvent =
   | { type: "post_created"; post: LivePost; actorId: number }
   | { type: "post_liked"; postId: number; likeCount: number; actorId: number }
   | { type: "post_anchored"; postId: number; txHash: string }
-  | { type: "trending_alert"; postId: number; rank: number; postContent: string | null };
+  | { type: "trending_alert"; postId: number; rank: number; postContent: string | null }
+  | { type: "badge_earned"; userId: number; badge: BadgeInfo };
+
+export type BadgeInfo = {
+  badgeType: string;
+  label: string;
+  description: string;
+  emoji: string;
+};
 
 export type LivePost = {
   id: number;
@@ -36,7 +44,12 @@ export type TrendingAlert = {
   postId: number;
   rank: number;
   postContent: string | null;
-  seenAt: number; // Date.now()
+  seenAt: number;
+};
+
+export type BadgeAlert = {
+  badge: BadgeInfo;
+  seenAt: number;
 };
 
 // ── Global WS singleton ──────────────────────────────────────────
@@ -118,7 +131,6 @@ function connectWs(user: {
 
   ws.onerror = () => ws.close();
 
-  // Keep-alive ping every 30s
   const keepAlive = setInterval(() => {
     if (ws.readyState === 1) {
       ws.send(JSON.stringify({ type: "ping" }));
@@ -158,7 +170,6 @@ export function usePresence() {
 
   useEffect(() => {
     if (!user) return;
-
     const listener: PresenceListener = (users) => {
       setOnlineUsers(users);
       setIsConnected(true);
@@ -166,7 +177,6 @@ export function usePresence() {
     presenceListeners.add(listener);
     connectWs(user);
     if (globalUsers.length > 0) setOnlineUsers(globalUsers);
-
     return () => {
       presenceListeners.delete(listener);
       if (presenceListeners.size === 0 && activityListeners.size === 0) disconnectWs();
@@ -175,7 +185,7 @@ export function usePresence() {
 
   const isOnline = useCallback(
     (userId: number) => onlineUsers.some((u) => u.userId === userId),
-    [onlineUsers]
+    [onlineUsers],
   );
 
   return { onlineUsers, onlineCount: onlineUsers.length, isConnected, isOnline };
@@ -184,14 +194,12 @@ export function usePresence() {
 // ── useActivityFeed ──────────────────────────────────────────────
 export function useActivityFeed(currentUserId: number | undefined) {
   const { user } = useUser();
-
   const [pendingPosts, setPendingPosts] = useState<LivePost[]>([]);
   const [likeUpdates, setLikeUpdates] = useState<Map<number, number>>(new Map());
   const [anchorUpdates, setAnchorUpdates] = useState<Map<number, string>>(new Map());
 
   useEffect(() => {
     if (!user) return;
-
     const listener: ActivityListener = (event) => {
       if (event.type === "post_created") {
         if (event.actorId === currentUserId) return;
@@ -201,12 +209,9 @@ export function useActivityFeed(currentUserId: number | undefined) {
       } else if (event.type === "post_anchored") {
         setAnchorUpdates((prev) => new Map(prev).set(event.postId, event.txHash));
       }
-      // trending_alert handled separately by useTrendingAlert
     };
-
     activityListeners.add(listener);
     connectWs(user);
-
     return () => {
       activityListeners.delete(listener);
       if (presenceListeners.size === 0 && activityListeners.size === 0) disconnectWs();
@@ -219,12 +224,7 @@ export function useActivityFeed(currentUserId: number | undefined) {
     return flushed;
   }, [pendingPosts]);
 
-  return {
-    pendingCount: pendingPosts.length,
-    flushPending,
-    likeUpdates,
-    anchorUpdates,
-  };
+  return { pendingCount: pendingPosts.length, flushPending, likeUpdates, anchorUpdates };
 }
 
 // ── useTrendingAlert ─────────────────────────────────────────────
@@ -234,21 +234,13 @@ export function useTrendingAlert() {
 
   useEffect(() => {
     if (!user) return;
-
     const listener: ActivityListener = (event) => {
       if (event.type === "trending_alert") {
-        setAlert({
-          postId: event.postId,
-          rank: event.rank,
-          postContent: event.postContent,
-          seenAt: Date.now(),
-        });
+        setAlert({ postId: event.postId, rank: event.rank, postContent: event.postContent, seenAt: Date.now() });
       }
     };
-
     activityListeners.add(listener);
     connectWs(user);
-
     return () => {
       activityListeners.delete(listener);
       if (presenceListeners.size === 0 && activityListeners.size === 0) disconnectWs();
@@ -256,6 +248,29 @@ export function useTrendingAlert() {
   }, [user?.id]);
 
   const dismiss = useCallback(() => setAlert(null), []);
+  return { alert, dismiss };
+}
 
+// ── useBadgeAlert ────────────────────────────────────────────────
+export function useBadgeAlert() {
+  const { user } = useUser();
+  const [alert, setAlert] = useState<BadgeAlert | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    const listener: ActivityListener = (event) => {
+      if (event.type === "badge_earned" && event.userId === user.id) {
+        setAlert({ badge: event.badge, seenAt: Date.now() });
+      }
+    };
+    activityListeners.add(listener);
+    connectWs(user);
+    return () => {
+      activityListeners.delete(listener);
+      if (presenceListeners.size === 0 && activityListeners.size === 0) disconnectWs();
+    };
+  }, [user?.id]);
+
+  const dismiss = useCallback(() => setAlert(null), []);
   return { alert, dismiss };
 }

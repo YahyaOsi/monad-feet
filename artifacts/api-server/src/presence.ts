@@ -31,7 +31,8 @@ export type ActivityEvent =
   | { type: "post_created"; post: PostPayload; actorId: number }
   | { type: "post_liked"; postId: number; likeCount: number; actorId: number }
   | { type: "post_anchored"; postId: number; txHash: string }
-  | { type: "trending_alert"; postId: number; rank: number; postContent: string | null };
+  | { type: "trending_alert"; postId: number; rank: number; postContent: string | null }
+  | { type: "badge_earned"; userId: number; badge: { badgeType: string; label: string; description: string; emoji: string } };
 
 interface ExtWS extends WebSocket {
   __isAlive?: boolean;
@@ -66,8 +67,14 @@ function broadcastPresence() {
   broadcastAll(JSON.stringify({ type: "presence", users: getOnlineUsers() }));
 }
 
+/** Send an activity event to every connected client. */
 export function broadcastActivity(event: ActivityEvent): void {
   broadcastAll(JSON.stringify({ type: "activity", event }));
+}
+
+/** Send an activity event to a single user (by userId) only. */
+export function notifyUser(userId: number, event: ActivityEvent): void {
+  broadcastToUser(userId, JSON.stringify({ type: "activity", event }));
 }
 
 /**
@@ -80,7 +87,6 @@ export async function checkAndNotifyTrending(
   authorId: number,
   postContent: string | null,
 ): Promise<void> {
-  // Only bother if author is connected
   const authorOnline = Array.from(clients.values()).some((u) => u.userId === authorId);
   if (!authorOnline) return;
 
@@ -108,16 +114,9 @@ export async function checkAndNotifyTrending(
 
     const newTop3 = new Set(top3Ids);
 
-    // Transition: post was NOT in top 3 before, now IS
     if (newTop3.has(postId) && !currentTop3.has(postId)) {
       const rank = top3Ids.indexOf(postId) + 1;
-      broadcastToUser(
-        authorId,
-        JSON.stringify({
-          type: "activity",
-          event: { type: "trending_alert", postId, rank, postContent },
-        }),
-      );
+      notifyUser(authorId, { type: "trending_alert", postId, rank, postContent });
       logger.info({ postId, authorId, rank }, "Trending alert sent");
     }
 

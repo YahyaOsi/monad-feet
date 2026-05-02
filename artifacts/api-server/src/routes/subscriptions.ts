@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and } from "drizzle-orm";
+import { checkMilestones } from "../milestones";
 import {
   db,
   subscriptionsTable,
@@ -157,6 +158,9 @@ router.post("/subscriptions", async (req, res): Promise<void> => {
     expiresAt: sub.expiresAt,
     createdAt: sub.createdAt,
   });
+
+  // Fire-and-forget: check if the creator crossed any subscriber-count milestones
+  void checkMilestones(creatorId);
 });
 
 router.put("/subscriptions/price", async (req, res): Promise<void> => {

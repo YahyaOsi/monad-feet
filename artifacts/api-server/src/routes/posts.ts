@@ -20,6 +20,7 @@ import {
 } from "@workspace/api-zod";
 import { nanoid } from "nanoid";
 import { broadcastActivity, checkAndNotifyTrending } from "../presence";
+import { checkMilestones } from "../milestones";
 
 const router: IRouter = Router();
 
@@ -128,6 +129,9 @@ router.post("/posts", async (req, res): Promise<void> => {
 
   // Broadcast new post to all connected clients
   broadcastActivity({ type: "post_created", post: payload, actorId: author.id });
+
+  // Fire-and-forget: check if author crossed any post-count milestones
+  void checkMilestones(author.id);
 });
 
 router.get("/posts/:postId", async (req, res): Promise<void> => {
@@ -274,6 +278,9 @@ router.post("/posts/:postId/like", async (req, res): Promise<void> => {
 
   // Fire-and-forget: check if this post just entered the top 3
   void checkAndNotifyTrending(params.data.postId, post.authorId, post.content);
+
+  // Fire-and-forget: check if the post author crossed any likes-received milestones
+  void checkMilestones(post.authorId);
 });
 
 router.patch("/posts/:postId/anchor", async (req, res): Promise<void> => {
