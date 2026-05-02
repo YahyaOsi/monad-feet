@@ -19,7 +19,7 @@ import {
   UnlikePostParams,
 } from "@workspace/api-zod";
 import { nanoid } from "nanoid";
-import { broadcastActivity } from "../presence";
+import { broadcastActivity, checkAndNotifyTrending } from "../presence";
 
 const router: IRouter = Router();
 
@@ -271,6 +271,9 @@ router.post("/posts/:postId/like", async (req, res): Promise<void> => {
 
   // Broadcast like to all connected clients
   broadcastActivity({ type: "post_liked", postId: params.data.postId, likeCount: newLikeCount, actorId: currentUser.id });
+
+  // Fire-and-forget: check if this post just entered the top 3
+  void checkAndNotifyTrending(params.data.postId, post.authorId, post.content);
 });
 
 router.patch("/posts/:postId/anchor", async (req, res): Promise<void> => {

@@ -8,7 +8,8 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CONTRACT_DEPLOYED } from "@/lib/contract";
-import { usePresence } from "@/hooks/usePresence";
+import { usePresence, useTrendingAlert } from "@/hooks/usePresence";
+import { useToast } from "@/hooks/use-toast";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -19,6 +20,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const { onlineCount } = usePresence();
+  const { alert: trendingAlert, dismiss: dismissTrending } = useTrendingAlert();
+  const { toast } = useToast();
 
   useEffect(() => {
     if (!user) return;
@@ -33,6 +36,21 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     const interval = setInterval(fetchCount, 60_000);
     return () => clearInterval(interval);
   }, [user]);
+
+  // Show a toast when one of the user's posts enters the top 3 on Trending
+  useEffect(() => {
+    if (!trendingAlert) return;
+    const rankEmoji = trendingAlert.rank === 1 ? "🥇" : trendingAlert.rank === 2 ? "🥈" : "🥉";
+    const caption = trendingAlert.postContent
+      ? `"${trendingAlert.postContent.slice(0, 48)}${trendingAlert.postContent.length > 48 ? "…" : ""}"`
+      : "Your post";
+    toast({
+      title: `${rankEmoji} You're #${trendingAlert.rank} on Trending!`,
+      description: `${caption} just entered the top 3.`,
+      duration: 8_000,
+    });
+    dismissTrending();
+  }, [trendingAlert?.postId, trendingAlert?.seenAt]);
 
   const navItems = [
     { label: "Feed", href: "/feed", icon: Home },

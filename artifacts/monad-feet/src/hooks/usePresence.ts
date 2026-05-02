@@ -15,7 +15,8 @@ export type OnlineUser = {
 export type ActivityEvent =
   | { type: "post_created"; post: LivePost; actorId: number }
   | { type: "post_liked"; postId: number; likeCount: number; actorId: number }
-  | { type: "post_anchored"; postId: number; txHash: string };
+  | { type: "post_anchored"; postId: number; txHash: string }
+  | { type: "trending_alert"; postId: number; rank: number; postContent: string | null };
 
 export type LivePost = {
   id: number;
@@ -29,6 +30,13 @@ export type LivePost = {
   likeCount: number;
   likedByMe: boolean;
   createdAt: string | Date;
+};
+
+export type TrendingAlert = {
+  postId: number;
+  rank: number;
+  postContent: string | null;
+  seenAt: number; // Date.now()
 };
 
 // ── Global WS singleton ──────────────────────────────────────────
@@ -177,11 +185,8 @@ export function usePresence() {
 export function useActivityFeed(currentUserId: number | undefined) {
   const { user } = useUser();
 
-  // Queued posts that arrived via WS but haven't been shown yet
   const [pendingPosts, setPendingPosts] = useState<LivePost[]>([]);
-  // Live like-count overrides keyed by postId
   const [likeUpdates, setLikeUpdates] = useState<Map<number, number>>(new Map());
-  // Live txHash overrides keyed by postId
   const [anchorUpdates, setAnchorUpdates] = useState<Map<number, string>>(new Map());
 
   useEffect(() => {
@@ -189,7 +194,6 @@ export function useActivityFeed(currentUserId: number | undefined) {
 
     const listener: ActivityListener = (event) => {
       if (event.type === "post_created") {
-        // Don't queue own posts — they were already optimistically added by the compose dialog
         if (event.actorId === currentUserId) return;
         setPendingPosts((prev) => [event.post, ...prev]);
       } else if (event.type === "post_liked") {
@@ -197,6 +201,7 @@ export function useActivityFeed(currentUserId: number | undefined) {
       } else if (event.type === "post_anchored") {
         setAnchorUpdates((prev) => new Map(prev).set(event.postId, event.txHash));
       }
+      // trending_alert handled separately by useTrendingAlert
     };
 
     activityListeners.add(listener);
@@ -220,4 +225,37 @@ export function useActivityFeed(currentUserId: number | undefined) {
     likeUpdates,
     anchorUpdates,
   };
+}
+
+// ── useTrendingAlert ─────────────────────────────────────────────
+export function useTrendingAlert() {
+  const { user } = useUser();
+  const [alert, setAlert] = useState<TrendingAlert | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const listener: ActivityListener = (event) => {
+      if (event.type === "trending_alert") {
+        setAlert({
+          postId: event.postId,
+          rank: event.rank,
+          postContent: event.postContent,
+          seenAt: Date.now(),
+        });
+      }
+    };
+
+    activityListeners.add(listener);
+    connectWs(user);
+
+    return () => {
+      activityListeners.delete(listener);
+      if (presenceListeners.size === 0 && activityListeners.size === 0) disconnectWs();
+    };
+  }, [user?.id]);
+
+  const dismiss = useCallback(() => setAlert(null), []);
+
+  return { alert, dismiss };
 }

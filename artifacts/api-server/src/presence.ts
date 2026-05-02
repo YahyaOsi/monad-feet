@@ -1,6 +1,8 @@
 import { WebSocketServer, type WebSocket } from "ws";
 import type { Server as HttpServer, IncomingMessage } from "http";
 import { logger } from "./lib/logger";
+import { db } from "@workspace/db";
+import { sql } from "drizzle-orm";
 
 export type PresenceUser = {
   userId: number;
@@ -28,13 +30,17 @@ export type PostPayload = {
 export type ActivityEvent =
   | { type: "post_created"; post: PostPayload; actorId: number }
   | { type: "post_liked"; postId: number; likeCount: number; actorId: number }
-  | { type: "post_anchored"; postId: number; txHash: string };
+  | { type: "post_anchored"; postId: number; txHash: string }
+  | { type: "trending_alert"; postId: number; rank: number; postContent: string | null };
 
 interface ExtWS extends WebSocket {
   __isAlive?: boolean;
 }
 
 const clients = new Map<ExtWS, PresenceUser>();
+
+// In-memory snapshot of which post IDs are currently in the top 3
+let currentTop3 = new Set<number>();
 
 export function getOnlineUsers(): PresenceUser[] {
   return Array.from(clients.values());
@@ -48,12 +54,77 @@ function broadcastAll(msg: string) {
   }
 }
 
+function broadcastToUser(userId: number, msg: string) {
+  for (const [ws, user] of clients) {
+    if (user.userId === userId && ws.readyState === 1) {
+      try { ws.send(msg); } catch { /* skip */ }
+    }
+  }
+}
+
 function broadcastPresence() {
   broadcastAll(JSON.stringify({ type: "presence", users: getOnlineUsers() }));
 }
 
 export function broadcastActivity(event: ActivityEvent): void {
   broadcastAll(JSON.stringify({ type: "activity", event }));
+}
+
+/**
+ * After a like, recalculate the top-3 by velocity.
+ * If the liked post just entered the top 3 for the first time,
+ * send a `trending_alert` to the post's author via their WebSocket.
+ */
+export async function checkAndNotifyTrending(
+  postId: number,
+  authorId: number,
+  postContent: string | null,
+): Promise<void> {
+  // Only bother if author is connected
+  const authorOnline = Array.from(clients.values()).some((u) => u.userId === authorId);
+  if (!authorOnline) return;
+
+  try {
+    const result = await db.execute(sql`
+      SELECT p.id
+      FROM posts p
+      LEFT JOIN post_likes rpl
+        ON rpl.post_id = p.id
+       AND rpl.created_at > NOW() - INTERVAL '24 hours'
+      WHERE p.created_at > NOW() - INTERVAL '7 days'
+      GROUP BY p.id
+      ORDER BY
+        COUNT(DISTINCT rpl.id)::float /
+        GREATEST(1.0, 1.0 + 0.3 * EXTRACT(EPOCH FROM (NOW() - p.created_at)) / 3600.0) DESC
+      LIMIT 3
+    `);
+
+    const raw = result as unknown as { rows?: { id: number }[] };
+    const top3Ids: number[] = (
+      Array.isArray(result)
+        ? (result as unknown as { id: number }[])
+        : (raw.rows ?? [])
+    ).map((r) => r.id);
+
+    const newTop3 = new Set(top3Ids);
+
+    // Transition: post was NOT in top 3 before, now IS
+    if (newTop3.has(postId) && !currentTop3.has(postId)) {
+      const rank = top3Ids.indexOf(postId) + 1;
+      broadcastToUser(
+        authorId,
+        JSON.stringify({
+          type: "activity",
+          event: { type: "trending_alert", postId, rank, postContent },
+        }),
+      );
+      logger.info({ postId, authorId, rank }, "Trending alert sent");
+    }
+
+    currentTop3 = newTop3;
+  } catch {
+    // Non-critical — fail silently
+  }
 }
 
 export function setupPresence(server: HttpServer): void {
@@ -108,7 +179,6 @@ export function setupPresence(server: HttpServer): void {
 
     logger.info({ userId, username }, "Presence: user connected");
 
-    // Send current state immediately to the new client
     try {
       ws.send(JSON.stringify({ type: "presence", users: getOnlineUsers() }));
     } catch { /* skip */ }
