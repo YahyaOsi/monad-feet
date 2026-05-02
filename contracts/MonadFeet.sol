@@ -8,9 +8,10 @@ pragma solidity ^0.8.24;
  *         directly on the Monad blockchain for full decentralization.
  *
  * Deployment:
- *   - Network: Monad Testnet (chainId 10143)
- *   - RPC: https://testnet.monad.xyz
- *   - After deploying, set CONTRACT_ADDRESS env var and update
+ *   - Network: Monad Mainnet (chainId 41454)
+ *   - RPC: https://rpc.monad.xyz
+ *   - Explorer: https://explorer.monad.xyz
+ *   - After deploying, set VITE_CONTRACT_ADDRESS env var and update
  *     artifacts/monad-feet/src/lib/contract.ts with the deployed address + ABI.
  */
 contract MonadFeet {

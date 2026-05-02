@@ -7,21 +7,21 @@ import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
 
 const projectId = '19c9787ece0fcd04698c96c998167b4a';
 
-export const monadTestnet = defineChain({
-  id: 10143,
-  name: 'Monad Testnet',
-  network: 'monad-testnet',
+export const monadMainnet = defineChain({
+  id: 41454,
+  name: 'Monad',
+  network: 'monad',
   nativeCurrency: { name: 'MON', symbol: 'MON', decimals: 18 },
   rpcUrls: {
-    default: { http: ['https://testnet.monad.xyz'] },
-    public: { http: ['https://testnet.monad.xyz'] },
+    default: { http: ['https://rpc.monad.xyz'] },
+    public: { http: ['https://rpc.monad.xyz'] },
   },
   blockExplorers: {
-    default: { name: 'Monad Explorer', url: 'https://testnet.monadexplorer.com' },
+    default: { name: 'Monad Explorer', url: 'https://explorer.monad.xyz' },
   },
 });
 
-const networks = [monadTestnet] as const;
+const networks = [monadMainnet] as const;
 
 export const wagmiAdapter = new WagmiAdapter({
   projectId,

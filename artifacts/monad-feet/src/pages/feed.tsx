@@ -6,9 +6,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { PostCard } from "@/components/post/PostCard";
-import { Plus, Users, Heart, MessageSquare, ImageIcon, X, Loader2 } from "lucide-react";
+import { Plus, Users, Heart, MessageSquare, ImageIcon, X, Loader2, Link2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getListPostsQueryKey, getGetFeedSummaryQueryKey } from "@workspace/api-client-react";
+import { useWriteContract } from "wagmi";
+import { MONAD_FEET_CONTRACT_ADDRESS, MONAD_FEET_ABI, CONTRACT_DEPLOYED } from "@/lib/contract";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -32,12 +34,22 @@ async function uploadToGCS(uploadURL: string, file: File): Promise<void> {
   if (!res.ok) throw new Error("Upload failed");
 }
 
+async function anchorPostOnDB(postId: number, txHash: string): Promise<void> {
+  const wallet = localStorage.getItem("mf_wallet_address") ?? "";
+  await fetch(`${BASE}/api/posts/${postId}/anchor`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", "x-wallet-address": wallet },
+    body: JSON.stringify({ txHash }),
+  });
+}
+
 export default function Feed() {
   const { user } = useUser();
   const queryClient = useQueryClient();
   const { data: feedPage, isLoading: feedLoading } = useListPosts({});
   const { data: summary } = useGetFeedSummary();
   const createPost = useCreatePost();
+  const { writeContractAsync } = useWriteContract();
 
   const [isComposeOpen, setIsComposeOpen] = useState(false);
   const [content, setContent] = useState("");
@@ -45,6 +57,7 @@ export default function Feed() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [anchoringStatus, setAnchoringStatus] = useState<"idle" | "anchoring" | "anchored" | "failed">("idle");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -71,20 +84,45 @@ export default function Feed() {
     if (!imageFile || !user) return;
     setUploading(true);
     setUploadError(null);
+    setAnchoringStatus("idle");
     try {
+      // 1. Upload image to GCS
       const { uploadURL, objectPath } = await requestUploadUrl(imageFile);
       await uploadToGCS(uploadURL, imageFile);
       const imageUrl = `${BASE}/api/storage${objectPath}`;
-      await createPost.mutateAsync({
+
+      // 2. Create post in DB
+      const post = await createPost.mutateAsync({
         data: { content: content.trim() || "", imageUrl, authorWalletAddress: user.walletAddress },
       });
+
       setIsComposeOpen(false);
       setContent("");
       clearImage();
       queryClient.invalidateQueries({ queryKey: getListPostsQueryKey() });
       queryClient.invalidateQueries({ queryKey: getGetFeedSummaryQueryKey() });
-    } catch (e: any) {
-      setUploadError(e?.message ?? "Failed to post. Please try again.");
+
+      // 3. Anchor post on Monad mainnet (non-blocking — fires after dialog closes)
+      if (CONTRACT_DEPLOYED && post?.id) {
+        setAnchoringStatus("anchoring");
+        try {
+          const postIdentifier = `mf:${post.id}:${objectPath}`;
+          const txHash = await writeContractAsync({
+            address: MONAD_FEET_CONTRACT_ADDRESS,
+            abi: MONAD_FEET_ABI,
+            functionName: "createPost",
+            args: [postIdentifier],
+          });
+          await anchorPostOnDB(post.id, txHash);
+          queryClient.invalidateQueries({ queryKey: getListPostsQueryKey() });
+          setAnchoringStatus("anchored");
+        } catch {
+          setAnchoringStatus("failed");
+        }
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Failed to post. Please try again.";
+      setUploadError(msg);
     } finally {
       setUploading(false);
     }
@@ -99,6 +137,16 @@ export default function Feed() {
     <div className="space-y-6 pb-20">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold tracking-tight">Feed</h1>
+        {anchoringStatus === "anchoring" && (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground animate-pulse">
+            <Loader2 className="h-3 w-3 animate-spin" /> Anchoring on Monad...
+          </div>
+        )}
+        {anchoringStatus === "anchored" && (
+          <div className="flex items-center gap-1.5 text-xs text-green-600 font-medium">
+            <Link2 className="h-3 w-3" /> Anchored on Monad
+          </div>
+        )}
       </div>
 
       {summary && (
@@ -207,6 +255,13 @@ export default function Feed() {
               onChange={(e) => setContent(e.target.value)}
               className="min-h-[80px] resize-none"
             />
+
+            {CONTRACT_DEPLOYED && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-lg px-3 py-2">
+                <Link2 className="h-3.5 w-3.5 text-primary flex-shrink-0" />
+                <span>This post will be anchored on <strong>Monad mainnet</strong> for permanent proof of authorship.</span>
+              </div>
+            )}
 
             {uploadError && (
               <p className="text-sm text-destructive">{uploadError}</p>

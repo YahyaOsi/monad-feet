@@ -8,6 +8,7 @@ export const postsTable = pgTable("posts", {
   content: text("content").notNull(),
   imageUrl: text("image_url"),
   authorId: integer("author_id").notNull().references(() => usersTable.id),
+  onChainTxHash: text("on_chain_tx_hash"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

@@ -6,9 +6,11 @@ import { useLikePost, useUnlikePost, getListPostsQueryKey, getGetPostQueryKey } 
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Heart } from "lucide-react";
+import { Heart, ExternalLink } from "lucide-react";
 
-export function PostCard({ post }: { post: Post }) {
+type PostWithChain = Post & { onChainTxHash?: string | null };
+
+export function PostCard({ post }: { post: PostWithChain }) {
   const queryClient = useQueryClient();
   const likePost = useLikePost();
   const unlikePost = useUnlikePost();
@@ -28,6 +30,9 @@ export function PostCard({ post }: { post: Post }) {
   };
 
   const initials = post.authorName ? post.authorName.slice(0, 2).toUpperCase() : "??";
+  const explorerUrl = post.onChainTxHash
+    ? `https://explorer.monad.xyz/tx/${post.onChainTxHash}`
+    : null;
 
   return (
     <Card className="hover-elevate overflow-hidden transition-all duration-200 group">
@@ -49,7 +54,7 @@ export function PostCard({ post }: { post: Post }) {
             <AvatarFallback className="bg-primary/10 text-primary font-medium text-xs">{initials}</AvatarFallback>
           </Avatar>
         </Link>
-        <div className="flex flex-col">
+        <div className="flex flex-col flex-1 min-w-0">
           <Link href={`/profile/${post.authorId}`} className="font-semibold text-sm hover:underline">
             {post.authorName}
           </Link>
@@ -59,6 +64,20 @@ export function PostCard({ post }: { post: Post }) {
             <span>{formatDistanceToNow(new Date(post.createdAt), { addSuffix: true })}</span>
           </div>
         </div>
+
+        {/* On-chain badge */}
+        {explorerUrl && (
+          <a
+            href={explorerUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex-shrink-0 flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 hover:bg-violet-200 transition-colors"
+            title={`View on Monad Explorer: ${post.onChainTxHash}`}
+          >
+            <span>On Monad</span>
+            <ExternalLink className="h-2.5 w-2.5" />
+          </a>
+        )}
       </CardHeader>
 
       {post.content && (
@@ -84,6 +103,17 @@ export function PostCard({ post }: { post: Post }) {
           <Heart className={`h-4 w-4 ${post.likedByMe ? "fill-current" : ""}`} />
           <span className="font-medium">{post.likeCount}</span>
         </Button>
+
+        {post.onChainTxHash && (
+          <a
+            href={`https://explorer.monad.xyz/tx/${post.onChainTxHash}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-muted-foreground hover:text-violet-600 transition-colors font-mono"
+          >
+            {post.onChainTxHash.slice(0, 6)}…{post.onChainTxHash.slice(-4)}
+          </a>
+        )}
       </CardFooter>
     </Card>
   );

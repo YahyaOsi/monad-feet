@@ -3,17 +3,24 @@
  *
  * This module wires the deployed MonadFeet.sol contract to the frontend
  * via wagmi. Every write operation (register, post, like, subscribe, check-in)
- * is submitted as a real on-chain transaction on Monad Testnet.
+ * is submitted as a real on-chain transaction on Monad Mainnet (Chain ID: 41454).
  *
- * To deploy:
- *   1. Install Foundry: curl -L https://foundry.paradigm.xyz | bash
- *   2. Set your private key: export PRIVATE_KEY=<your_key>
- *   3. forge create --rpc-url https://testnet.monad.xyz --private-key $PRIVATE_KEY contracts/MonadFeet.sol:MonadFeet
- *   4. Copy the deployed address below.
+ * To deploy to Monad Mainnet:
+ *   1. Install Foundry: curl -L https://foundry.paradigm.xyz | bash && foundryup
+ *   2. Set your funded Monad mainnet wallet: export PRIVATE_KEY=<your_key>
+ *   3. forge create \
+ *        --rpc-url https://rpc.monad.xyz \
+ *        --private-key $PRIVATE_KEY \
+ *        contracts/MonadFeet.sol:MonadFeet
+ *   4. Set VITE_CONTRACT_ADDRESS env var to the deployed address.
+ *
+ * Explorer: https://explorer.monad.xyz
  */
 
 export const MONAD_FEET_CONTRACT_ADDRESS =
   (import.meta.env.VITE_CONTRACT_ADDRESS as `0x${string}`) ?? "0x0000000000000000000000000000000000000000";
+
+export const CONTRACT_DEPLOYED = MONAD_FEET_CONTRACT_ADDRESS !== "0x0000000000000000000000000000000000000000";
 
 export const MONAD_FEET_ABI = [
   // User Registration
@@ -34,7 +41,7 @@ export const MONAD_FEET_ABI = [
     inputs: [{ name: "code", type: "string" }],
     outputs: [],
   },
-  // Posts
+  // Posts — anchor post identifier on-chain (GCS URL path or content hash)
   {
     name: "createPost",
     type: "function",
@@ -49,7 +56,7 @@ export const MONAD_FEET_ABI = [
     inputs: [{ name: "postHash", type: "bytes32" }],
     outputs: [],
   },
-  // Subscriptions (payable — sends MON, split 88/12 on-chain)
+  // Subscriptions — payable, splits MON 88/12 automatically on-chain
   {
     name: "subscribe",
     type: "function",
@@ -67,7 +74,7 @@ export const MONAD_FEET_ABI = [
     ],
     outputs: [{ name: "", type: "bool" }],
   },
-  // Streak
+  // Streak check-in — updates streak and points on-chain
   {
     name: "dailyCheckin",
     type: "function",

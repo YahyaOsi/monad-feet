@@ -57,6 +57,7 @@ router.get("/posts", async (req, res): Promise<void> => {
       content: postsTable.content,
       imageUrl: postsTable.imageUrl,
       authorId: postsTable.authorId,
+      onChainTxHash: postsTable.onChainTxHash,
       createdAt: postsTable.createdAt,
       authorName: usersTable.name,
       authorUsername: usersTable.username,
@@ -253,6 +254,31 @@ router.post("/posts/:postId/like", async (req, res): Promise<void> => {
     .where(eq(postLikesTable.postId, params.data.postId));
 
   res.json({ likeCount: countRow?.count ?? 0, likedByMe: true });
+});
+
+router.patch("/posts/:postId/anchor", async (req, res): Promise<void> => {
+  const rawId = Array.isArray(req.params.postId) ? req.params.postId[0] : req.params.postId;
+  const postId = parseInt(rawId, 10);
+  if (isNaN(postId)) { res.status(400).json({ error: "Invalid post id" }); return; }
+
+  const txHash = typeof req.body?.txHash === "string" ? req.body.txHash.trim() : null;
+  if (!txHash || !txHash.startsWith("0x")) { res.status(400).json({ error: "txHash must be a 0x-prefixed hex string" }); return; }
+
+  const walletAddress = getWalletAddress(req);
+  const currentUser = walletAddress ? await getUserByWallet(walletAddress) : null;
+  if (!currentUser) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const [post] = await db.select().from(postsTable).where(eq(postsTable.id, postId));
+  if (!post) { res.status(404).json({ error: "Post not found" }); return; }
+  if (post.authorId !== currentUser.id) { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const [updated] = await db
+    .update(postsTable)
+    .set({ onChainTxHash: txHash })
+    .where(eq(postsTable.id, postId))
+    .returning({ onChainTxHash: postsTable.onChainTxHash });
+
+  res.json({ onChainTxHash: updated.onChainTxHash });
 });
 
 router.delete("/posts/:postId/like", async (req, res): Promise<void> => {

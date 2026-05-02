@@ -23,7 +23,8 @@ An exclusive, invite-only Web3 social media platform for the Monad blockchain co
 
 ## Reown AppKit Config
 - Project ID: `19c9787ece0fcd04698c96c998167b4a`
-- Network: Monad Testnet (chainId: 10143)
+- Network: Monad Mainnet (chainId: 41454, rpc.monad.xyz)
+- Explorer: https://explorer.monad.xyz
 - Login methods: Web3 Wallet, X (Twitter), Email
 
 ## Features
@@ -49,11 +50,16 @@ The `contracts/MonadFeet.sol` contract implements the full platform on-chain:
 - **Streak**: `dailyCheckin()` — updates streak and points on-chain
 - **Invite codes**: `registerInviteCode(code)` — registers codes on-chain
 
-**To deploy to Monad Testnet:**
-1. Install Foundry: `curl -L https://foundry.paradigm.xyz | bash`
-2. `forge create --rpc-url https://testnet.monad.xyz --private-key $PRIVATE_KEY contracts/MonadFeet.sol:MonadFeet`
+**To deploy to Monad Mainnet:**
+1. Install Foundry: `curl -L https://foundry.paradigm.xyz | bash && foundryup`
+2. `forge create --rpc-url https://rpc.monad.xyz --private-key $PRIVATE_KEY contracts/MonadFeet.sol:MonadFeet`
 3. Set `VITE_CONTRACT_ADDRESS` env var to the deployed address
 4. Frontend contract ABI is already wired in `artifacts/monad-feet/src/lib/contract.ts`
+
+**On-chain post anchoring:**
+- After a post is saved to the DB, the frontend fires `writeContract("createPost", postIdentifier)` on Monad mainnet (non-blocking)
+- The tx hash is stored in `posts.on_chain_tx_hash` via `PATCH /api/posts/:id/anchor`
+- Each post card shows an "On Monad" badge (violet pill) linking to `explorer.monad.xyz/tx/...` if anchored
 
 ## Initial Invite Codes (for testing)
 MONAD00001, MONAD00002, MONAD00003, MONAD00004, MONAD00005, WELCOME2024, TESTINVITE
