@@ -370,6 +370,10 @@ export const GetFeedSummaryResponse = zod.object({
 /**
  * @summary Get top users by streak points
  */
+export const GetLeaderboardQueryParams = zod.object({
+  sortBy: zod.coerce.string().optional(),
+});
+
 export const GetLeaderboardResponseItem = zod.object({
   rank: zod.number(),
   userId: zod.number(),
@@ -378,5 +382,117 @@ export const GetLeaderboardResponseItem = zod.object({
   avatarUrl: zod.string().nullish(),
   totalPoints: zod.number(),
   currentStreak: zod.number(),
+  longestStreak: zod.number().optional(),
+  postCount: zod.number().optional(),
+  likeCount: zod.number().optional(),
+  subscriberCount: zod.number().optional(),
+  subscriptionCount: zod.number().optional(),
+  engagementScore: zod.number().optional(),
 });
 export const GetLeaderboardResponse = zod.array(GetLeaderboardResponseItem);
+
+/**
+ * @summary List comments on a post
+ */
+export const ListCommentsParams = zod.object({
+  postId: zod.coerce.number(),
+});
+
+export const ListCommentsResponseItem = zod.object({
+  id: zod.number(),
+  postId: zod.number(),
+  authorId: zod.number(),
+  authorName: zod.string().nullish(),
+  authorUsername: zod.string().nullish(),
+  authorAvatarUrl: zod.string().nullish(),
+  content: zod.string(),
+  createdAt: zod.coerce.date(),
+});
+export const ListCommentsResponse = zod.array(ListCommentsResponseItem);
+
+/**
+ * @summary Add a comment to a post
+ */
+export const CreateCommentParams = zod.object({
+  postId: zod.coerce.number(),
+});
+
+export const CreateCommentBody = zod.object({
+  content: zod.string(),
+});
+
+/**
+ * @summary Delete a comment
+ */
+export const DeleteCommentParams = zod.object({
+  commentId: zod.coerce.number(),
+});
+
+/**
+ * @summary Search users by username or name
+ */
+export const SearchUsersQueryParams = zod.object({
+  q: zod.coerce.string(),
+  limit: zod.coerce.number().optional(),
+});
+
+export const SearchUsersResponseItem = zod.object({
+  id: zod.number(),
+  walletAddress: zod.string(),
+  email: zod.string().nullish(),
+  name: zod.string().nullish(),
+  username: zod.string().nullish(),
+  avatarUrl: zod.string().nullish(),
+  bio: zod.string().nullish(),
+  subscriptionPrice: zod.number().nullish(),
+  registrationTxHash: zod.string().nullish(),
+  createdAt: zod.coerce.date(),
+  postCount: zod.number(),
+  totalLikes: zod.number(),
+  streakPoints: zod.number(),
+  currentStreak: zod.number(),
+});
+export const SearchUsersResponse = zod.array(SearchUsersResponseItem);
+
+/**
+ * @summary Get creator analytics for a user
+ */
+export const GetCreatorAnalyticsParams = zod.object({
+  userId: zod.coerce.number(),
+});
+
+export const GetCreatorAnalyticsResponse = zod.object({
+  userId: zod.number(),
+  totalSubscribers: zod.number(),
+  activeSubscribers: zod.number(),
+  totalRevenueMon: zod.number(),
+  monthlyRevenueMon: zod.number(),
+  totalPosts: zod.number(),
+  privatePosts: zod.number(),
+  totalLikes: zod.number(),
+  topPosts: zod.array(
+    zod.object({
+      id: zod.number(),
+      content: zod.string(),
+      imageUrl: zod.string().nullish(),
+      onChainTxHash: zod.string().nullish(),
+      authorId: zod.number(),
+      authorName: zod.string().nullish(),
+      authorUsername: zod.string().nullish(),
+      authorAvatarUrl: zod.string().nullish(),
+      likeCount: zod.number(),
+      likedByMe: zod.boolean(),
+      createdAt: zod.coerce.date(),
+    }),
+  ),
+  recentSubscribers: zod.array(
+    zod.object({
+      subscriberId: zod.number(),
+      subscriberName: zod.string().nullish(),
+      subscriberUsername: zod.string().nullish(),
+      subscriberAvatarUrl: zod.string().nullish(),
+      consecutiveMonths: zod.number(),
+      subscribedAt: zod.coerce.date(),
+    }),
+  ),
+});

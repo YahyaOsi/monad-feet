@@ -485,6 +485,12 @@ paths:
       operationId: getLeaderboard
       tags: [feed]
       summary: Get top users by streak points
+      parameters:
+        - name: sortBy
+          in: query
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: Leaderboard
@@ -494,6 +500,110 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/LeaderboardEntry"
+
+  /posts/{postId}/comments:
+    get:
+      operationId: listComments
+      tags: [posts]
+      summary: List comments on a post
+      parameters:
+        - name: postId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Comments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Comment"
+    post:
+      operationId: createComment
+      tags: [posts]
+      summary: Add a comment to a post
+      parameters:
+        - name: postId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCommentBody"
+      responses:
+        "201":
+          description: Created comment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Comment"
+
+  /comments/{commentId}:
+    delete:
+      operationId: deleteComment
+      tags: [posts]
+      summary: Delete a comment
+      parameters:
+        - name: commentId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /users/search:
+    get:
+      operationId: searchUsers
+      tags: [users]
+      summary: Search users by username or name
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UserWithStats"
+
+  /users/{userId}/analytics:
+    get:
+      operationId: getCreatorAnalytics
+      tags: [users]
+      summary: Get creator analytics for a user
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Creator analytics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatorAnalytics"
 
 components:
   schemas:
@@ -958,8 +1068,112 @@ components:
           type: integer
         currentStreak:
           type: integer
+        longestStreak:
+          type: integer
+        postCount:
+          type: integer
+        likeCount:
+          type: integer
+        subscriberCount:
+          type: integer
+        subscriptionCount:
+          type: integer
+        engagementScore:
+          type: integer
       required:
         - rank
         - userId
         - totalPoints
         - currentStreak
+
+    Comment:
+      type: object
+      properties:
+        id:
+          type: integer
+        postId:
+          type: integer
+        authorId:
+          type: integer
+        authorName:
+          type: ["string", "null"]
+        authorUsername:
+          type: ["string", "null"]
+        authorAvatarUrl:
+          type: ["string", "null"]
+        content:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - postId
+        - authorId
+        - content
+        - createdAt
+
+    CreateCommentBody:
+      type: object
+      properties:
+        content:
+          type: string
+      required:
+        - content
+
+    CreatorAnalytics:
+      type: object
+      properties:
+        userId:
+          type: integer
+        totalSubscribers:
+          type: integer
+        activeSubscribers:
+          type: integer
+        totalRevenueMon:
+          type: number
+        monthlyRevenueMon:
+          type: number
+        totalPosts:
+          type: integer
+        privatePosts:
+          type: integer
+        totalLikes:
+          type: integer
+        topPosts:
+          type: array
+          items:
+            $ref: "#/components/schemas/Post"
+        recentSubscribers:
+          type: array
+          items:
+            type: object
+            properties:
+              subscriberId:
+                type: integer
+              subscriberName:
+                type: ["string", "null"]
+              subscriberUsername:
+                type: ["string", "null"]
+              subscriberAvatarUrl:
+                type: ["string", "null"]
+              consecutiveMonths:
+                type: integer
+              subscribedAt:
+                type: string
+                format: date-time
+            required:
+              - subscriberId
+              - consecutiveMonths
+              - subscribedAt
+      required:
+        - userId
+        - totalSubscribers
+        - activeSubscribers
+        - totalRevenueMon
+        - monthlyRevenueMon
+        - totalPosts
+        - privatePosts
+        - totalLikes
+        - topPosts
+        - recentSubscribers

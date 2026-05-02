@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { PostCard } from "@/components/post/PostCard";
-import { Plus, Users, Heart, MessageSquare, ImageIcon, X, Loader2, Link2, CheckCircle2 } from "lucide-react";
+import { Plus, Users, Heart, MessageSquare, ImageIcon, X, Loader2, Link2, CheckCircle2, Flame, TrendingUp } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getListPostsQueryKey, getGetFeedSummaryQueryKey } from "@workspace/api-client-react";
 import { useContractActions } from "@/lib/useContractActions";
@@ -43,6 +43,7 @@ async function anchorPostOnDB(postId: number, txHash: string): Promise<void> {
 }
 
 type PostStep = "idle" | "uploading" | "saving" | "signing" | "done" | "error";
+type SortMode = "latest" | "top";
 
 export default function Feed() {
   const { user } = useUser();
@@ -58,6 +59,7 @@ export default function Feed() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [postStep, setPostStep] = useState<PostStep>("idle");
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [sortMode, setSortMode] = useState<SortMode>("latest");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -85,19 +87,16 @@ export default function Feed() {
     setUploadError(null);
 
     try {
-      // 1. Upload image to GCS
       setPostStep("uploading");
       const { uploadURL, objectPath } = await requestUploadUrl(imageFile);
       await uploadToGCS(uploadURL, imageFile);
       const imageUrl = `${BASE}/api/storage${objectPath}`;
 
-      // 2. Save to DB
       setPostStep("saving");
       const post = await createPost.mutateAsync({
         data: { content: content.trim() || "", imageUrl, authorWalletAddress: user.walletAddress },
       });
 
-      // 3. Sign on-chain transaction (non-blocking on failure)
       if (contractDeployed && post?.id) {
         setPostStep("signing");
         try {
@@ -105,7 +104,7 @@ export default function Feed() {
           const txHash = await createPostOnChain(post.id, contentUri);
           if (txHash) await anchorPostOnDB(post.id, txHash);
         } catch {
-          // user declined or error — post is already saved, just skip chain anchoring
+          // user declined or error — post is already saved
         }
       }
 
@@ -116,7 +115,6 @@ export default function Feed() {
       queryClient.invalidateQueries({ queryKey: getListPostsQueryKey() });
       queryClient.invalidateQueries({ queryKey: getGetFeedSummaryQueryKey() });
 
-      // Reset step after a beat
       setTimeout(() => setPostStep("idle"), 3000);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Failed to post. Please try again.";
@@ -144,16 +142,22 @@ export default function Feed() {
     return contractDeployed ? "Post & Sign on Monad" : "Post";
   };
 
+  const allPosts = feedPage?.posts ?? [];
+  const sortedPosts = sortMode === "top"
+    ? [...allPosts].sort((a, b) => (b.likeCount ?? 0) - (a.likeCount ?? 0))
+    : allPosts;
+
   return (
     <div className="space-y-6 pb-20">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold tracking-tight">Feed</h1>
-        {postStep === "done" && (
-          <div className="flex items-center gap-1.5 text-xs text-green-600 font-medium">
-            <CheckCircle2 className="h-3.5 w-3.5" /> Posted
-            {contractDeployed ? " & anchored on Monad" : ""}
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          {postStep === "done" && (
+            <div className="flex items-center gap-1.5 text-xs text-green-600 font-medium">
+              <CheckCircle2 className="h-3.5 w-3.5" /> Posted{contractDeployed ? " & anchored on Monad" : ""}
+            </div>
+          )}
+        </div>
       </div>
 
       {summary && (
@@ -194,6 +198,30 @@ export default function Feed() {
         </div>
       )}
 
+      {/* Sort toggle */}
+      <div className="flex items-center gap-2 border-b border-border pb-2">
+        <button
+          onClick={() => setSortMode("latest")}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+            sortMode === "latest"
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted"
+          }`}
+        >
+          <Flame className="h-3.5 w-3.5" /> Latest
+        </button>
+        <button
+          onClick={() => setSortMode("top")}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+            sortMode === "top"
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted"
+          }`}
+        >
+          <TrendingUp className="h-3.5 w-3.5" /> Top
+        </button>
+      </div>
+
       <div className="space-y-4">
         {feedLoading ? (
           <div className="space-y-4">
@@ -203,14 +231,14 @@ export default function Feed() {
               </Card>
             ))}
           </div>
-        ) : feedPage?.posts.length === 0 ? (
+        ) : sortedPosts.length === 0 ? (
           <div className="text-center py-16 text-muted-foreground">
             <ImageIcon className="h-12 w-12 mx-auto mb-3 opacity-30" />
             <p className="font-medium">No posts yet.</p>
             <p className="text-sm mt-1">Be the first to share a moment!</p>
           </div>
         ) : (
-          feedPage?.posts.map((post) => <PostCard key={post.id} post={post} />)
+          sortedPosts.map((post) => <PostCard key={post.id} post={post} />)
         )}
       </div>
 
@@ -228,7 +256,6 @@ export default function Feed() {
             <DialogTitle>Create a Post</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 pt-2">
-            {/* Image upload */}
             <div>
               {imagePreview ? (
                 <div className="relative rounded-xl overflow-hidden bg-muted aspect-video">

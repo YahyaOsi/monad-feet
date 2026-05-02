@@ -8,7 +8,7 @@ import { useUnlikePost, getListPostsQueryKey, getGetPostQueryKey } from "@worksp
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Heart, ExternalLink, Loader2, Link2, Shield } from "lucide-react";
+import { Heart, ExternalLink, Loader2, Link2, Shield, MessageSquare, Share2, Check } from "lucide-react";
 import { useContractActions } from "@/lib/useContractActions";
 import { useOnChainPostLikeCount, useIsPostLikedOnChain } from "@/lib/useOnChain";
 import { CONTRACT_DEPLOYED } from "@/lib/contract";
@@ -24,6 +24,7 @@ export function PostCard({ post }: { post: Post }) {
   const [liking, setLiking] = useState(false);
   const [optimisticLiked, setOptimisticLiked] = useState<boolean | null>(null);
   const [optimisticCount, setOptimisticCount] = useState<number | null>(null);
+  const [copied, setCopied] = useState(false);
 
   // Read authoritative like count and liked status from chain
   const { data: chainLikeCount } = useOnChainPostLikeCount(post.id);
@@ -85,6 +86,20 @@ export function PostCard({ post }: { post: Post }) {
     setLiking(false);
   };
 
+  const handleShare = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    const url = `${window.location.origin}${BASE}/post/${post.id}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: `Post by @${post.authorUsername}`, url });
+      } else {
+        await navigator.clipboard.writeText(url);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }
+    } catch { /* dismissed */ }
+  };
+
   const initials = post.authorName ? post.authorName.slice(0, 2).toUpperCase() : "??";
   const explorerTxUrl = post.onChainTxHash
     ? `https://explorer.monad.xyz/tx/${post.onChainTxHash}`
@@ -94,15 +109,17 @@ export function PostCard({ post }: { post: Post }) {
 
   return (
     <Card className="overflow-hidden transition-all duration-200 group hover:shadow-md">
-      {/* Post image */}
+      {/* Post image — clickable to detail */}
       {post.imageUrl && (
-        <div className="w-full overflow-hidden bg-muted">
-          <img
-            src={post.imageUrl}
-            alt="Post image"
-            className="w-full max-h-[480px] object-cover group-hover:scale-[1.005] transition-transform duration-300"
-          />
-        </div>
+        <Link href={`/post/${post.id}`}>
+          <div className="w-full overflow-hidden bg-muted cursor-pointer">
+            <img
+              src={post.imageUrl}
+              alt="Post image"
+              className="w-full max-h-[480px] object-cover group-hover:scale-[1.005] transition-transform duration-300"
+            />
+          </div>
+        </Link>
       )}
 
       <CardHeader className="p-4 pb-2 flex flex-row items-center gap-3">
@@ -124,7 +141,9 @@ export function PostCard({ post }: { post: Post }) {
           <div className="flex items-center text-xs text-muted-foreground gap-1">
             <span>@{post.authorUsername}</span>
             <span>·</span>
-            <span>{formatDistanceToNow(new Date(post.createdAt), { addSuffix: true })}</span>
+            <Link href={`/post/${post.id}`} className="hover:underline">
+              {formatDistanceToNow(new Date(post.createdAt), { addSuffix: true })}
+            </Link>
           </div>
         </div>
 
@@ -146,7 +165,9 @@ export function PostCard({ post }: { post: Post }) {
 
       {post.content && (
         <CardContent className="px-4 pb-2 pt-0">
-          <p className="whitespace-pre-wrap text-foreground/90 leading-relaxed text-sm">{post.content}</p>
+          <Link href={`/post/${post.id}`}>
+            <p className="whitespace-pre-wrap text-foreground/90 leading-relaxed text-sm cursor-pointer hover:text-foreground transition-colors">{post.content}</p>
+          </Link>
         </CardContent>
       )}
 
@@ -177,20 +198,40 @@ export function PostCard({ post }: { post: Post }) {
               <Link2 className="h-2.5 w-2.5" /> chain
             </span>
           )}
+
+          {/* Comments link */}
+          <Link href={`/post/${post.id}`}>
+            <Button variant="ghost" size="sm" className="gap-1.5 rounded-full text-muted-foreground hover:text-foreground">
+              <MessageSquare className="h-4 w-4" />
+              <span className="text-xs">Comment</span>
+            </Button>
+          </Link>
         </div>
 
-        {/* Tx hash shortlink */}
-        {post.onChainTxHash && (
-          <a
-            href={`https://explorer.monad.xyz/tx/${post.onChainTxHash}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[10px] text-muted-foreground hover:text-violet-600 transition-colors font-mono flex items-center gap-0.5"
+        <div className="flex items-center gap-2">
+          {/* Share button */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleShare}
+            className="gap-1 rounded-full text-muted-foreground hover:text-foreground h-8 px-2"
           >
-            {post.onChainTxHash.slice(0, 6)}…{post.onChainTxHash.slice(-4)}
-            <ExternalLink className="h-2.5 w-2.5" />
-          </a>
-        )}
+            {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Share2 className="h-3.5 w-3.5" />}
+          </Button>
+
+          {/* Tx hash shortlink */}
+          {post.onChainTxHash && (
+            <a
+              href={`https://explorer.monad.xyz/tx/${post.onChainTxHash}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[10px] text-muted-foreground hover:text-violet-600 transition-colors font-mono flex items-center gap-0.5"
+            >
+              {post.onChainTxHash.slice(0, 6)}…{post.onChainTxHash.slice(-4)}
+              <ExternalLink className="h-2.5 w-2.5" />
+            </a>
+          )}
+        </div>
       </CardFooter>
     </Card>
   );

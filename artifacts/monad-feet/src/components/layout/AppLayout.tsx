@@ -4,7 +4,7 @@ import { useUser } from "@/context/UserContext";
 import { useAccount } from "wagmi";
 import {
   Home, Lock, Wallet, Trophy, User as UserIcon,
-  Settings, LogOut, Bell, Link2, X
+  Settings, LogOut, Bell, Link2, X, Compass
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CONTRACT_DEPLOYED } from "@/lib/contract";
@@ -34,6 +34,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   const navItems = [
     { label: "Feed", href: "/feed", icon: Home },
+    { label: "Discover", href: "/discover", icon: Compass },
     { label: "Private", href: "/private", icon: Lock },
     { label: "Wallet", href: "/wallet", icon: Wallet },
     { label: "Leaderboard", href: "/leaderboard", icon: Trophy },
@@ -142,7 +143,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       {/* Mobile Nav */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 border-t bg-background border-border flex justify-around p-2 z-50">
         {navItems.filter(i => !["Settings", "Chain"].includes(i.label)).map((item) => {
-          const isActive = location === item.href;
+          const isActive = location === item.href || location.startsWith(item.href + "/");
           const Icon = item.icon;
           return (
             <Link

@@ -1,17 +1,24 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Link } from "wouter";
 import { useUser } from "@/context/UserContext";
 import { useListSubscriptions, useListPrivatePosts } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import {
-  Lock, Crown, ExternalLink, Link2, CheckCircle2, Calendar, Loader2
+  Lock, Crown, ExternalLink, Link2, CheckCircle2, Calendar, Loader2, Plus, ImageIcon, X
 } from "lucide-react";
 import { formatDistanceToNow, format, isPast } from "date-fns";
 import { useAccount } from "wagmi";
 import { useIsSubscribedOnChain, useSubscriptionExpiry } from "@/lib/useOnChain";
 import { CONTRACT_DEPLOYED } from "@/lib/contract";
+import { useQueryClient } from "@tanstack/react-query";
+import { getListPrivatePostsQueryKey } from "@workspace/api-client-react";
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 function SubscriptionExpiry({
   subscriber,
@@ -23,11 +30,7 @@ function SubscriptionExpiry({
   dbExpiry: string;
 }) {
   const { data: chainExpiry } = useSubscriptionExpiry(subscriber, creator);
-
-  const expiryDate = chainExpiry
-    ? new Date(Number(chainExpiry) * 1000)
-    : new Date(dbExpiry);
-
+  const expiryDate = chainExpiry ? new Date(Number(chainExpiry) * 1000) : new Date(dbExpiry);
   const expired = isPast(expiryDate);
 
   return (
@@ -45,9 +48,7 @@ function ChainSubBadge({ subscriber, creator, txHash }: {
   txHash?: string | null;
 }) {
   const { data: isSubOnChain } = useIsSubscribedOnChain(subscriber, creator);
-
   if (!CONTRACT_DEPLOYED) return null;
-
   if (isSubOnChain) {
     return (
       <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-200">
@@ -55,7 +56,6 @@ function ChainSubBadge({ subscriber, creator, txHash }: {
       </span>
     );
   }
-
   if (txHash) {
     return (
       <a
@@ -64,71 +64,213 @@ function ChainSubBadge({ subscriber, creator, txHash }: {
         rel="noopener noreferrer"
         className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200 hover:bg-violet-200 transition-colors"
       >
-        <Link2 className="h-2.5 w-2.5" /> Tx
-        <ExternalLink className="h-2 w-2" />
+        <Link2 className="h-2.5 w-2.5" /> Tx <ExternalLink className="h-2 w-2" />
       </a>
     );
   }
-
   return null;
 }
 
-function PrivatePosts({ creatorId }: { creatorId: number }) {
+type CreateStep = "idle" | "uploading" | "saving" | "error";
+
+function CreatePrivatePostDialog({ creatorId, onCreated }: { creatorId: number; onCreated: () => void }) {
+  const { user } = useUser();
+  const [open, setOpen] = useState(false);
+  const [content, setContent] = useState("");
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [step, setStep] = useState<CreateStep>("idle");
+  const [error, setError] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const queryClient = useQueryClient();
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith("image/")) return;
+    setImageFile(file);
+    const reader = new FileReader();
+    reader.onload = () => setImagePreview(reader.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  const clearImage = () => {
+    setImageFile(null);
+    setImagePreview(null);
+    if (fileRef.current) fileRef.current.value = "";
+  };
+
+  const handleCreate = async () => {
+    if (!imageFile || !user) return;
+    setError(null);
+    try {
+      setStep("uploading");
+      const wallet = localStorage.getItem("mf_wallet_address") ?? "";
+      const urlRes = await fetch(`${BASE}/api/storage/uploads/request-url`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-wallet-address": wallet },
+        body: JSON.stringify({ name: imageFile.name, size: imageFile.size, contentType: imageFile.type }),
+      });
+      if (!urlRes.ok) throw new Error("Failed to get upload URL");
+      const { uploadURL, objectPath } = await urlRes.json() as { uploadURL: string; objectPath: string };
+
+      await fetch(uploadURL, {
+        method: "PUT",
+        headers: { "Content-Type": imageFile.type },
+        body: imageFile,
+      });
+      const imageUrl = `${BASE}/api/storage${objectPath}`;
+
+      setStep("saving");
+      const postRes = await fetch(`${BASE}/api/private-posts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-wallet-address": wallet },
+        body: JSON.stringify({ content: content.trim() || "", imageUrl, creatorWalletAddress: user.walletAddress }),
+      });
+      if (!postRes.ok) throw new Error("Failed to create post");
+
+      queryClient.invalidateQueries({ queryKey: getListPrivatePostsQueryKey({ creatorId }) });
+      onCreated();
+      setOpen(false);
+      setContent("");
+      clearImage();
+      setStep("idle");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to post");
+      setStep("error");
+    }
+  };
+
+  const isPosting = step === "uploading" || step === "saving";
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) { clearImage(); setContent(""); setError(null); setStep("idle"); }}}>
+      <DialogTrigger asChild>
+        <Button size="sm" className="gap-2">
+          <Plus className="h-4 w-4" /> New Private Post
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Lock className="h-4 w-4" /> Create Exclusive Post
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 pt-2">
+          {imagePreview ? (
+            <div className="relative rounded-xl overflow-hidden bg-muted aspect-video">
+              <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
+              <button onClick={clearImage} className="absolute top-2 right-2 bg-black/60 text-white rounded-full p-1 hover:bg-black/80">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              className="w-full rounded-xl border-2 border-dashed border-border hover:border-primary/50 bg-muted/30 hover:bg-primary/5 transition-colors aspect-video flex flex-col items-center justify-center gap-3 cursor-pointer"
+            >
+              <div className="p-3 bg-primary/10 rounded-full">
+                <ImageIcon className="h-7 w-7 text-primary" />
+              </div>
+              <div className="text-center">
+                <p className="font-semibold text-sm">Add an image</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Required for private posts</p>
+              </div>
+            </button>
+          )}
+          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFileSelect} />
+
+          <Textarea
+            placeholder="Write your exclusive content… (optional)"
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            className="min-h-[80px] resize-none"
+          />
+
+          <div className="flex items-center gap-2 text-xs text-muted-foreground bg-primary/5 rounded-lg px-3 py-2">
+            <Lock className="h-3.5 w-3.5 text-primary flex-shrink-0" />
+            Only your subscribers will see this post
+          </div>
+
+          {error && <p className="text-sm text-destructive">{error}</p>}
+
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={isPosting}>Cancel</Button>
+            <Button onClick={handleCreate} disabled={!imageFile || isPosting} className="gap-2">
+              {isPosting && <Loader2 className="h-4 w-4 animate-spin" />}
+              {step === "uploading" ? "Uploading…" : step === "saving" ? "Saving…" : "Post Exclusively"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PrivatePosts({ creatorId, isCreator }: { creatorId: number; isCreator: boolean }) {
+  const [refresh, setRefresh] = useState(0);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: posts, isLoading } = useListPrivatePosts({ creatorId }, { query: { enabled: creatorId > 0, queryKey: [] as any } });
+  const { data: posts, isLoading } = useListPrivatePosts({ creatorId }, {
+    query: { enabled: creatorId > 0, queryKey: [getListPrivatePostsQueryKey({ creatorId }), refresh] as any }
+  });
 
   if (isLoading) {
     return (
       <div className="space-y-3">
-        {[...Array(2)].map((_, i) => (
-          <Card key={i} className="animate-pulse h-32" />
-        ))}
+        {[...Array(2)].map((_, i) => <Card key={i} className="animate-pulse h-32" />)}
       </div>
-    );
-  }
-
-  if (!posts || posts.length === 0) {
-    return (
-      <Card>
-        <CardContent className="py-12 text-center text-muted-foreground">
-          <Lock className="h-8 w-8 mx-auto mb-2 opacity-30" />
-          <p className="text-sm">No private posts yet from this creator.</p>
-        </CardContent>
-      </Card>
     );
   }
 
   return (
     <div className="space-y-4">
-      {posts.map((post) => (
-        <Card key={post.id} className="border-primary/20 bg-primary/5 overflow-hidden">
-          <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Avatar className="h-9 w-9">
-                <AvatarImage src={post.creatorAvatarUrl ?? ""} />
-                <AvatarFallback>{post.creatorName?.slice(0, 2).toUpperCase()}</AvatarFallback>
-              </Avatar>
-              <div>
-                <p className="font-semibold text-sm">{post.creatorName}</p>
-                <p className="text-xs text-muted-foreground">
-                  {formatDistanceToNow(new Date(post.createdAt), { addSuffix: true })}
-                </p>
-              </div>
-            </div>
-            <Badge variant="secondary" className="gap-1 text-xs bg-primary/10 text-primary border-primary/20">
-              <Lock className="h-3 w-3" /> Subscriber Only
-            </Badge>
-          </CardHeader>
-          <CardContent className="px-4 pb-4 pt-2 space-y-3">
-            {post.content && <p className="whitespace-pre-wrap text-sm leading-relaxed">{post.content}</p>}
-            {post.imageUrl && (
-              <div className="rounded-xl overflow-hidden bg-muted">
-                <img src={post.imageUrl} alt="Post" className="w-full max-h-96 object-cover" />
-              </div>
+      {isCreator && (
+        <div className="flex justify-end">
+          <CreatePrivatePostDialog creatorId={creatorId} onCreated={() => setRefresh(r => r + 1)} />
+        </div>
+      )}
+
+      {!posts || posts.length === 0 ? (
+        <Card>
+          <CardContent className="py-12 text-center text-muted-foreground">
+            <Lock className="h-8 w-8 mx-auto mb-2 opacity-30" />
+            <p className="text-sm">No private posts yet from this creator.</p>
+            {isCreator && (
+              <p className="text-xs mt-2 text-primary">Use the button above to create your first exclusive post.</p>
             )}
           </CardContent>
         </Card>
-      ))}
+      ) : (
+        posts.map((post) => (
+          <Card key={post.id} className="border-primary/20 bg-primary/5 overflow-hidden">
+            <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Avatar className="h-9 w-9">
+                  <AvatarImage src={post.creatorAvatarUrl ?? ""} />
+                  <AvatarFallback>{post.creatorName?.slice(0, 2).toUpperCase()}</AvatarFallback>
+                </Avatar>
+                <div>
+                  <p className="font-semibold text-sm">{post.creatorName}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {formatDistanceToNow(new Date(post.createdAt), { addSuffix: true })}
+                  </p>
+                </div>
+              </div>
+              <Badge variant="secondary" className="gap-1 text-xs bg-primary/10 text-primary border-primary/20">
+                <Lock className="h-3 w-3" /> Subscriber Only
+              </Badge>
+            </CardHeader>
+            <CardContent className="px-4 pb-4 pt-2 space-y-3">
+              {post.content && <p className="whitespace-pre-wrap text-sm leading-relaxed">{post.content}</p>}
+              {post.imageUrl && (
+                <div className="rounded-xl overflow-hidden bg-muted">
+                  <img src={post.imageUrl} alt="Post" className="w-full max-h-96 object-cover" />
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        ))
+      )}
     </div>
   );
 }
@@ -138,12 +280,14 @@ export default function PrivateFeed() {
   const { address } = useAccount();
   const [selectedCreatorId, setSelectedCreatorId] = useState<number | null>(null);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: subscriptions, isLoading: subsLoading } = useListSubscriptions();
 
   const activeSubs = subscriptions ?? [];
-  const selectedSub = activeSubs.find((s) => s.creatorId === selectedCreatorId) ?? activeSubs[0];
   const activeCreatorId = selectedCreatorId ?? activeSubs[0]?.creatorId ?? 0;
+  const selectedSub = activeSubs.find((s) => s.creatorId === activeCreatorId) ?? activeSubs[0];
+
+  // Creator can see their own private posts (for posting)
+  const isCreatorOfSelected = user?.id === activeCreatorId;
 
   if (subsLoading) {
     return (
@@ -250,10 +394,10 @@ export default function PrivateFeed() {
             })}
           </div>
 
-          {/* Posts */}
+          {/* Posts panel */}
           <div>
             {activeCreatorId > 0 ? (
-              <PrivatePosts creatorId={activeCreatorId} />
+              <PrivatePosts creatorId={activeCreatorId} isCreator={isCreatorOfSelected} />
             ) : (
               <Card>
                 <CardContent className="py-12 text-center text-muted-foreground">

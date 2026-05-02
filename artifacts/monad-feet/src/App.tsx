@@ -17,6 +17,8 @@ import Profile from "@/pages/profile";
 import Settings from "@/pages/settings";
 import Notifications from "@/pages/notifications";
 import ChainPage from "@/pages/chain";
+import Discover from "@/pages/discover";
+import PostDetail from "@/pages/post-detail";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -52,6 +54,13 @@ function Router() {
         <Route path="/" component={Landing} />
         <Route path="/onboarding" component={Onboarding} />
         <Route path="/feed" component={() => <ProtectedRoute component={Feed} />} />
+        <Route path="/discover" component={() => <ProtectedRoute component={Discover} />} />
+        <Route
+          path="/post/:postId"
+          component={({ params }: { params: { postId: string } }) => (
+            <ProtectedRoute component={PostDetail} postId={parseInt(params.postId)} />
+          )}
+        />
         <Route path="/private" component={() => <ProtectedRoute component={PrivateFeed} />} />
         <Route path="/wallet" component={() => <ProtectedRoute component={Wallet} />} />
         <Route path="/leaderboard" component={() => <ProtectedRoute component={Leaderboard} />} />

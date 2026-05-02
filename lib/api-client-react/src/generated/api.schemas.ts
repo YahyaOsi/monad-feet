@@ -249,6 +249,55 @@ export interface LeaderboardEntry {
   avatarUrl?: string | null;
   totalPoints: number;
   currentStreak: number;
+  longestStreak?: number;
+  postCount?: number;
+  likeCount?: number;
+  subscriberCount?: number;
+  subscriptionCount?: number;
+  engagementScore?: number;
+}
+
+export interface Comment {
+  id: number;
+  postId: number;
+  authorId: number;
+  /** @nullable */
+  authorName?: string | null;
+  /** @nullable */
+  authorUsername?: string | null;
+  /** @nullable */
+  authorAvatarUrl?: string | null;
+  content: string;
+  createdAt: string;
+}
+
+export interface CreateCommentBody {
+  content: string;
+}
+
+export type CreatorAnalyticsRecentSubscribersItem = {
+  subscriberId: number;
+  /** @nullable */
+  subscriberName?: string | null;
+  /** @nullable */
+  subscriberUsername?: string | null;
+  /** @nullable */
+  subscriberAvatarUrl?: string | null;
+  consecutiveMonths: number;
+  subscribedAt: string;
+};
+
+export interface CreatorAnalytics {
+  userId: number;
+  totalSubscribers: number;
+  activeSubscribers: number;
+  totalRevenueMon: number;
+  monthlyRevenueMon: number;
+  totalPosts: number;
+  privatePosts: number;
+  totalLikes: number;
+  topPosts: Post[];
+  recentSubscribers: CreatorAnalyticsRecentSubscribersItem[];
 }
 
 export type ListPostsParams = {
@@ -264,4 +313,13 @@ export type ListPostsParams = {
 
 export type ListPrivatePostsParams = {
   creatorId: number;
+};
+
+export type GetLeaderboardParams = {
+  sortBy?: string;
+};
+
+export type SearchUsersParams = {
+  q: string;
+  limit?: number;
 };
