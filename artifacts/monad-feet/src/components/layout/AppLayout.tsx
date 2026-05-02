@@ -8,15 +8,17 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CONTRACT_DEPLOYED } from "@/lib/contract";
+import { usePresence } from "@/hooks/usePresence";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const { user, logout } = useUser();
-  const { isConnected } = useAccount();
+  const { isConnected: walletConnected } = useAccount();
   const [unreadCount, setUnreadCount] = useState(0);
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  const { onlineCount } = usePresence();
 
   useEffect(() => {
     if (!user) return;
@@ -34,17 +36,23 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   const navItems = [
     { label: "Feed", href: "/feed", icon: Home },
-    { label: "Discover", href: "/discover", icon: Compass },
+    {
+      label: "Discover",
+      href: "/discover",
+      icon: Compass,
+      badge: onlineCount > 0 ? onlineCount : 0,
+      badgeVariant: "green" as const,
+    },
     { label: "Private", href: "/private", icon: Lock },
     { label: "Wallet", href: "/wallet", icon: Wallet },
     { label: "Leaderboard", href: "/leaderboard", icon: Trophy },
     { label: "Profile", href: `/profile/${user?.id ?? ""}`, icon: UserIcon },
-    { label: "Notifications", href: "/notifications", icon: Bell, badge: unreadCount },
+    { label: "Notifications", href: "/notifications", icon: Bell, badge: unreadCount, badgeVariant: "red" as const },
     { label: "Chain", href: "/chain", icon: Link2 },
     { label: "Settings", href: "/settings", icon: Settings },
   ];
 
-  if (!isConnected || !user) return <>{children}</>;
+  if (!walletConnected || !user) return <>{children}</>;
 
   const showBanner = !CONTRACT_DEPLOYED && !bannerDismissed;
 
@@ -68,12 +76,23 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               )}
             </div>
             <p className="text-sm text-sidebar-foreground/70">Exclusive Web3 Club</p>
+            {onlineCount > 0 && (
+              <p className="text-xs text-green-600 font-medium mt-1 flex items-center gap-1">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500" />
+                </span>
+                {onlineCount} online now
+              </p>
+            )}
           </div>
           <nav className="px-4 space-y-0.5">
             {navItems.map((item) => {
               const isActive =
                 location === item.href || location.startsWith(item.href + "/");
               const Icon = item.icon;
+              const badgeCount = item.badge ?? 0;
+              const isGreenBadge = item.badgeVariant === "green";
               return (
                 <Link
                   key={item.href}
@@ -86,9 +105,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 >
                   <div className="relative">
                     <Icon className="h-5 w-5" />
-                    {(item.badge ?? 0) > 0 && (
-                      <span className="absolute -top-1.5 -right-1.5 h-4 w-4 bg-destructive text-destructive-foreground text-[10px] font-bold rounded-full flex items-center justify-center">
-                        {item.badge! > 9 ? "9+" : item.badge}
+                    {badgeCount > 0 && (
+                      <span className={`absolute -top-1.5 -right-1.5 h-4 w-4 text-white text-[10px] font-bold rounded-full flex items-center justify-center ${
+                        isGreenBadge ? "bg-green-500" : "bg-destructive"
+                      }`}>
+                        {badgeCount > 9 ? "9+" : badgeCount}
                       </span>
                     )}
                   </div>
@@ -98,6 +119,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                       CONTRACT_DEPLOYED ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
                     }`}>
                       {CONTRACT_DEPLOYED ? "Live" : "Demo"}
+                    </span>
+                  )}
+                  {item.href === "/discover" && onlineCount > 0 && !isActive && (
+                    <span className="ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-200">
+                      {onlineCount} online
                     </span>
                   )}
                 </Link>
@@ -117,7 +143,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      {/* Main */}
+      {/* Main content */}
       <main className="flex-1 md:ml-64 w-full">
         {showBanner && (
           <div className="bg-amber-50 border-b border-amber-200 px-4 py-2.5 flex items-center justify-between gap-3">
@@ -140,11 +166,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="p-4 md:p-8 max-w-4xl mx-auto">{children}</div>
       </main>
 
-      {/* Mobile Nav */}
+      {/* Mobile bottom nav */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 border-t bg-background border-border flex justify-around p-2 z-50">
-        {navItems.filter(i => !["Settings", "Chain"].includes(i.label)).map((item) => {
+        {navItems.filter((i) => !["Settings", "Chain"].includes(i.label)).map((item) => {
           const isActive = location === item.href || location.startsWith(item.href + "/");
           const Icon = item.icon;
+          const badgeCount = item.badge ?? 0;
+          const isGreenBadge = item.badgeVariant === "green";
           return (
             <Link
               key={item.href}
@@ -152,9 +180,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               className={`p-2 rounded-md relative ${isActive ? "text-primary" : "text-muted-foreground"}`}
             >
               <Icon className="h-6 w-6" />
-              {(item.badge ?? 0) > 0 && (
-                <span className="absolute top-1 right-1 h-3.5 w-3.5 bg-destructive text-destructive-foreground text-[9px] font-bold rounded-full flex items-center justify-center">
-                  {item.badge! > 9 ? "9+" : item.badge}
+              {badgeCount > 0 && (
+                <span className={`absolute top-1 right-1 h-3.5 w-3.5 text-white text-[9px] font-bold rounded-full flex items-center justify-center ${
+                  isGreenBadge ? "bg-green-500" : "bg-destructive"
+                }`}>
+                  {badgeCount > 9 ? "9+" : badgeCount}
                 </span>
               )}
             </Link>

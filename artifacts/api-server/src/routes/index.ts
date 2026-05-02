@@ -9,6 +9,7 @@ import streakRouter from "./streak";
 import feedRouter from "./feed";
 import notificationsRouter from "./notifications";
 import storageRouter from "./storage";
+import presenceRouter from "./presence";
 
 const router: IRouter = Router();
 
@@ -22,5 +23,6 @@ router.use(streakRouter);
 router.use(feedRouter);
 router.use(notificationsRouter);
 router.use(storageRouter);
+router.use(presenceRouter);
 
 export default router;
