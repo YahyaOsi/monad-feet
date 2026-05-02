@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Link } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
@@ -31,12 +30,23 @@ export function PostCard({ post }: { post: Post }) {
   const initials = post.authorName ? post.authorName.slice(0, 2).toUpperCase() : "??";
 
   return (
-    <Card className="hover-elevate overflow-hidden transition-all duration-200">
+    <Card className="hover-elevate overflow-hidden transition-all duration-200 group">
+      {/* Mandatory image — displayed prominently at the top */}
+      {post.imageUrl && (
+        <div className="w-full overflow-hidden bg-muted">
+          <img
+            src={post.imageUrl}
+            alt="Post image"
+            className="w-full max-h-[480px] object-cover group-hover:scale-[1.005] transition-transform duration-300"
+          />
+        </div>
+      )}
+
       <CardHeader className="p-4 pb-2 flex flex-row items-center gap-3">
         <Link href={`/profile/${post.authorId}`}>
-          <Avatar className="h-10 w-10 cursor-pointer">
+          <Avatar className="h-9 w-9 cursor-pointer ring-2 ring-transparent hover:ring-primary/30 transition-all">
             <AvatarImage src={post.authorAvatarUrl || ""} alt={post.authorName || "User"} />
-            <AvatarFallback className="bg-primary/10 text-primary font-medium">{initials}</AvatarFallback>
+            <AvatarFallback className="bg-primary/10 text-primary font-medium text-xs">{initials}</AvatarFallback>
           </Avatar>
         </Link>
         <div className="flex flex-col">
@@ -50,21 +60,24 @@ export function PostCard({ post }: { post: Post }) {
           </div>
         </div>
       </CardHeader>
-      <CardContent className="p-4 pt-2">
-        <p className="whitespace-pre-wrap text-foreground/90 leading-relaxed">
-          {post.content}
-        </p>
-        {post.imageUrl && (
-          <div className="mt-3 rounded-md overflow-hidden bg-muted">
-            <img src={post.imageUrl} alt="Post attachment" className="max-h-96 w-auto object-cover" />
-          </div>
-        )}
-      </CardContent>
-      <CardFooter className="p-4 pt-0 border-t border-border/50 bg-muted/20 flex items-center justify-between">
-        <Button 
-          variant="ghost" 
-          size="sm" 
-          className={`gap-1.5 rounded-full ${post.likedByMe ? "text-destructive hover:text-destructive hover:bg-destructive/10" : "text-muted-foreground hover:text-foreground"}`}
+
+      {post.content && (
+        <CardContent className="px-4 pb-2 pt-0">
+          <p className="whitespace-pre-wrap text-foreground/90 leading-relaxed text-sm">
+            {post.content}
+          </p>
+        </CardContent>
+      )}
+
+      <CardFooter className="p-4 pt-2 border-t border-border/50 bg-muted/20 flex items-center justify-between">
+        <Button
+          variant="ghost"
+          size="sm"
+          className={`gap-1.5 rounded-full transition-colors ${
+            post.likedByMe
+              ? "text-red-500 hover:text-red-600 hover:bg-red-50"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
           onClick={handleLikeToggle}
           disabled={likePost.isPending || unlikePost.isPending}
         >

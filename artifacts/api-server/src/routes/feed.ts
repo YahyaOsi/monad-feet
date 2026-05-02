@@ -7,35 +7,17 @@ const router: IRouter = Router();
 router.get("/wallet/balance", async (req, res): Promise<void> => {
   const addr = req.headers["x-wallet-address"];
   const walletAddress = Array.isArray(addr) ? addr[0] : addr;
-
-  if (!walletAddress) {
-    res.status(400).json({ error: "Missing x-wallet-address header" });
-    return;
-  }
-
-  res.json({
-    walletAddress,
-    monBalance: "0.00",
-    mfeetBalance: "0.00",
-  });
+  if (!walletAddress) { res.status(400).json({ error: "Missing x-wallet-address header" }); return; }
+  res.json({ walletAddress, monBalance: "0.00", mfeetBalance: "0.00" });
 });
 
 router.get("/feed/summary", async (req, res): Promise<void> => {
-  const [postCount] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(postsTable);
-
-  const [likeCount] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(postLikesTable);
-
-  const [userCount] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(usersTable);
+  const [postCount] = await db.select({ count: sql<number>`count(*)::int` }).from(postsTable);
+  const [likeCount] = await db.select({ count: sql<number>`count(*)::int` }).from(postLikesTable);
+  const [userCount] = await db.select({ count: sql<number>`count(*)::int` }).from(usersTable);
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-
   const [activeToday] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(streaksTable)
@@ -68,19 +50,47 @@ router.get("/feed/summary", async (req, res): Promise<void> => {
 });
 
 router.get("/leaderboard", async (req, res): Promise<void> => {
-  const entries = await db
-    .select({
-      userId: streaksTable.userId,
-      totalPoints: streaksTable.totalPoints,
-      currentStreak: streaksTable.currentStreak,
-      name: usersTable.name,
-      username: usersTable.username,
-      avatarUrl: usersTable.avatarUrl,
-    })
-    .from(streaksTable)
-    .leftJoin(usersTable, eq(usersTable.id, streaksTable.userId))
-    .orderBy(desc(streaksTable.totalPoints))
-    .limit(50);
+  const sortBy = (req.query.sortBy as string) ?? "points";
+
+  // Use raw SQL to avoid Drizzle column resolution issues in subqueries
+  const rows = await db.execute(sql`
+    SELECT
+      u.id AS "userId",
+      u.name,
+      u.username,
+      u.avatar_url AS "avatarUrl",
+      COALESCE(s.total_points, 0) AS "totalPoints",
+      COALESCE(s.current_streak, 0) AS "currentStreak",
+      COALESCE(s.longest_streak, 0) AS "longestStreak",
+      (SELECT COUNT(*)::int FROM posts WHERE author_id = u.id) AS "postCount",
+      (SELECT COUNT(*)::int FROM post_likes pl JOIN posts p2 ON p2.id = pl.post_id WHERE p2.author_id = u.id) AS "likeCount",
+      (SELECT COUNT(*)::int FROM subscriptions WHERE creator_id = u.id AND expires_at > now()) AS "subscriberCount",
+      (SELECT COUNT(*)::int FROM subscriptions WHERE subscriber_id = u.id AND expires_at > now()) AS "subscriptionCount"
+    FROM users u
+    LEFT JOIN streaks s ON s.user_id = u.id
+    ORDER BY
+      ${sortBy === "subscribers"
+        ? sql.raw(`(SELECT COUNT(*) FROM subscriptions WHERE creator_id = u.id AND expires_at > now())`)
+        : sortBy === "engagement"
+        ? sql.raw(`(SELECT COUNT(*) FROM post_likes pl JOIN posts p2 ON p2.id = pl.post_id WHERE p2.author_id = u.id) + (SELECT COUNT(*) FROM posts WHERE author_id = u.id) * 2`)
+        : sql.raw(`COALESCE(s.total_points, 0)`)
+      } DESC
+    LIMIT 50
+  `);
+
+  const entries = rows.rows as Array<{
+    userId: number;
+    name: string | null;
+    username: string | null;
+    avatarUrl: string | null;
+    totalPoints: number;
+    currentStreak: number;
+    longestStreak: number;
+    postCount: number;
+    likeCount: number;
+    subscriberCount: number;
+    subscriptionCount: number;
+  }>;
 
   res.json(
     entries.map((e, i) => ({
@@ -89,8 +99,14 @@ router.get("/leaderboard", async (req, res): Promise<void> => {
       name: e.name,
       username: e.username,
       avatarUrl: e.avatarUrl,
-      totalPoints: e.totalPoints,
-      currentStreak: e.currentStreak,
+      totalPoints: Number(e.totalPoints),
+      currentStreak: Number(e.currentStreak),
+      longestStreak: Number(e.longestStreak),
+      postCount: Number(e.postCount),
+      likeCount: Number(e.likeCount),
+      subscriberCount: Number(e.subscriberCount),
+      subscriptionCount: Number(e.subscriptionCount),
+      engagementScore: Number(e.likeCount) + Number(e.postCount) * 2,
     }))
   );
 });
