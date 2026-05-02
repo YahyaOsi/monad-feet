@@ -271,6 +271,34 @@ export interface Comment {
   createdAt: string;
 }
 
+export interface TrendingPost {
+  id: number;
+  rank: number;
+  velocity: number;
+  recentLikes: number;
+  likeCount: number;
+  /** @nullable */
+  content?: string | null;
+  /** @nullable */
+  imageUrl?: string | null;
+  authorId: number;
+  /** @nullable */
+  authorName?: string | null;
+  /** @nullable */
+  authorUsername?: string | null;
+  /** @nullable */
+  authorAvatarUrl?: string | null;
+  /** @nullable */
+  onChainTxHash?: string | null;
+  likedByMe: boolean;
+  createdAt: string;
+}
+
+export interface TrendingResponse {
+  posts: TrendingPost[];
+  generatedAt: string;
+}
+
 export interface CreateCommentBody {
   content: string;
 }

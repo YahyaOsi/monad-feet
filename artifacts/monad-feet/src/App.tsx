@@ -19,6 +19,7 @@ import Notifications from "@/pages/notifications";
 import ChainPage from "@/pages/chain";
 import Discover from "@/pages/discover";
 import PostDetail from "@/pages/post-detail";
+import Trending from "@/pages/trending";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -55,6 +56,7 @@ function Router() {
         <Route path="/onboarding" component={Onboarding} />
         <Route path="/feed" component={() => <ProtectedRoute component={Feed} />} />
         <Route path="/discover" component={() => <ProtectedRoute component={Discover} />} />
+        <Route path="/trending" component={() => <ProtectedRoute component={Trending} />} />
         <Route
           path="/post/:postId"
           component={({ params }: { params: { postId: string } }) => (

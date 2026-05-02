@@ -119,6 +119,31 @@ export const ValidateInviteCodeResponse = zod.object({
 });
 
 /**
+ * @summary Get trending posts ranked by like velocity
+ */
+export const GetTrendingResponse = zod.object({
+  posts: zod.array(
+    zod.object({
+      id: zod.number(),
+      rank: zod.number(),
+      velocity: zod.number(),
+      recentLikes: zod.number(),
+      likeCount: zod.number(),
+      content: zod.string().nullish(),
+      imageUrl: zod.string().nullish(),
+      authorId: zod.number(),
+      authorName: zod.string().nullish(),
+      authorUsername: zod.string().nullish(),
+      authorAvatarUrl: zod.string().nullish(),
+      onChainTxHash: zod.string().nullish(),
+      likedByMe: zod.boolean(),
+      createdAt: zod.coerce.date(),
+    }),
+  ),
+  generatedAt: zod.coerce.date(),
+});
+
+/**
  * @summary List public feed posts
  */
 export const ListPostsQueryParams = zod.object({

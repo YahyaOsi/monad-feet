@@ -172,6 +172,19 @@ paths:
               schema:
                 $ref: "#/components/schemas/ValidateInviteResponse"
 
+  /trending:
+    get:
+      operationId: getTrending
+      tags: [posts]
+      summary: Get trending posts ranked by like velocity
+      responses:
+        "200":
+          description: Trending posts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrendingResponse"
+
   /posts:
     get:
       operationId: listPosts
@@ -1112,6 +1125,62 @@ components:
         - authorId
         - content
         - createdAt
+
+    TrendingPost:
+      type: object
+      properties:
+        id:
+          type: integer
+        rank:
+          type: integer
+        velocity:
+          type: number
+        recentLikes:
+          type: integer
+        likeCount:
+          type: integer
+        content:
+          type: ["string", "null"]
+        imageUrl:
+          type: ["string", "null"]
+        authorId:
+          type: integer
+        authorName:
+          type: ["string", "null"]
+        authorUsername:
+          type: ["string", "null"]
+        authorAvatarUrl:
+          type: ["string", "null"]
+        onChainTxHash:
+          type: ["string", "null"]
+        likedByMe:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - rank
+        - velocity
+        - recentLikes
+        - likeCount
+        - authorId
+        - likedByMe
+        - createdAt
+
+    TrendingResponse:
+      type: object
+      properties:
+        posts:
+          type: array
+          items:
+            $ref: "#/components/schemas/TrendingPost"
+        generatedAt:
+          type: string
+          format: date-time
+      required:
+        - posts
+        - generatedAt
 
     CreateCommentBody:
       type: object

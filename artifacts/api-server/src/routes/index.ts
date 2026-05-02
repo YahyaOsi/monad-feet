@@ -10,6 +10,7 @@ import feedRouter from "./feed";
 import notificationsRouter from "./notifications";
 import storageRouter from "./storage";
 import presenceRouter from "./presence";
+import trendingRouter from "./trending";
 
 const router: IRouter = Router();
 
@@ -24,5 +25,6 @@ router.use(feedRouter);
 router.use(notificationsRouter);
 router.use(storageRouter);
 router.use(presenceRouter);
+router.use(trendingRouter);
 
 export default router;

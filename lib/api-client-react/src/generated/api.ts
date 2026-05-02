@@ -41,6 +41,7 @@ import type {
   StreakInfo,
   Subscription,
   SubscriptionPrice,
+  TrendingResponse,
   UpdateSubscriptionPriceBody,
   UpdateUserBody,
   User,
@@ -608,6 +609,81 @@ export const useValidateInviteCode = <
 > => {
   return useMutation(getValidateInviteCodeMutationOptions(options));
 };
+
+/**
+ * @summary Get trending posts ranked by like velocity
+ */
+export const getGetTrendingUrl = () => {
+  return `/api/trending`;
+};
+
+export const getTrending = async (
+  options?: RequestInit,
+): Promise<TrendingResponse> => {
+  return customFetch<TrendingResponse>(getGetTrendingUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetTrendingQueryKey = () => {
+  return [`/api/trending`] as const;
+};
+
+export const getGetTrendingQueryOptions = <
+  TData = Awaited<ReturnType<typeof getTrending>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getTrending>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetTrendingQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getTrending>>> = ({
+    signal,
+  }) => getTrending({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getTrending>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetTrendingQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getTrending>>
+>;
+export type GetTrendingQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get trending posts ranked by like velocity
+ */
+
+export function useGetTrending<
+  TData = Awaited<ReturnType<typeof getTrending>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getTrending>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetTrendingQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary List public feed posts
