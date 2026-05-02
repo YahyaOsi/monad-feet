@@ -3,13 +3,33 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Monad Feet API specification
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication and registration
+  - name: users
+    description: User profiles
+  - name: invites
+    description: Invite code management
+  - name: posts
+    description: Public feed posts
+  - name: private-feed
+    description: Private creator content
+  - name: subscriptions
+    description: Creator subscriptions
+  - name: streak
+    description: Daily streak and points
+  - name: badges
+    description: Loyalty badges
+  - name: wallet
+    description: Wallet operations
+  - name: feed
+    description: Feed summaries
 paths:
   /healthz:
     get:
@@ -24,6 +44,457 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /auth/register:
+    post:
+      operationId: registerUser
+      tags: [auth]
+      summary: Register a new user
+      description: Register with a valid invite code and wallet address
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterUserBody"
+      responses:
+        "201":
+          description: User registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          description: Invalid request or invite code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: User already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /users/me:
+    get:
+      operationId: getMe
+      tags: [users]
+      summary: Get current user profile
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      operationId: updateMe
+      tags: [users]
+      summary: Update current user profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserBody"
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /users/{userId}:
+    get:
+      operationId: getUser
+      tags: [users]
+      summary: Get user profile by ID
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserWithStats"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /invites:
+    get:
+      operationId: getMyInvites
+      tags: [invites]
+      summary: Get current user's invite codes
+      responses:
+        "200":
+          description: List of invite codes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InviteCode"
+
+  /invites/validate:
+    post:
+      operationId: validateInviteCode
+      tags: [invites]
+      summary: Validate an invite code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ValidateInviteBody"
+      responses:
+        "200":
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidateInviteResponse"
+
+  /posts:
+    get:
+      operationId: listPosts
+      tags: [posts]
+      summary: List public feed posts
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: ["integer", "null"]
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: ["integer", "null"]
+      responses:
+        "200":
+          description: List of posts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostsPage"
+    post:
+      operationId: createPost
+      tags: [posts]
+      summary: Create a new public post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePostBody"
+      responses:
+        "201":
+          description: Created post
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Post"
+
+  /posts/{postId}:
+    get:
+      operationId: getPost
+      tags: [posts]
+      summary: Get a single post
+      parameters:
+        - name: postId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Post
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Post"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deletePost
+      tags: [posts]
+      summary: Delete a post
+      parameters:
+        - name: postId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /posts/{postId}/like:
+    post:
+      operationId: likePost
+      tags: [posts]
+      summary: Like a post
+      parameters:
+        - name: postId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Like result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LikeResponse"
+    delete:
+      operationId: unlikePost
+      tags: [posts]
+      summary: Unlike a post
+      parameters:
+        - name: postId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Unlike result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LikeResponse"
+
+  /private-posts:
+    get:
+      operationId: listPrivatePosts
+      tags: [private-feed]
+      summary: List private posts for subscribed creator
+      parameters:
+        - name: creatorId
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of private posts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PrivatePost"
+        "403":
+          description: Not subscribed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: createPrivatePost
+      tags: [private-feed]
+      summary: Create a private post (creator only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePrivatePostBody"
+      responses:
+        "201":
+          description: Created private post
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PrivatePost"
+
+  /subscriptions:
+    get:
+      operationId: listSubscriptions
+      tags: [subscriptions]
+      summary: List current user's active subscriptions
+      responses:
+        "200":
+          description: Subscriptions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Subscription"
+    post:
+      operationId: createSubscription
+      tags: [subscriptions]
+      summary: Subscribe to a creator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSubscriptionBody"
+      responses:
+        "201":
+          description: Subscription created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Subscription"
+        "402":
+          description: Payment required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /subscriptions/price:
+    put:
+      operationId: updateSubscriptionPrice
+      tags: [subscriptions]
+      summary: Set or update creator subscription price
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSubscriptionPriceBody"
+      responses:
+        "200":
+          description: Updated price
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubscriptionPrice"
+
+  /subscriptions/price/{creatorId}:
+    get:
+      operationId: getCreatorSubscriptionPrice
+      tags: [subscriptions]
+      summary: Get creator's subscription price
+      parameters:
+        - name: creatorId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Subscription price
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubscriptionPrice"
+        "404":
+          description: No price set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /streak:
+    get:
+      operationId: getStreak
+      tags: [streak]
+      summary: Get current user's streak and points
+      responses:
+        "200":
+          description: Streak info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StreakInfo"
+
+  /streak/checkin:
+    post:
+      operationId: dailyCheckin
+      tags: [streak]
+      summary: Daily login checkin for streak and points
+      responses:
+        "200":
+          description: Updated streak
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StreakInfo"
+
+  /badges:
+    get:
+      operationId: listBadges
+      tags: [badges]
+      summary: List current user's loyalty badges
+      responses:
+        "200":
+          description: Badges
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Badge"
+
+  /wallet/balance:
+    get:
+      operationId: getWalletBalance
+      tags: [wallet]
+      summary: Get user wallet balances
+      responses:
+        "200":
+          description: Wallet balances
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletBalance"
+
+  /feed/summary:
+    get:
+      operationId: getFeedSummary
+      tags: [feed]
+      summary: Get feed summary stats
+      responses:
+        "200":
+          description: Feed summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedSummary"
+
+  /leaderboard:
+    get:
+      operationId: getLeaderboard
+      tags: [feed]
+      summary: Get top users by streak points
+      responses:
+        "200":
+          description: Leaderboard
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LeaderboardEntry"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +505,445 @@ components:
       required:
         - status
 
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        walletAddress:
+          type: string
+        email:
+          type: ["string", "null"]
+        name:
+          type: ["string", "null"]
+        username:
+          type: ["string", "null"]
+        avatarUrl:
+          type: ["string", "null"]
+        bio:
+          type: ["string", "null"]
+        subscriptionPrice:
+          type: ["number", "null"]
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - walletAddress
+        - createdAt
+
+    UserWithStats:
+      type: object
+      properties:
+        id:
+          type: integer
+        walletAddress:
+          type: string
+        email:
+          type: ["string", "null"]
+        name:
+          type: ["string", "null"]
+        username:
+          type: ["string", "null"]
+        avatarUrl:
+          type: ["string", "null"]
+        bio:
+          type: ["string", "null"]
+        subscriptionPrice:
+          type: ["number", "null"]
+        createdAt:
+          type: string
+          format: date-time
+        postCount:
+          type: integer
+        totalLikes:
+          type: integer
+        streakPoints:
+          type: integer
+        currentStreak:
+          type: integer
+      required:
+        - id
+        - walletAddress
+        - createdAt
+        - postCount
+        - totalLikes
+        - streakPoints
+        - currentStreak
+
+    RegisterUserBody:
+      type: object
+      properties:
+        walletAddress:
+          type: string
+        inviteCode:
+          type: string
+        email:
+          type: ["string", "null"]
+        name:
+          type: string
+        username:
+          type: string
+        avatarUrl:
+          type: ["string", "null"]
+      required:
+        - walletAddress
+        - inviteCode
+        - name
+        - username
+
+    UpdateUserBody:
+      type: object
+      properties:
+        walletAddress:
+          type: string
+        name:
+          type: ["string", "null"]
+        username:
+          type: ["string", "null"]
+        avatarUrl:
+          type: ["string", "null"]
+        bio:
+          type: ["string", "null"]
+      required:
+        - walletAddress
+
+    InviteCode:
+      type: object
+      properties:
+        id:
+          type: integer
+        code:
+          type: string
+        used:
+          type: boolean
+        usedByUsername:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - code
+        - used
+        - createdAt
+
+    ValidateInviteBody:
+      type: object
+      properties:
+        code:
+          type: string
+      required:
+        - code
+
+    ValidateInviteResponse:
+      type: object
+      properties:
+        valid:
+          type: boolean
+        message:
+          type: string
+      required:
+        - valid
+        - message
+
+    Post:
+      type: object
+      properties:
+        id:
+          type: integer
+        content:
+          type: string
+        imageUrl:
+          type: ["string", "null"]
+        authorId:
+          type: integer
+        authorName:
+          type: ["string", "null"]
+        authorUsername:
+          type: ["string", "null"]
+        authorAvatarUrl:
+          type: ["string", "null"]
+        likeCount:
+          type: integer
+        likedByMe:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - content
+        - authorId
+        - likeCount
+        - likedByMe
+        - createdAt
+
+    PostsPage:
+      type: object
+      properties:
+        posts:
+          type: array
+          items:
+            $ref: "#/components/schemas/Post"
+        nextCursor:
+          type: ["integer", "null"]
+        total:
+          type: integer
+      required:
+        - posts
+        - total
+
+    CreatePostBody:
+      type: object
+      properties:
+        content:
+          type: string
+        imageUrl:
+          type: ["string", "null"]
+        authorWalletAddress:
+          type: string
+      required:
+        - content
+        - authorWalletAddress
+
+    LikeResponse:
+      type: object
+      properties:
+        likeCount:
+          type: integer
+        likedByMe:
+          type: boolean
+      required:
+        - likeCount
+        - likedByMe
+
+    PrivatePost:
+      type: object
+      properties:
+        id:
+          type: integer
+        content:
+          type: string
+        imageUrl:
+          type: ["string", "null"]
+        creatorId:
+          type: integer
+        creatorName:
+          type: ["string", "null"]
+        creatorUsername:
+          type: ["string", "null"]
+        creatorAvatarUrl:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - content
+        - creatorId
+        - createdAt
+
+    CreatePrivatePostBody:
+      type: object
+      properties:
+        content:
+          type: string
+        imageUrl:
+          type: ["string", "null"]
+        creatorWalletAddress:
+          type: string
+      required:
+        - content
+        - creatorWalletAddress
+
+    Subscription:
+      type: object
+      properties:
+        id:
+          type: integer
+        subscriberId:
+          type: integer
+        creatorId:
+          type: integer
+        creatorName:
+          type: ["string", "null"]
+        creatorUsername:
+          type: ["string", "null"]
+        creatorAvatarUrl:
+          type: ["string", "null"]
+        pricePerMonth:
+          type: number
+        consecutiveMonths:
+          type: integer
+        expiresAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - subscriberId
+        - creatorId
+        - pricePerMonth
+        - consecutiveMonths
+        - expiresAt
+        - createdAt
+
+    CreateSubscriptionBody:
+      type: object
+      properties:
+        subscriberWalletAddress:
+          type: string
+        creatorId:
+          type: integer
+        txHash:
+          type: string
+      required:
+        - subscriberWalletAddress
+        - creatorId
+        - txHash
+
+    SubscriptionPrice:
+      type: object
+      properties:
+        creatorId:
+          type: integer
+        pricePerMonth:
+          type: number
+      required:
+        - creatorId
+        - pricePerMonth
+
+    UpdateSubscriptionPriceBody:
+      type: object
+      properties:
+        walletAddress:
+          type: string
+        pricePerMonth:
+          type: number
+      required:
+        - walletAddress
+        - pricePerMonth
+
+    StreakInfo:
+      type: object
+      properties:
+        userId:
+          type: integer
+        currentStreak:
+          type: integer
+        longestStreak:
+          type: integer
+        totalPoints:
+          type: integer
+        lastCheckin:
+          type: ["string", "null"]
+          format: date-time
+        checkedInToday:
+          type: boolean
+        extraInviteEarned:
+          type: boolean
+      required:
+        - userId
+        - currentStreak
+        - longestStreak
+        - totalPoints
+        - checkedInToday
+        - extraInviteEarned
+
+    Badge:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        badgeType:
+          type: string
+        label:
+          type: string
+        description:
+          type: string
+        creatorId:
+          type: ["integer", "null"]
+        creatorName:
+          type: ["string", "null"]
+        earnedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - userId
+        - badgeType
+        - label
+        - description
+        - earnedAt
+
+    WalletBalance:
+      type: object
+      properties:
+        walletAddress:
+          type: string
+        monBalance:
+          type: string
+        mfeetBalance:
+          type: string
+      required:
+        - walletAddress
+        - monBalance
+        - mfeetBalance
+
+    FeedSummary:
+      type: object
+      properties:
+        totalPosts:
+          type: integer
+        totalLikes:
+          type: integer
+        totalUsers:
+          type: integer
+        activeToday:
+          type: integer
+        trendingPosts:
+          type: array
+          items:
+            $ref: "#/components/schemas/Post"
+      required:
+        - totalPosts
+        - totalLikes
+        - totalUsers
+        - activeToday
+        - trendingPosts
+
+    LeaderboardEntry:
+      type: object
+      properties:
+        rank:
+          type: integer
+        userId:
+          type: integer
+        name:
+          type: ["string", "null"]
+        username:
+          type: ["string", "null"]
+        avatarUrl:
+          type: ["string", "null"]
+        totalPoints:
+          type: integer
+        currentStreak:
+          type: integer
+      required:
+        - rank
+        - userId
+        - totalPoints
+        - currentStreak

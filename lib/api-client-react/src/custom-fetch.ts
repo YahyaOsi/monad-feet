@@ -358,6 +358,11 @@ export async function customFetch<T = unknown>(
     }
   }
 
+  const walletAddress = typeof localStorage !== "undefined" ? localStorage.getItem("mf_wallet_address") : null;
+  if (walletAddress && !headers.has("x-wallet-address")) {
+    headers.set("x-wallet-address", walletAddress);
+  }
+
   const requestInfo = { method, url: resolveUrl(input) };
 
   const response = await fetch(input, { ...init, method, headers });
