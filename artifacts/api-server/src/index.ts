@@ -2,6 +2,7 @@ import http from "http";
 import app from "./app";
 import { logger } from "./lib/logger";
 import { setupPresence } from "./presence";
+import { scheduleWeeklyDigest } from "./weekly-digest";
 
 const rawPort = process.env["PORT"];
 
@@ -21,6 +22,11 @@ const server = http.createServer(app);
 
 // Attach WebSocket presence server
 setupPresence(server);
+
+// Schedule weekly digest (runs every Sunday midnight)
+scheduleWeeklyDigest().catch((e) =>
+  logger.error({ e }, "Failed to schedule weekly digest"),
+);
 
 server.listen(port, () => {
   logger.info({ port }, "Server listening");
