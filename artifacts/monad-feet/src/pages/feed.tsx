@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useUser } from "@/context/UserContext";
 import { useListPosts, useGetFeedSummary, useCreatePost } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -6,10 +6,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { PostCard } from "@/components/post/PostCard";
-import { Plus, Users, Heart, MessageSquare, ImageIcon, X, Loader2, Link2, CheckCircle2, Flame, TrendingUp } from "lucide-react";
+import {
+  Plus, Users, Heart, MessageSquare, ImageIcon, X, Loader2,
+  Link2, CheckCircle2, Flame, TrendingUp, ArrowUp, Zap
+} from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getListPostsQueryKey, getGetFeedSummaryQueryKey } from "@workspace/api-client-react";
 import { useContractActions } from "@/lib/useContractActions";
+import { useActivityFeed, type LivePost } from "@/hooks/usePresence";
+import type { Post } from "@workspace/api-client-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -25,11 +30,7 @@ async function requestUploadUrl(file: File): Promise<{ uploadURL: string; object
 }
 
 async function uploadToGCS(uploadURL: string, file: File): Promise<void> {
-  const res = await fetch(uploadURL, {
-    method: "PUT",
-    headers: { "Content-Type": file.type },
-    body: file,
-  });
+  const res = await fetch(uploadURL, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
   if (!res.ok) throw new Error("Upload failed");
 }
 
@@ -40,6 +41,22 @@ async function anchorPostOnDB(postId: number, txHash: string): Promise<void> {
     headers: { "Content-Type": "application/json", "x-wallet-address": wallet },
     body: JSON.stringify({ txHash }),
   });
+}
+
+function livePostToPost(p: LivePost): Post {
+  return {
+    id: p.id,
+    content: p.content ?? "",
+    imageUrl: p.imageUrl ?? null,
+    authorId: p.authorId,
+    authorName: p.authorName ?? null,
+    authorUsername: p.authorUsername ?? null,
+    authorAvatarUrl: p.authorAvatarUrl ?? null,
+    onChainTxHash: p.onChainTxHash ?? null,
+    likeCount: p.likeCount,
+    likedByMe: p.likedByMe,
+    createdAt: typeof p.createdAt === "string" ? p.createdAt : p.createdAt.toISOString(),
+  };
 }
 
 type PostStep = "idle" | "uploading" | "saving" | "signing" | "done" | "error";
@@ -61,14 +78,40 @@ export default function Feed() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>("latest");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const feedTopRef = useRef<HTMLDivElement>(null);
+
+  // Live prepended posts from WS (flushed by clicking banner)
+  const [livePosts, setLivePosts] = useState<Post[]>([]);
+
+  // Activity feed hook — live like updates, pending new posts, anchor updates
+  const { pendingCount, flushPending, likeUpdates, anchorUpdates } = useActivityFeed(user?.id);
+
+  const handleFlushPending = useCallback(() => {
+    const flushed = flushPending();
+    setLivePosts((prev) => [...flushed.map(livePostToPost), ...prev]);
+    feedTopRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [flushPending]);
+
+  // Merge live posts + server posts, deduplicate
+  const serverPosts = feedPage?.posts ?? [];
+  const liveIds = new Set(livePosts.map((p) => p.id));
+  const mergedPosts = [...livePosts, ...serverPosts.filter((p) => !liveIds.has(p.id))];
+
+  // Apply live like-count and anchor overrides
+  const enrichedPosts: Post[] = mergedPosts.map((p) => ({
+    ...p,
+    likeCount: likeUpdates.has(p.id) ? (likeUpdates.get(p.id) ?? p.likeCount) : p.likeCount,
+    onChainTxHash: anchorUpdates.has(p.id) ? (anchorUpdates.get(p.id) ?? p.onChainTxHash) : p.onChainTxHash,
+  }));
+
+  const sortedPosts = sortMode === "top"
+    ? [...enrichedPosts].sort((a, b) => (b.likeCount ?? 0) - (a.likeCount ?? 0))
+    : enrichedPosts;
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      setUploadError("Please select an image file.");
-      return;
-    }
+    if (!file.type.startsWith("image/")) { setUploadError("Please select an image file."); return; }
     setUploadError(null);
     setImageFile(file);
     const reader = new FileReader();
@@ -85,7 +128,6 @@ export default function Feed() {
   const handleCreatePost = async () => {
     if (!imageFile || !user) return;
     setUploadError(null);
-
     try {
       setPostStep("uploading");
       const { uploadURL, objectPath } = await requestUploadUrl(imageFile);
@@ -103,9 +145,7 @@ export default function Feed() {
           const contentUri = `mf:${post.id}:${objectPath}`;
           const txHash = await createPostOnChain(post.id, contentUri);
           if (txHash) await anchorPostOnDB(post.id, txHash);
-        } catch {
-          // user declined or error — post is already saved
-        }
+        } catch { /* user declined */ }
       }
 
       setPostStep("done");
@@ -114,23 +154,16 @@ export default function Feed() {
       clearImage();
       queryClient.invalidateQueries({ queryKey: getListPostsQueryKey() });
       queryClient.invalidateQueries({ queryKey: getGetFeedSummaryQueryKey() });
-
       setTimeout(() => setPostStep("idle"), 3000);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed to post. Please try again.";
-      setUploadError(msg);
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : "Failed to post. Please try again.");
       setPostStep("error");
     }
   };
 
   const handleOpenChange = (open: boolean) => {
     setIsComposeOpen(open);
-    if (!open) {
-      clearImage();
-      setContent("");
-      setUploadError(null);
-      setPostStep("idle");
-    }
+    if (!open) { clearImage(); setContent(""); setUploadError(null); setPostStep("idle"); }
   };
 
   const isPosting = postStep === "uploading" || postStep === "saving" || postStep === "signing";
@@ -142,14 +175,9 @@ export default function Feed() {
     return contractDeployed ? "Post & Sign on Monad" : "Post";
   };
 
-  const allPosts = feedPage?.posts ?? [];
-  const sortedPosts = sortMode === "top"
-    ? [...allPosts].sort((a, b) => (b.likeCount ?? 0) - (a.likeCount ?? 0))
-    : allPosts;
-
   return (
     <div className="space-y-6 pb-20">
-      <div className="flex items-center justify-between">
+      <div ref={feedTopRef} className="flex items-center justify-between">
         <h1 className="text-3xl font-bold tracking-tight">Feed</h1>
         <div className="flex items-center gap-2">
           {postStep === "done" && (
@@ -157,6 +185,14 @@ export default function Feed() {
               <CheckCircle2 className="h-3.5 w-3.5" /> Posted{contractDeployed ? " & anchored on Monad" : ""}
             </div>
           )}
+          {/* Live indicator */}
+          <div className="flex items-center gap-1 text-[11px] font-medium text-green-600 bg-green-50 border border-green-200 px-2 py-1 rounded-full">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500" />
+            </span>
+            Live
+          </div>
         </div>
       </div>
 
@@ -169,7 +205,7 @@ export default function Feed() {
               </div>
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Total Posts</p>
-                <p className="text-2xl font-bold">{summary.totalPosts}</p>
+                <p className="text-2xl font-bold">{summary.totalPosts + livePosts.length}</p>
               </div>
             </CardContent>
           </Card>
@@ -220,7 +256,21 @@ export default function Feed() {
         >
           <TrendingUp className="h-3.5 w-3.5" /> Top
         </button>
+        <div className="ml-auto flex items-center gap-1 text-[10px] text-muted-foreground">
+          <Zap className="h-3 w-3 text-yellow-500" /> Likes update live
+        </div>
       </div>
+
+      {/* ── New posts banner ── */}
+      {pendingCount > 0 && (
+        <button
+          onClick={handleFlushPending}
+          className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-primary text-primary-foreground font-semibold text-sm shadow-lg hover:bg-primary/90 transition-all animate-in slide-in-from-top-2 duration-300"
+        >
+          <ArrowUp className="h-4 w-4" />
+          {pendingCount} new {pendingCount === 1 ? "post" : "posts"} — tap to load
+        </button>
+      )}
 
       <div className="space-y-4">
         {feedLoading ? (
@@ -242,6 +292,7 @@ export default function Feed() {
         )}
       </div>
 
+      {/* Compose dialog */}
       <Dialog open={isComposeOpen} onOpenChange={handleOpenChange}>
         <DialogTrigger asChild>
           <Button
@@ -278,19 +329,11 @@ export default function Feed() {
                   </div>
                   <div className="text-center">
                     <p className="font-semibold text-sm">Add an image</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Required — click to browse or drop a file
-                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Required — click to browse</p>
                   </div>
                 </button>
               )}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleFileSelect}
-              />
+              <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileSelect} />
             </div>
 
             <Textarea
@@ -303,10 +346,7 @@ export default function Feed() {
             {contractDeployed && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-lg px-3 py-2">
                 <Link2 className="h-3.5 w-3.5 text-primary flex-shrink-0" />
-                <span>
-                  This post will be anchored on{" "}
-                  <strong>Monad Mainnet</strong> — your wallet will prompt for a signature.
-                </span>
+                This post will be anchored on <strong>Monad Mainnet</strong> — your wallet will prompt for a signature.
               </div>
             )}
 
@@ -320,13 +360,11 @@ export default function Feed() {
             {uploadError && <p className="text-sm text-destructive">{uploadError}</p>}
 
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={isPosting}>
-                Cancel
-              </Button>
+              <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={isPosting}>Cancel</Button>
               <Button onClick={handleCreatePost} disabled={!imageFile || isPosting}>
-                {isPosting ? (
-                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> {postButtonLabel()}</>
-                ) : postButtonLabel()}
+                {isPosting
+                  ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />{postButtonLabel()}</>
+                  : postButtonLabel()}
               </Button>
             </div>
           </div>

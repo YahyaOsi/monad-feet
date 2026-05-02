@@ -19,6 +19,7 @@ import {
   UnlikePostParams,
 } from "@workspace/api-zod";
 import { nanoid } from "nanoid";
+import { broadcastActivity } from "../presence";
 
 const router: IRouter = Router();
 
@@ -109,7 +110,7 @@ router.post("/posts", async (req, res): Promise<void> => {
     .values({ content: content ?? "", imageUrl, authorId: author.id })
     .returning();
 
-  res.status(201).json({
+  const payload = {
     id: post.id,
     content: post.content,
     imageUrl: post.imageUrl,
@@ -117,10 +118,16 @@ router.post("/posts", async (req, res): Promise<void> => {
     authorName: author.name,
     authorUsername: author.username,
     authorAvatarUrl: author.avatarUrl,
+    onChainTxHash: null as string | null,
     likeCount: 0,
     likedByMe: false,
     createdAt: post.createdAt,
-  });
+  };
+
+  res.status(201).json(payload);
+
+  // Broadcast new post to all connected clients
+  broadcastActivity({ type: "post_created", post: payload, actorId: author.id });
 });
 
 router.get("/posts/:postId", async (req, res): Promise<void> => {
@@ -138,6 +145,7 @@ router.get("/posts/:postId", async (req, res): Promise<void> => {
       imageUrl: postsTable.imageUrl,
       authorId: postsTable.authorId,
       createdAt: postsTable.createdAt,
+      onChainTxHash: postsTable.onChainTxHash,
       authorName: usersTable.name,
       authorUsername: usersTable.username,
       authorAvatarUrl: usersTable.avatarUrl,
@@ -195,7 +203,6 @@ router.post("/posts/:postId/like", async (req, res): Promise<void> => {
     .from(postLikesTable)
     .where(and(eq(postLikesTable.postId, params.data.postId), eq(postLikesTable.userId, currentUser.id)));
 
-  // Optional on-chain tx hash from likePost() call on Monad
   const likeTxHash = typeof req.body?.txHash === "string" ? req.body.txHash : null;
 
   if (!existing) {
@@ -205,7 +212,6 @@ router.post("/posts/:postId/like", async (req, res): Promise<void> => {
       ...(likeTxHash ? { onChainTxHash: likeTxHash } : {}),
     });
 
-    // Notify post author if they have likes notifications enabled
     if (post.authorId !== currentUser.id && (await shouldNotify(post.authorId, "like"))) {
       await db.insert(notificationsTable).values({
         userId: post.authorId,
@@ -220,7 +226,7 @@ router.post("/posts/:postId/like", async (req, res): Promise<void> => {
     }
   }
 
-  // Like streak for extra invite code
+  // Like streak
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const [streak] = await db.select().from(streaksTable).where(eq(streaksTable.userId, currentUser.id));
@@ -260,7 +266,11 @@ router.post("/posts/:postId/like", async (req, res): Promise<void> => {
     .from(postLikesTable)
     .where(eq(postLikesTable.postId, params.data.postId));
 
-  res.json({ likeCount: countRow?.count ?? 0, likedByMe: true });
+  const newLikeCount = countRow?.count ?? 0;
+  res.json({ likeCount: newLikeCount, likedByMe: true });
+
+  // Broadcast like to all connected clients
+  broadcastActivity({ type: "post_liked", postId: params.data.postId, likeCount: newLikeCount, actorId: currentUser.id });
 });
 
 router.patch("/posts/:postId/anchor", async (req, res): Promise<void> => {
@@ -286,6 +296,9 @@ router.patch("/posts/:postId/anchor", async (req, res): Promise<void> => {
     .returning({ onChainTxHash: postsTable.onChainTxHash });
 
   res.json({ onChainTxHash: updated.onChainTxHash });
+
+  // Broadcast anchor so feed cards update with on-chain badge live
+  broadcastActivity({ type: "post_anchored", postId, txHash });
 });
 
 router.delete("/posts/:postId/like", async (req, res): Promise<void> => {
@@ -306,7 +319,11 @@ router.delete("/posts/:postId/like", async (req, res): Promise<void> => {
     .from(postLikesTable)
     .where(eq(postLikesTable.postId, params.data.postId));
 
-  res.json({ likeCount: countRow?.count ?? 0, likedByMe: false });
+  const newLikeCount = countRow?.count ?? 0;
+  res.json({ likeCount: newLikeCount, likedByMe: false });
+
+  // Broadcast unlike count correction
+  broadcastActivity({ type: "post_liked", postId: params.data.postId, likeCount: newLikeCount, actorId: currentUser.id });
 });
 
 export default router;

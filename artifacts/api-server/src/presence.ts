@@ -11,6 +11,25 @@ export type PresenceUser = {
   connectedAt: string;
 };
 
+export type PostPayload = {
+  id: number;
+  content: string | null;
+  imageUrl: string | null;
+  authorId: number;
+  authorName: string | null;
+  authorUsername: string | null;
+  authorAvatarUrl: string | null;
+  onChainTxHash: string | null;
+  likeCount: number;
+  likedByMe: boolean;
+  createdAt: string | Date;
+};
+
+export type ActivityEvent =
+  | { type: "post_created"; post: PostPayload; actorId: number }
+  | { type: "post_liked"; postId: number; likeCount: number; actorId: number }
+  | { type: "post_anchored"; postId: number; txHash: string };
+
 interface ExtWS extends WebSocket {
   __isAlive?: boolean;
 }
@@ -21,13 +40,20 @@ export function getOnlineUsers(): PresenceUser[] {
   return Array.from(clients.values());
 }
 
-function broadcast() {
-  const msg = JSON.stringify({ type: "presence", users: getOnlineUsers() });
+function broadcastAll(msg: string) {
   for (const [ws] of clients) {
     if (ws.readyState === 1 /* OPEN */) {
       try { ws.send(msg); } catch { /* skip */ }
     }
   }
+}
+
+function broadcastPresence() {
+  broadcastAll(JSON.stringify({ type: "presence", users: getOnlineUsers() }));
+}
+
+export function broadcastActivity(event: ActivityEvent): void {
+  broadcastAll(JSON.stringify({ type: "activity", event }));
 }
 
 export function setupPresence(server: HttpServer): void {
@@ -82,21 +108,18 @@ export function setupPresence(server: HttpServer): void {
 
     logger.info({ userId, username }, "Presence: user connected");
 
-    // Send current list immediately to this new client
+    // Send current state immediately to the new client
     try {
       ws.send(JSON.stringify({ type: "presence", users: getOnlineUsers() }));
     } catch { /* skip */ }
 
-    // Broadcast join to everyone
-    broadcast();
+    broadcastPresence();
 
-    ws.on("pong", () => {
-      ws.__isAlive = true;
-    });
+    ws.on("pong", () => { ws.__isAlive = true; });
 
     ws.on("message", (raw) => {
       try {
-        const msg = JSON.parse(String(raw));
+        const msg = JSON.parse(String(raw)) as { type?: string };
         if (msg.type === "ping") {
           ws.send(JSON.stringify({ type: "pong" }));
         }
@@ -106,16 +129,16 @@ export function setupPresence(server: HttpServer): void {
     ws.on("close", () => {
       clients.delete(ws);
       logger.info({ userId, username }, "Presence: user disconnected");
-      broadcast();
+      broadcastPresence();
     });
 
     ws.on("error", () => {
       clients.delete(ws);
-      broadcast();
+      broadcastPresence();
     });
   });
 
-  // Heartbeat — kick dead connections every 45s
+  // Heartbeat — evict dead connections every 45s
   const heartbeat = setInterval(() => {
     for (const [ws] of clients) {
       if (!ws.__isAlive) {
@@ -128,7 +151,7 @@ export function setupPresence(server: HttpServer): void {
         ws.ping();
       }
     }
-    broadcast();
+    broadcastPresence();
   }, 45_000);
 
   wss.on("close", () => clearInterval(heartbeat));
