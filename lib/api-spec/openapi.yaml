@@ -790,6 +790,8 @@ components:
           type: ["string", "null"]
         creatorAvatarUrl:
           type: ["string", "null"]
+        creatorWalletAddress:
+          type: ["string", "null"]
         pricePerMonth:
           type: number
         consecutiveMonths:
@@ -800,6 +802,8 @@ components:
         createdAt:
           type: string
           format: date-time
+        txHash:
+          type: ["string", "null"]
       required:
         - id
         - subscriberId

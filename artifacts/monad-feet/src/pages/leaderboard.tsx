@@ -4,7 +4,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Trophy, Medal, Flame, Users, Zap, Star } from "lucide-react";
+import { Trophy, Medal, Flame, Users, Zap, Star, Link2, Shield } from "lucide-react";
+import { useContractUserCount } from "@/lib/useOnChain";
+import { CONTRACT_DEPLOYED } from "@/lib/contract";
 
 interface LeaderEntry {
   rank: number;
@@ -19,6 +21,7 @@ interface LeaderEntry {
   likeCount: number;
   subscriberCount: number;
   engagementScore: number;
+  registrationTxHash?: string | null;
 }
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -37,6 +40,9 @@ function LeaderRow({
   entry: LeaderEntry;
   metric: { label: string; value: number; icon: React.ReactNode };
 }) {
+  const isChainVerified = !!entry.registrationTxHash;
+  const hasStreak = entry.currentStreak > 0;
+
   return (
     <div className="flex items-center justify-between p-4 hover:bg-muted/50 transition-colors">
       <div className="flex items-center gap-4">
@@ -44,26 +50,47 @@ function LeaderRow({
           <RankBadge rank={entry.rank} />
         </div>
         <Link href={`/profile/${entry.userId}`}>
-          <Avatar className="h-10 w-10 cursor-pointer ring-2 ring-transparent hover:ring-primary/30 transition-all">
-            <AvatarImage src={entry.avatarUrl ?? ""} />
-            <AvatarFallback className="bg-primary/10 text-primary font-semibold text-xs">
-              {entry.name?.slice(0, 2).toUpperCase() ?? "??"}
-            </AvatarFallback>
-          </Avatar>
+          <div className="relative">
+            <Avatar className="h-10 w-10 cursor-pointer ring-2 ring-transparent hover:ring-primary/30 transition-all">
+              <AvatarImage src={entry.avatarUrl ?? ""} />
+              <AvatarFallback className="bg-primary/10 text-primary font-semibold text-xs">
+                {entry.name?.slice(0, 2).toUpperCase() ?? "??"}
+              </AvatarFallback>
+            </Avatar>
+            {/* Chain verified dot */}
+            {CONTRACT_DEPLOYED && isChainVerified && (
+              <div className="absolute -bottom-0.5 -right-0.5 h-4 w-4 bg-violet-600 rounded-full flex items-center justify-center border border-background">
+                <Shield className="h-2 w-2 text-white" />
+              </div>
+            )}
+          </div>
         </Link>
         <div>
-          <Link href={`/profile/${entry.userId}`} className="font-semibold text-sm hover:underline block">
-            {entry.name ?? "Anonymous"}
-          </Link>
-          <span className="text-xs text-muted-foreground">@{entry.username}</span>
+          <div className="flex items-center gap-1.5">
+            <Link href={`/profile/${entry.userId}`} className="font-semibold text-sm hover:underline">
+              {entry.name ?? "Anonymous"}
+            </Link>
+            {CONTRACT_DEPLOYED && isChainVerified && (
+              <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200">
+                <Link2 className="h-2 w-2" /> Monad
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">@{entry.username}</span>
+            {hasStreak && (
+              <span className="text-xs text-orange-600 font-medium flex items-center gap-0.5">
+                <Flame className="h-3 w-3" /> {entry.currentStreak}d
+              </span>
+            )}
+          </div>
         </div>
       </div>
+
       <div className="flex items-center gap-5 text-right">
-        <div className="hidden sm:flex flex-col items-center">
-          <span className="text-xs text-muted-foreground font-medium flex items-center gap-1">
-            <Flame className="h-3 w-3 text-orange-500" /> Streak
-          </span>
-          <span className="font-semibold text-sm">{entry.currentStreak}d</span>
+        <div className="hidden sm:flex flex-col items-center min-w-[60px]">
+          <span className="text-xs text-muted-foreground font-medium">Posts</span>
+          <span className="font-semibold text-sm">{entry.postCount}</span>
         </div>
         <div className="flex flex-col items-center min-w-[80px]">
           <span className="text-xs text-muted-foreground font-medium flex items-center gap-1">
@@ -101,8 +128,12 @@ function LeaderList({
         {loading ? (
           <div className="divide-y">
             {[...Array(5)].map((_, i) => (
-              <div key={i} className="p-4 animate-pulse">
-                <div className="h-10 bg-muted rounded-md" />
+              <div key={i} className="p-4 animate-pulse flex items-center gap-4">
+                <div className="h-10 w-10 rounded-full bg-muted" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 bg-muted rounded w-1/3" />
+                  <div className="h-3 bg-muted rounded w-1/4" />
+                </div>
               </div>
             ))}
           </div>
@@ -124,17 +155,48 @@ function LeaderList({
 }
 
 export default function Leaderboard() {
+  const { data: chainUserCount } = useContractUserCount();
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <div className="p-2 bg-yellow-100 text-yellow-600 rounded-lg">
-          <Trophy className="h-6 w-6" />
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-yellow-100 text-yellow-600 rounded-lg">
+            <Trophy className="h-6 w-6" />
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Leaderboard</h1>
+            <p className="text-muted-foreground text-sm">Top community members across all metrics</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Leaderboard</h1>
-          <p className="text-muted-foreground text-sm">Top community members across all metrics</p>
-        </div>
+        {CONTRACT_DEPLOYED && chainUserCount !== undefined && (
+          <div className="flex flex-col items-end">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-violet-700 bg-violet-50 border border-violet-200 rounded-full px-3 py-1">
+              <Link2 className="h-3 w-3" />
+              {Number(chainUserCount).toLocaleString()} on Monad Mainnet
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1 text-right">
+              <Shield className="h-2.5 w-2.5 inline mr-0.5" /> = verified on-chain
+            </p>
+          </div>
+        )}
       </div>
+
+      {/* Legend */}
+      {CONTRACT_DEPLOYED && (
+        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+          <div className="flex items-center gap-1.5">
+            <div className="h-5 w-5 bg-violet-600 rounded-full flex items-center justify-center">
+              <Shield className="h-2.5 w-2.5 text-white" />
+            </div>
+            Registered on Monad Mainnet
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Flame className="h-4 w-4 text-orange-500" />
+            Active streak
+          </div>
+        </div>
+      )}
 
       <Tabs defaultValue="points">
         <TabsList className="w-full">

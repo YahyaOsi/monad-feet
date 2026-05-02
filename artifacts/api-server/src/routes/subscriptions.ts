@@ -53,9 +53,11 @@ router.get("/subscriptions", async (req, res): Promise<void> => {
       consecutiveMonths: subscriptionsTable.consecutiveMonths,
       expiresAt: subscriptionsTable.expiresAt,
       createdAt: subscriptionsTable.createdAt,
+      txHash: subscriptionsTable.txHash,
       creatorName: usersTable.name,
       creatorUsername: usersTable.username,
       creatorAvatarUrl: usersTable.avatarUrl,
+      creatorWalletAddress: usersTable.walletAddress,
     })
     .from(subscriptionsTable)
     .leftJoin(usersTable, eq(usersTable.id, subscriptionsTable.creatorId))

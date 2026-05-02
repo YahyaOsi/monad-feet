@@ -172,10 +172,14 @@ export interface Subscription {
   creatorUsername?: string | null;
   /** @nullable */
   creatorAvatarUrl?: string | null;
+  /** @nullable */
+  creatorWalletAddress?: string | null;
   pricePerMonth: number;
   consecutiveMonths: number;
   expiresAt: string;
   createdAt: string;
+  /** @nullable */
+  txHash?: string | null;
 }
 
 export interface CreateSubscriptionBody {

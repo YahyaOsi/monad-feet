@@ -245,10 +245,12 @@ export const ListSubscriptionsResponseItem = zod.object({
   creatorName: zod.string().nullish(),
   creatorUsername: zod.string().nullish(),
   creatorAvatarUrl: zod.string().nullish(),
+  creatorWalletAddress: zod.string().nullish(),
   pricePerMonth: zod.number(),
   consecutiveMonths: zod.number(),
   expiresAt: zod.coerce.date(),
   createdAt: zod.coerce.date(),
+  txHash: zod.string().nullish(),
 });
 export const ListSubscriptionsResponse = zod.array(
   ListSubscriptionsResponseItem,
