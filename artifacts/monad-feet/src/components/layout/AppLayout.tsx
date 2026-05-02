@@ -2,7 +2,10 @@ import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { useUser } from "@/context/UserContext";
 import { useAccount } from "wagmi";
-import { Home, Lock, Wallet, Trophy, User as UserIcon, Settings, LogOut, Bell, Link2, X } from "lucide-react";
+import {
+  Home, Lock, Wallet, Trophy, User as UserIcon,
+  Settings, LogOut, Bell, Link2, X
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CONTRACT_DEPLOYED } from "@/lib/contract";
 
@@ -21,7 +24,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       const wallet = localStorage.getItem("mf_wallet_address") ?? "";
       fetch(`${BASE}/api/notifications`, { headers: { "x-wallet-address": wallet } })
         .then((r) => r.json())
-        .then((d) => setUnreadCount(d.unreadCount ?? 0))
+        .then((d) => setUnreadCount((d as { unreadCount?: number }).unreadCount ?? 0))
         .catch(() => {});
     };
     fetchCount();
@@ -36,12 +39,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     { label: "Leaderboard", href: "/leaderboard", icon: Trophy },
     { label: "Profile", href: `/profile/${user?.id ?? ""}`, icon: UserIcon },
     { label: "Notifications", href: "/notifications", icon: Bell, badge: unreadCount },
+    { label: "Chain", href: "/chain", icon: Link2 },
     { label: "Settings", href: "/settings", icon: Settings },
   ];
 
-  if (!isConnected || !user) {
-    return <>{children}</>;
-  }
+  if (!isConnected || !user) return <>{children}</>;
 
   const showBanner = !CONTRACT_DEPLOYED && !bannerDismissed;
 
@@ -50,20 +52,26 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       {/* Sidebar */}
       <aside className="w-64 border-r border-sidebar-border bg-sidebar hidden md:flex flex-col justify-between fixed top-0 bottom-0 left-0 h-screen">
         <div>
-          <div className="p-6">
+          <div className="p-6 pb-4">
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-bold tracking-tight text-primary">Monad Feet</h1>
-              {CONTRACT_DEPLOYED && (
-                <span className="flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">
-                  <Link2 className="h-2.5 w-2.5" /> Live
+              {CONTRACT_DEPLOYED ? (
+                <span className="flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-200">
+                  <span className="h-1 w-1 rounded-full bg-green-500 animate-pulse" />
+                  Live
+                </span>
+              ) : (
+                <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
+                  Demo
                 </span>
               )}
             </div>
             <p className="text-sm text-sidebar-foreground/70">Exclusive Web3 Club</p>
           </div>
-          <nav className="px-4 space-y-1">
+          <nav className="px-4 space-y-0.5">
             {navItems.map((item) => {
-              const isActive = location === item.href || location.startsWith(item.href + "/");
+              const isActive =
+                location === item.href || location.startsWith(item.href + "/");
               const Icon = item.icon;
               return (
                 <Link
@@ -84,6 +92,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                     )}
                   </div>
                   {item.label}
+                  {item.href === "/chain" && (
+                    <span className={`ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                      CONTRACT_DEPLOYED ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
+                    }`}>
+                      {CONTRACT_DEPLOYED ? "Live" : "Demo"}
+                    </span>
+                  )}
                 </Link>
               );
             })}
@@ -101,25 +116,22 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      {/* Main Content */}
+      {/* Main */}
       <main className="flex-1 md:ml-64 w-full">
-        {/* Contract deployment banner */}
         {showBanner && (
           <div className="bg-amber-50 border-b border-amber-200 px-4 py-2.5 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-xs text-amber-800">
               <Link2 className="h-3.5 w-3.5 flex-shrink-0 text-amber-600" />
               <span>
-                <strong>Deploy mode:</strong> Smart contract not yet deployed — actions save to
-                database only. Deploy{" "}
-                <code className="bg-amber-100 px-1 rounded">contracts/MonadFeet.sol</code> to Monad
-                Mainnet and set <code className="bg-amber-100 px-1 rounded">VITE_CONTRACT_ADDRESS</code>{" "}
-                to go fully on-chain.
+                <strong>Deploy mode:</strong> Smart contract not deployed — actions save to database only.
+                Deploy <code className="bg-amber-100 px-1 rounded">contracts/MonadFeet.sol</code> and set{" "}
+                <code className="bg-amber-100 px-1 rounded">VITE_CONTRACT_ADDRESS</code> to go fully on-chain.
+                <Link href="/chain" className="ml-2 underline hover:text-amber-900">
+                  View instructions →
+                </Link>
               </span>
             </div>
-            <button
-              onClick={() => setBannerDismissed(true)}
-              className="flex-shrink-0 text-amber-500 hover:text-amber-700"
-            >
+            <button onClick={() => setBannerDismissed(true)} className="flex-shrink-0 text-amber-500 hover:text-amber-700">
               <X className="h-4 w-4" />
             </button>
           </div>
@@ -129,7 +141,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
       {/* Mobile Nav */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 border-t bg-background border-border flex justify-around p-2 z-50">
-        {navItems.map((item) => {
+        {navItems.filter(i => !["Settings", "Chain"].includes(i.label)).map((item) => {
           const isActive = location === item.href;
           const Icon = item.icon;
           return (

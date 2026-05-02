@@ -6,7 +6,6 @@ import { Web3Provider } from "@/context/Web3Context";
 import { UserProvider, useUser } from "@/context/UserContext";
 import { AppLayout } from "@/components/layout/AppLayout";
 
-// Pages
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
 import Onboarding from "@/pages/onboarding";
@@ -17,6 +16,7 @@ import Leaderboard from "@/pages/leaderboard";
 import Profile from "@/pages/profile";
 import Settings from "@/pages/settings";
 import Notifications from "@/pages/notifications";
+import ChainPage from "@/pages/chain";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -27,13 +27,20 @@ const queryClient = new QueryClient({
   },
 });
 
-function ProtectedRoute({ component: Component, ...rest }: { component: React.ComponentType<any>; [key: string]: any }) {
+function ProtectedRoute({
+  component: Component,
+  ...rest
+}: {
+  component: React.ComponentType<Record<string, unknown>>;
+  [key: string]: unknown;
+}) {
   const { user, isLoading } = useUser();
-  if (isLoading) return (
-    <div className="flex items-center justify-center min-h-screen">
-      <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
-    </div>
-  );
+  if (isLoading)
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+      </div>
+    );
   if (!user) return <Redirect to="/" />;
   return <Component {...rest} />;
 }
@@ -48,11 +55,15 @@ function Router() {
         <Route path="/private" component={() => <ProtectedRoute component={PrivateFeed} />} />
         <Route path="/wallet" component={() => <ProtectedRoute component={Wallet} />} />
         <Route path="/leaderboard" component={() => <ProtectedRoute component={Leaderboard} />} />
-        <Route path="/profile/:userId" component={({ params }: { params: { userId: string } }) => (
-          <ProtectedRoute component={Profile} userId={parseInt(params.userId)} />
-        )} />
+        <Route
+          path="/profile/:userId"
+          component={({ params }: { params: { userId: string } }) => (
+            <ProtectedRoute component={Profile} userId={parseInt(params.userId)} />
+          )}
+        />
         <Route path="/settings" component={() => <ProtectedRoute component={Settings} />} />
         <Route path="/notifications" component={() => <ProtectedRoute component={Notifications} />} />
+        <Route path="/chain" component={() => <ProtectedRoute component={ChainPage} />} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>
