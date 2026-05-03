@@ -325,7 +325,7 @@ router.get("/users/:userId/analytics", async (req, res): Promise<void> => {
   const totalSubs = totalSubRow?.count ?? 0;
   const activeSubs = activeSubRow?.count ?? 0;
 
-  // Weekly subscriber growth for the last 12 weeks
+  // Weekly subscriber growth + revenue for the last 12 weeks
   const growthRaw = await db.execute(sql`
     WITH weeks AS (
       SELECT generate_series(
@@ -336,7 +336,8 @@ router.get("/users/:userId/analytics", async (req, res): Promise<void> => {
     )
     SELECT
       to_char(w.week_start, 'Mon DD') AS week,
-      COALESCE(COUNT(s.id), 0)::int AS "newSubscribers"
+      COALESCE(COUNT(s.id), 0)::int AS "newSubscribers",
+      COALESCE(SUM(s.price_per_month::numeric), 0)::float AS "monEarned"
     FROM weeks w
     LEFT JOIN subscriptions s
       ON date_trunc('week', s.created_at) = w.week_start
@@ -345,7 +346,7 @@ router.get("/users/:userId/analytics", async (req, res): Promise<void> => {
     ORDER BY w.week_start
   `);
 
-  type GrowthRow = { week: string; newSubscribers: number };
+  type GrowthRow = { week: string; newSubscribers: number; monEarned: number };
   const growthRows = Array.isArray(growthRaw)
     ? (growthRaw as unknown as GrowthRow[])
     : ((growthRaw as unknown as { rows?: GrowthRow[] }).rows ?? []);
@@ -359,7 +360,7 @@ router.get("/users/:userId/analytics", async (req, res): Promise<void> => {
     totalPosts: totalPostRow?.count ?? 0,
     privatePosts: privatePostRow?.count ?? 0,
     totalLikes: likesRow?.count ?? 0,
-    subscriberGrowth: growthRows.map((r) => ({ week: r.week, newSubscribers: Number(r.newSubscribers) })),
+    subscriberGrowth: growthRows.map((r) => ({ week: r.week, newSubscribers: Number(r.newSubscribers), monEarned: Number(r.monEarned) })),
     topPosts: topPosts.map((p) => ({ ...p, likedByMe: false })),
     recentSubscribers: recentSubs.map((s) => ({
       subscriberId: s.subscriberId,

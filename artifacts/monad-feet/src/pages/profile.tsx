@@ -22,10 +22,10 @@ import { PostCard } from "@/components/post/PostCard";
 import {
   Trophy, Calendar, Flame, Lock, ExternalLink, Link2,
   Loader2, CheckCircle2, Shield, AlertCircle, BarChart2,
-  Users, Coins, TrendingUp, Star, MessageCircle, ShieldX, ShieldCheck, Gem, Pencil,
+  Users, Coins, TrendingUp, Star, MessageCircle, ShieldX, ShieldCheck, Gem, Pencil, Camera,
 } from "lucide-react";
 import {
-  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+  ComposedChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
 import { format } from "date-fns";
 import { useOnChainUser, useIsSubscribedOnChain } from "@/lib/useOnChain";
@@ -459,76 +459,163 @@ export default function Profile() {
               </div>
             </div>
 
-            {/* Subscriber growth sparkline */}
+            {/* Shareable Earnings Card */}
             {analytics.subscriberGrowth && analytics.subscriberGrowth.length > 0 && (() => {
-              const hasAnyData = analytics.subscriberGrowth!.some((d) => d.newSubscribers > 0);
-              const totalNew = analytics.subscriberGrowth!.reduce((s, d) => s + d.newSubscribers, 0);
+              const growth = analytics.subscriberGrowth!;
+              const hasAnyData = growth.some((d) => d.newSubscribers > 0 || d.monEarned > 0);
+              const totalNew = growth.reduce((s, d) => s + d.newSubscribers, 0);
+              const totalMon = growth.reduce((s, d) => s + d.monEarned, 0);
               return (
-                <div className="bg-background rounded-xl border p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Subscriber Growth</p>
-                      <p className="text-sm text-muted-foreground">Last 12 weeks</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xl font-bold text-primary">{totalNew}</p>
-                      <p className="text-[10px] text-muted-foreground">new subscribers</p>
-                    </div>
-                  </div>
-                  {hasAnyData ? (
-                    <ResponsiveContainer width="100%" height={120}>
-                      <AreaChart data={analytics.subscriberGrowth} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
-                        <defs>
-                          <linearGradient id="subGradient" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.25} />
-                            <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                        <XAxis
-                          dataKey="week"
-                          tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
-                          tickLine={false}
-                          axisLine={false}
-                          interval={2}
-                        />
-                        <YAxis
-                          tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
-                          tickLine={false}
-                          axisLine={false}
-                          allowDecimals={false}
-                        />
-                        <Tooltip
-                          contentStyle={{
-                            background: "hsl(var(--background))",
-                            border: "1px solid hsl(var(--border))",
-                            borderRadius: "8px",
-                            fontSize: "12px",
-                            padding: "6px 10px",
-                          }}
-                          formatter={(v: number) => [v, "New subscribers"]}
-                          labelStyle={{ color: "hsl(var(--muted-foreground))", fontWeight: 600, marginBottom: 2 }}
-                          cursor={{ stroke: "hsl(var(--primary))", strokeWidth: 1, strokeDasharray: "3 3" }}
-                        />
-                        <Area
-                          type="monotone"
-                          dataKey="newSubscribers"
-                          stroke="hsl(var(--primary))"
-                          strokeWidth={2}
-                          fill="url(#subGradient)"
-                          dot={false}
-                          activeDot={{ r: 4, fill: "hsl(var(--primary))", strokeWidth: 0 }}
-                        />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <div className="h-[120px] flex items-center justify-center">
-                      <div className="text-center">
-                        <Users className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
-                        <p className="text-xs text-muted-foreground">No subscribers yet — share your exclusive content to grow your audience</p>
+                <div className="relative overflow-hidden rounded-2xl shadow-2xl border border-violet-800/40"
+                  style={{ background: "linear-gradient(135deg, #12012e 0%, #1e0550 45%, #0c001e 100%)" }}>
+                  {/* Decorative blobs */}
+                  <div className="absolute -top-8 -right-8 w-48 h-48 rounded-full pointer-events-none"
+                    style={{ background: "radial-gradient(circle, rgba(139,92,246,0.22) 0%, transparent 70%)" }} />
+                  <div className="absolute -bottom-8 -left-8 w-40 h-40 rounded-full pointer-events-none"
+                    style={{ background: "radial-gradient(circle, rgba(251,191,36,0.18) 0%, transparent 70%)" }} />
+
+                  <div className="relative p-5 space-y-4">
+                    {/* Header: creator identity + branding */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <Avatar className="h-10 w-10 border-2 border-violet-400/50 shadow-lg">
+                          <AvatarImage src={profile.avatarUrl ?? ""} />
+                          <AvatarFallback className="text-sm font-bold" style={{ background: "#2d0a5e", color: "#c4b5fd" }}>
+                            {profile.name?.slice(0, 2).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <p className="text-white font-bold text-sm leading-tight">{profile.name}</p>
+                          {profile.username && <p className="text-violet-300 text-xs">@{profile.username}</p>}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[11px] font-black tracking-widest uppercase text-violet-300">Monad Feet</p>
+                        <p className="text-[9px] text-violet-500">monad.xyz</p>
                       </div>
                     </div>
-                  )}
+
+                    {/* Big stats row */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-violet-400 mb-1">12-wk earnings</p>
+                        <p className="text-4xl font-black leading-none" style={{ color: "#fbbf24" }}>
+                          {totalMon % 1 === 0 ? totalMon.toFixed(0) : totalMon.toFixed(2)}
+                        </p>
+                        <p className="text-xs font-bold text-amber-400/70 mt-0.5">MON earned</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-violet-400 mb-1">New subscribers</p>
+                        <p className="text-4xl font-black leading-none text-white">{totalNew}</p>
+                        <p className="text-xs font-bold text-violet-300/70 mt-0.5">in 12 weeks</p>
+                      </div>
+                    </div>
+
+                    {/* Dual-axis chart */}
+                    {hasAnyData ? (
+                      <div>
+                        <ResponsiveContainer width="100%" height={140}>
+                          <ComposedChart data={growth} margin={{ top: 4, right: 36, left: -22, bottom: 0 }}>
+                            <defs>
+                              <linearGradient id="subGrad" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#a78bfa" stopOpacity={0.4} />
+                                <stop offset="95%" stopColor="#a78bfa" stopOpacity={0} />
+                              </linearGradient>
+                              <linearGradient id="monGrad" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#fbbf24" stopOpacity={0.35} />
+                                <stop offset="95%" stopColor="#fbbf24" stopOpacity={0} />
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
+                            <XAxis
+                              dataKey="week"
+                              tick={{ fontSize: 9, fill: "rgba(196,181,253,0.55)" }}
+                              tickLine={false}
+                              axisLine={false}
+                              interval={2}
+                            />
+                            <YAxis
+                              yAxisId="left"
+                              tick={{ fontSize: 9, fill: "rgba(196,181,253,0.55)" }}
+                              tickLine={false}
+                              axisLine={false}
+                              allowDecimals={false}
+                            />
+                            <YAxis
+                              yAxisId="right"
+                              orientation="right"
+                              tick={{ fontSize: 9, fill: "rgba(251,191,36,0.55)" }}
+                              tickLine={false}
+                              axisLine={false}
+                              allowDecimals={false}
+                            />
+                            <Tooltip
+                              contentStyle={{
+                                background: "#1a0533",
+                                border: "1px solid rgba(139,92,246,0.4)",
+                                borderRadius: "10px",
+                                fontSize: "11px",
+                                padding: "8px 12px",
+                              }}
+                              labelStyle={{ color: "#c4b5fd", fontWeight: 700, marginBottom: 4 }}
+                              formatter={(v: number, name: string) =>
+                                name === "monEarned"
+                                  ? [`${v.toFixed(2)} MON`, "Revenue"]
+                                  : [v, "Subscribers"]
+                              }
+                              cursor={{ stroke: "rgba(167,139,250,0.3)", strokeWidth: 1 }}
+                            />
+                            <Area
+                              yAxisId="left"
+                              type="monotone"
+                              dataKey="newSubscribers"
+                              stroke="#a78bfa"
+                              strokeWidth={2}
+                              fill="url(#subGrad)"
+                              dot={false}
+                              activeDot={{ r: 4, fill: "#a78bfa", strokeWidth: 0 }}
+                              name="newSubscribers"
+                            />
+                            <Area
+                              yAxisId="right"
+                              type="monotone"
+                              dataKey="monEarned"
+                              stroke="#fbbf24"
+                              strokeWidth={2}
+                              fill="url(#monGrad)"
+                              dot={false}
+                              activeDot={{ r: 4, fill: "#fbbf24", strokeWidth: 0 }}
+                              name="monEarned"
+                            />
+                          </ComposedChart>
+                        </ResponsiveContainer>
+                      </div>
+                    ) : (
+                      <div className="h-[140px] flex items-center justify-center">
+                        <div className="text-center">
+                          <Users className="h-8 w-8 mx-auto mb-2" style={{ color: "rgba(167,139,250,0.3)" }} />
+                          <p className="text-xs text-violet-400/60">No subscribers yet — create exclusive content to start earning</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Legend + screenshot hint */}
+                    <div className="flex items-center justify-between pt-1">
+                      <div className="flex items-center gap-4">
+                        <span className="flex items-center gap-1.5 text-[10px] text-violet-300">
+                          <span className="h-2 w-2 rounded-full bg-violet-400 inline-block" />
+                          Subscribers
+                        </span>
+                        <span className="flex items-center gap-1.5 text-[10px] text-amber-300">
+                          <span className="h-2 w-2 rounded-full bg-amber-400 inline-block" />
+                          MON earned
+                        </span>
+                      </div>
+                      <span className="flex items-center gap-1 text-[10px] text-violet-500/60">
+                        <Camera className="h-3 w-3" /> Screenshot to share
+                      </span>
+                    </div>
+                  </div>
                 </div>
               );
             })()}

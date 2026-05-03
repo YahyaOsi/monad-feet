@@ -539,6 +539,7 @@ export const GetCreatorAnalyticsResponse = zod.object({
     zod.object({
       week: zod.string(),
       newSubscribers: zod.number(),
+      monEarned: zod.number(),
     }),
   ).optional(),
   recentSubscribers: zod.array(
