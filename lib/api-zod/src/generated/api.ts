@@ -535,6 +535,12 @@ export const GetCreatorAnalyticsResponse = zod.object({
       createdAt: zod.coerce.date(),
     }),
   ),
+  subscriberGrowth: zod.array(
+    zod.object({
+      week: zod.string(),
+      newSubscribers: zod.number(),
+    }),
+  ).optional(),
   recentSubscribers: zod.array(
     zod.object({
       subscriberId: zod.number(),

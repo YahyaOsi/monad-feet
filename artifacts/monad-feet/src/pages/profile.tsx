@@ -24,6 +24,9 @@ import {
   Loader2, CheckCircle2, Shield, AlertCircle, BarChart2,
   Users, Coins, TrendingUp, Star, MessageCircle, ShieldX, ShieldCheck, Gem, Pencil,
 } from "lucide-react";
+import {
+  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+} from "recharts";
 import { format } from "date-fns";
 import { useOnChainUser, useIsSubscribedOnChain } from "@/lib/useOnChain";
 import { useAccount } from "wagmi";
@@ -455,6 +458,80 @@ export default function Profile() {
                 <p className="text-[10px] text-muted-foreground">exclusive content</p>
               </div>
             </div>
+
+            {/* Subscriber growth sparkline */}
+            {analytics.subscriberGrowth && analytics.subscriberGrowth.length > 0 && (() => {
+              const hasAnyData = analytics.subscriberGrowth!.some((d) => d.newSubscribers > 0);
+              const totalNew = analytics.subscriberGrowth!.reduce((s, d) => s + d.newSubscribers, 0);
+              return (
+                <div className="bg-background rounded-xl border p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Subscriber Growth</p>
+                      <p className="text-sm text-muted-foreground">Last 12 weeks</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xl font-bold text-primary">{totalNew}</p>
+                      <p className="text-[10px] text-muted-foreground">new subscribers</p>
+                    </div>
+                  </div>
+                  {hasAnyData ? (
+                    <ResponsiveContainer width="100%" height={120}>
+                      <AreaChart data={analytics.subscriberGrowth} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="subGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.25} />
+                            <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                        <XAxis
+                          dataKey="week"
+                          tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                          tickLine={false}
+                          axisLine={false}
+                          interval={2}
+                        />
+                        <YAxis
+                          tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                          tickLine={false}
+                          axisLine={false}
+                          allowDecimals={false}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            background: "hsl(var(--background))",
+                            border: "1px solid hsl(var(--border))",
+                            borderRadius: "8px",
+                            fontSize: "12px",
+                            padding: "6px 10px",
+                          }}
+                          formatter={(v: number) => [v, "New subscribers"]}
+                          labelStyle={{ color: "hsl(var(--muted-foreground))", fontWeight: 600, marginBottom: 2 }}
+                          cursor={{ stroke: "hsl(var(--primary))", strokeWidth: 1, strokeDasharray: "3 3" }}
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="newSubscribers"
+                          stroke="hsl(var(--primary))"
+                          strokeWidth={2}
+                          fill="url(#subGradient)"
+                          dot={false}
+                          activeDot={{ r: 4, fill: "hsl(var(--primary))", strokeWidth: 0 }}
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="h-[120px] flex items-center justify-center">
+                      <div className="text-center">
+                        <Users className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
+                        <p className="text-xs text-muted-foreground">No subscribers yet — share your exclusive content to grow your audience</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Recent subscribers */}
             {analytics.recentSubscribers.length > 0 && (
