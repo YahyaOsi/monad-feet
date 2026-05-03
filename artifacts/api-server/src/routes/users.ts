@@ -69,6 +69,7 @@ function formatUser(user: typeof usersTable.$inferSelect & {
     avatarUrl: user.avatarUrl,
     bio: user.bio,
     registrationTxHash: user.registrationTxHash,
+    nftHolder: user.nftHolder,
     subscriptionPrice: user.subscriptionPrice ? Number(user.subscriptionPrice) : null,
     createdAt: user.createdAt,
     postCount: user.postCount ?? 0,
@@ -145,6 +146,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
       username,
       avatarUrl,
       registrationTxHash,
+      nftHolder,
     })
     .returning();
 

@@ -10,7 +10,7 @@ import { PostCard } from "@/components/post/PostCard";
 import {
   Trophy, Calendar, Flame, Lock, ExternalLink, Link2,
   Loader2, CheckCircle2, Shield, AlertCircle, BarChart2,
-  Users, Coins, TrendingUp, Star, MessageCircle, ShieldX, ShieldCheck,
+  Users, Coins, TrendingUp, Star, MessageCircle, ShieldX, ShieldCheck, Gem,
 } from "lucide-react";
 import { format } from "date-fns";
 import { useContractActions } from "@/lib/useContractActions";
@@ -161,6 +161,11 @@ export default function Profile() {
             <div className="flex-1 pb-2">
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-2xl font-bold">{profile.name}</h1>
+                {profile.nftHolder && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200" title="Monad Feet NFT Holder — earns 2× streak points">
+                    <Gem className="h-2.5 w-2.5" /> NFT Holder
+                  </span>
+                )}
                 {CONTRACT_DEPLOYED && !chainLoading && onChainRegistered && (
                   <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200">
                     <Shield className="h-2.5 w-2.5" /> Verified on Monad

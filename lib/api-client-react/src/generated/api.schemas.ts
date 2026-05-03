@@ -30,6 +30,8 @@ export interface User {
   subscriptionPrice?: number | null;
   /** @nullable */
   registrationTxHash?: string | null;
+  /** @nullable */
+  nftHolder?: boolean | null;
   createdAt: string;
 }
 
@@ -50,6 +52,8 @@ export interface UserWithStats {
   subscriptionPrice?: number | null;
   /** @nullable */
   registrationTxHash?: string | null;
+  /** @nullable */
+  nftHolder?: boolean | null;
   createdAt: string;
   postCount: number;
   totalLikes: number;
@@ -59,7 +63,8 @@ export interface UserWithStats {
 
 export interface RegisterUserBody {
   walletAddress: string;
-  inviteCode: string;
+  /** @nullable */
+  inviteCode?: string | null;
   /** @nullable */
   email?: string | null;
   name: string;
@@ -116,6 +121,8 @@ export interface Post {
   authorUsername?: string | null;
   /** @nullable */
   authorAvatarUrl?: string | null;
+  /** @nullable */
+  authorNftHolder?: boolean | null;
   likeCount: number;
   likedByMe: boolean;
   createdAt: string;

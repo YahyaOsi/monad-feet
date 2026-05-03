@@ -43,6 +43,7 @@ export const GetMeResponse = zod.object({
   bio: zod.string().nullish(),
   subscriptionPrice: zod.number().nullish(),
   registrationTxHash: zod.string().nullish(),
+  nftHolder: zod.boolean().nullish(),
   createdAt: zod.coerce.date(),
 });
 
@@ -87,6 +88,7 @@ export const GetUserResponse = zod.object({
   bio: zod.string().nullish(),
   subscriptionPrice: zod.number().nullish(),
   registrationTxHash: zod.string().nullish(),
+  nftHolder: zod.boolean().nullish(),
   createdAt: zod.coerce.date(),
   postCount: zod.number(),
   totalLikes: zod.number(),
@@ -162,6 +164,7 @@ export const ListPostsResponse = zod.object({
       authorName: zod.string().nullish(),
       authorUsername: zod.string().nullish(),
       authorAvatarUrl: zod.string().nullish(),
+      authorNftHolder: zod.boolean().nullish(),
       likeCount: zod.number(),
       likedByMe: zod.boolean(),
       createdAt: zod.coerce.date(),
@@ -196,6 +199,7 @@ export const GetPostResponse = zod.object({
   authorName: zod.string().nullish(),
   authorUsername: zod.string().nullish(),
   authorAvatarUrl: zod.string().nullish(),
+  authorNftHolder: zod.boolean().nullish(),
   likeCount: zod.number(),
   likedByMe: zod.boolean(),
   createdAt: zod.coerce.date(),

@@ -13,6 +13,7 @@ export const usersTable = pgTable("users", {
   subscriptionPrice: numeric("subscription_price", { precision: 18, scale: 8 }),
   dmRequiresSubscription: boolean("dm_requires_subscription").notNull().default(false),
   registrationTxHash: text("registration_tx_hash"),
+  nftHolder: boolean("nft_holder").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

@@ -133,7 +133,9 @@ router.post("/streak/checkin", async (req, res): Promise<void> => {
   const isConsecutive = lastCheckin ? isYesterday(lastCheckin) : false;
   const newStreak = isConsecutive ? streak.currentStreak + 1 : 1;
   const newLongest = Math.max(newStreak, streak.longestStreak);
-  const pointsEarned = newStreak >= 7 ? 20 : newStreak >= 3 ? 10 : 5;
+  const basePoints = newStreak >= 7 ? 20 : newStreak >= 3 ? 10 : 5;
+  const pointsMultiplier = user.nftHolder ? 2 : 1;
+  const pointsEarned = basePoints * pointsMultiplier;
   const newPoints = streak.totalPoints + pointsEarned;
 
   await db

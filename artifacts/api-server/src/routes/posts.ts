@@ -64,6 +64,7 @@ router.get("/posts", async (req, res): Promise<void> => {
       authorName: usersTable.name,
       authorUsername: usersTable.username,
       authorAvatarUrl: usersTable.avatarUrl,
+      authorNftHolder: usersTable.nftHolder,
       likeCount: sql<number>`(select count(*) from post_likes where post_id = ${postsTable.id})::int`,
     })
     .from(postsTable)
@@ -119,6 +120,7 @@ router.post("/posts", async (req, res): Promise<void> => {
     authorName: author.name,
     authorUsername: author.username,
     authorAvatarUrl: author.avatarUrl,
+    authorNftHolder: author.nftHolder,
     onChainTxHash: null as string | null,
     likeCount: 0,
     likedByMe: false,
@@ -153,6 +155,7 @@ router.get("/posts/:postId", async (req, res): Promise<void> => {
       authorName: usersTable.name,
       authorUsername: usersTable.username,
       authorAvatarUrl: usersTable.avatarUrl,
+      authorNftHolder: usersTable.nftHolder,
       likeCount: sql<number>`(select count(*) from post_likes where post_id = ${postsTable.id})::int`,
     })
     .from(postsTable)

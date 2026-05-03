@@ -8,7 +8,7 @@ import { useUnlikePost, getListPostsQueryKey, getGetPostQueryKey } from "@worksp
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Heart, ExternalLink, Loader2, Link2, Shield, MessageSquare, Share2, Check } from "lucide-react";
+import { Heart, ExternalLink, Loader2, Link2, Shield, MessageSquare, Share2, Check, Gem } from "lucide-react";
 import { useContractActions } from "@/lib/useContractActions";
 import { useOnChainPostLikeCount, useIsPostLikedOnChain } from "@/lib/useOnChain";
 import { CONTRACT_DEPLOYED } from "@/lib/contract";
@@ -137,6 +137,11 @@ export function PostCard({ post }: { post: Post }) {
             <Link href={`/profile/${post.authorId}`} className="font-semibold text-sm hover:underline truncate">
               {post.authorName}
             </Link>
+            {post.authorNftHolder && (
+              <span title="Monad Feet NFT Holder" className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 flex-shrink-0">
+                <Gem className="h-2.5 w-2.5" />
+              </span>
+            )}
           </div>
           <div className="flex items-center text-xs text-muted-foreground gap-1">
             <span>@{post.authorUsername}</span>
