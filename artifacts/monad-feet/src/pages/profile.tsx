@@ -1,16 +1,26 @@
 import { useState, useEffect } from "react";
 import { useParams } from "wouter";
 import { useUser } from "@/context/UserContext";
-import { useGetUser, useListPosts, useListBadges, useGetCreatorSubscriptionPrice, useGetCreatorAnalytics } from "@workspace/api-client-react";
+import { useGetUser, useListPosts, useListBadges, useGetCreatorSubscriptionPrice, useGetCreatorAnalytics, useUpdateMe } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Badge as UiBadge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { PostCard } from "@/components/post/PostCard";
 import {
   Trophy, Calendar, Flame, Lock, ExternalLink, Link2,
   Loader2, CheckCircle2, Shield, AlertCircle, BarChart2,
-  Users, Coins, TrendingUp, Star, MessageCircle, ShieldX, ShieldCheck, Gem,
+  Users, Coins, TrendingUp, Star, MessageCircle, ShieldX, ShieldCheck, Gem, Pencil,
 } from "lucide-react";
 import { format } from "date-fns";
 import { useContractActions } from "@/lib/useContractActions";
@@ -49,6 +59,12 @@ export default function Profile() {
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
   const [blockLoading, setBlockLoading] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editUsername, setEditUsername] = useState("");
+  const [editBio, setEditBio] = useState("");
+  const [editAvatarUrl, setEditAvatarUrl] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOwnProfile || !userId) return;
@@ -101,6 +117,36 @@ export default function Profile() {
   const { contractDeployed, subscribeOnChain } = useContractActions();
   const [subState, setSubState] = useState<SubState>("idle");
   const [subError, setSubError] = useState<string | null>(null);
+
+  const { mutate: updateMe, isPending: isUpdating } = useUpdateMe({
+    mutation: {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(userId) });
+        setEditOpen(false);
+        setEditError(null);
+      },
+      onError: (err: unknown) => {
+        setEditError((err as Error)?.message ?? "Failed to save changes");
+      },
+    },
+  });
+
+  const openEditDialog = () => {
+    if (!profile) return;
+    setEditName(profile.name ?? "");
+    setEditUsername(profile.username ?? "");
+    setEditBio(profile.bio ?? "");
+    setEditAvatarUrl(profile.avatarUrl ?? "");
+    setEditError(null);
+    setEditOpen(true);
+  };
+
+  const handleEditSave = () => {
+    const wallet = localStorage.getItem("mf_wallet_address") ?? "";
+    if (!editName.trim()) { setEditError("Name is required"); return; }
+    if (!editUsername.trim()) { setEditError("Username is required"); return; }
+    updateMe({ data: { walletAddress: wallet, name: editName.trim(), username: editUsername.trim(), bio: editBio.trim() || null, avatarUrl: editAvatarUrl.trim() || null } });
+  };
 
   const handleSubscribe = async () => {
     if (!subPrice || !currentUser || !profile) return;
@@ -237,7 +283,16 @@ export default function Profile() {
             )}
 
             {isOwnProfile && (
-              <div className="pb-2">
+              <div className="pb-2 flex items-center gap-2 flex-wrap">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={openEditDialog}
+                  className="gap-2"
+                >
+                  <Pencil className="h-4 w-4" />
+                  Edit Profile
+                </Button>
                 <Button
                   variant="outline"
                   size="sm"
@@ -449,6 +504,85 @@ export default function Profile() {
           userPosts.map((post) => <PostCard key={post.id} post={post} />)
         )}
       </div>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Profile</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-5 py-2">
+            <div className="flex items-center gap-4">
+              <Avatar className="h-16 w-16 border-2 border-border flex-shrink-0">
+                <AvatarImage src={editAvatarUrl} />
+                <AvatarFallback className="text-lg">{editName.slice(0, 2).toUpperCase() || "?"}</AvatarFallback>
+              </Avatar>
+              <div className="flex-1 space-y-1">
+                <Label htmlFor="edit-avatar">Profile picture URL</Label>
+                <Input
+                  id="edit-avatar"
+                  placeholder="https://..."
+                  value={editAvatarUrl}
+                  onChange={(e) => setEditAvatarUrl(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="edit-name">Display name</Label>
+              <Input
+                id="edit-name"
+                placeholder="Your name"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                maxLength={64}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="edit-username">Username</Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">@</span>
+                <Input
+                  id="edit-username"
+                  placeholder="username"
+                  value={editUsername}
+                  onChange={(e) => setEditUsername(e.target.value.replace(/\s/g, "").toLowerCase())}
+                  className="pl-7"
+                  maxLength={32}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="edit-bio">Bio</Label>
+              <Textarea
+                id="edit-bio"
+                placeholder="Tell everyone a bit about yourself..."
+                value={editBio}
+                onChange={(e) => setEditBio(e.target.value)}
+                rows={3}
+                maxLength={280}
+              />
+              <p className="text-xs text-muted-foreground text-right">{editBio.length}/280</p>
+            </div>
+
+            {editError && (
+              <p className="text-sm text-destructive">{editError}</p>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)} disabled={isUpdating}>
+              Cancel
+            </Button>
+            <Button onClick={handleEditSave} disabled={isUpdating} className="gap-2">
+              {isUpdating && <Loader2 className="h-4 w-4 animate-spin" />}
+              Save changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
