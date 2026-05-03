@@ -18,8 +18,8 @@ import { useContractUserCount, useContractPostCount } from "@/lib/useOnChain";
 import { useGetFeedSummary } from "@workspace/api-client-react";
 import { formatDistanceToNow } from "date-fns";
 
-const EXPLORER = "https://explorer.monad.xyz";
-const RPC_URL = "https://rpc.monad.xyz";
+const EXPLORER = "https://testnet.monadexplorer.com";
+const RPC_URL = "https://testnet-rpc.monad.xyz";
 
 type EventKind = "UserRegistered" | "PostCreated" | "PostLiked" | "Subscribed" | "StreakCheckin";
 
@@ -399,7 +399,7 @@ export default function ChainPage() {
           <CardContent className="space-y-4">
             {[
               { step: "1", title: "Install Foundry", code: "curl -L https://foundry.paradigm.xyz | bash && foundryup" },
-              { step: "2", title: "Deploy the contract", code: "forge create --rpc-url https://rpc.monad.xyz \\\n  --private-key $PRIVATE_KEY \\\n  contracts/MonadFeet.sol:MonadFeet" },
+              { step: "2", title: "Deploy the contract", code: "forge create --rpc-url https://testnet-rpc.monad.xyz \\\n  --private-key $PRIVATE_KEY \\\n  contracts/MonadFeet.sol:MonadFeet" },
               { step: "3", title: "Set contract address", code: "VITE_CONTRACT_ADDRESS=0xYourDeployedAddress", note: "Set this as a secret in your Replit environment variables." },
             ].map(({ step, title, code, note }) => (
               <div key={step} className="flex gap-4">

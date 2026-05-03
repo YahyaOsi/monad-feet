@@ -4,7 +4,7 @@ import { useUser } from "@/context/UserContext";
 import { useAccount } from "wagmi";
 import {
   Home, Lock, Wallet, Trophy, User as UserIcon,
-  Settings, LogOut, Bell, Link2, X, Compass, Flame, Search
+  Settings, LogOut, Bell, Link2, X, Compass, Flame, Search, MessageCircle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CONTRACT_DEPLOYED } from "@/lib/contract";
@@ -67,6 +67,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const navItems = [
     { label: "Feed", href: "/feed", icon: Home },
     { label: "Search", href: "/search", icon: Search },
+    { label: "Messages", href: "/messages", icon: MessageCircle },
     { label: "Trending", href: "/trending", icon: Flame },
     {
       label: "Discover",

@@ -197,7 +197,7 @@ export default function Profile() {
 
           <div className="flex flex-wrap gap-y-2 gap-x-5 text-sm text-muted-foreground">
             <a
-              href={`https://explorer.monad.xyz/address/${profile.walletAddress}`}
+              href={`https://testnet.monadexplorer.com/address/${profile.walletAddress}`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1 hover:text-primary transition-colors"
@@ -213,7 +213,7 @@ export default function Profile() {
             </div>
             {profile.registrationTxHash && (
               <a
-                href={`https://explorer.monad.xyz/tx/${profile.registrationTxHash}`}
+                href={`https://testnet.monadexplorer.com/tx/${profile.registrationTxHash}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-1 text-violet-600 hover:text-violet-800 transition-colors text-xs"

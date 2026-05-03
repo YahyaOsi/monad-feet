@@ -7,21 +7,36 @@ import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
 
 const projectId = '19c9787ece0fcd04698c96c998167b4a';
 
-export const monadMainnet = defineChain({
-  id: 41454,
-  name: 'Monad',
-  network: 'monad',
+export const monadTestnet = defineChain({
+  id: 10143,
+  name: 'Monad Testnet',
+  network: 'monad-testnet',
   nativeCurrency: { name: 'MON', symbol: 'MON', decimals: 18 },
   rpcUrls: {
-    default: { http: ['https://rpc.monad.xyz'] },
-    public: { http: ['https://rpc.monad.xyz'] },
+    default: {
+      http: [
+        'https://testnet-rpc.monad.xyz',
+        'https://rpc.ankr.com/monad_testnet',
+        'https://monad-testnet.drpc.org',
+      ],
+      webSocket: ['wss://testnet-rpc.monad.xyz/ws'],
+    },
+    public: {
+      http: [
+        'https://testnet-rpc.monad.xyz',
+        'https://rpc.ankr.com/monad_testnet',
+        'https://monad-testnet.drpc.org',
+      ],
+    },
   },
   blockExplorers: {
-    default: { name: 'Monad Explorer', url: 'https://explorer.monad.xyz' },
+    default: { name: 'MonadScan', url: 'https://testnet.monadexplorer.com' },
+    monadScan: { name: 'MonadScan', url: 'https://monadscan.com' },
   },
+  testnet: true,
 });
 
-const networks = [monadMainnet] as const;
+const networks = [monadTestnet] as const;
 
 export const wagmiAdapter = new WagmiAdapter({
   projectId,
@@ -36,6 +51,12 @@ createAppKit({
     email: true,
     socials: ['x'],
     analytics: false,
+  },
+  metadata: {
+    name: 'Monad Feet',
+    description: 'The invite-only Web3 social club on Monad',
+    url: 'https://monadfeet.replit.app',
+    icons: [],
   },
 });
 

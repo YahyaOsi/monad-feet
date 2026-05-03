@@ -13,6 +13,7 @@ import presenceRouter from "./presence";
 import trendingRouter from "./trending";
 import leaderboardRouter from "./leaderboard";
 import searchRouter from "./search";
+import dmRouter from "./dm";
 
 const router: IRouter = Router();
 
@@ -30,5 +31,6 @@ router.use(presenceRouter);
 router.use(trendingRouter);
 router.use(leaderboardRouter);
 router.use(searchRouter);
+router.use(dmRouter);
 
 export default router;

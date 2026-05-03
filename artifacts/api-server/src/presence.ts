@@ -32,7 +32,8 @@ export type ActivityEvent =
   | { type: "post_liked"; postId: number; likeCount: number; actorId: number }
   | { type: "post_anchored"; postId: number; txHash: string }
   | { type: "trending_alert"; postId: number; rank: number; postContent: string | null }
-  | { type: "badge_earned"; userId: number; badge: { badgeType: string; label: string; description: string; emoji: string } };
+  | { type: "badge_earned"; userId: number; badge: { badgeType: string; label: string; description: string; emoji: string } }
+  | { type: "new_dm"; messageId: number; senderId: number; senderName: string | null; senderAvatarUrl: string | null; preview: string };
 
 interface ExtWS extends WebSocket {
   __isAlive?: boolean;

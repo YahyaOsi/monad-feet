@@ -17,7 +17,8 @@ export type ActivityEvent =
   | { type: "post_liked"; postId: number; likeCount: number; actorId: number }
   | { type: "post_anchored"; postId: number; txHash: string }
   | { type: "trending_alert"; postId: number; rank: number; postContent: string | null }
-  | { type: "badge_earned"; userId: number; badge: BadgeInfo };
+  | { type: "badge_earned"; userId: number; badge: BadgeInfo }
+  | { type: "new_dm"; messageId: number; senderId: number; senderName: string | null; senderAvatarUrl: string | null; preview: string };
 
 export type BadgeInfo = {
   badgeType: string;
@@ -162,6 +163,7 @@ export function usePresence() {
   const { user } = useUser();
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>(globalUsers);
   const [isConnected, setIsConnected] = useState(globalConnected);
+  const [wsEvent, setWsEvent] = useState<ActivityEvent | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -170,15 +172,20 @@ export function usePresence() {
 
   useEffect(() => {
     if (!user) return;
-    const listener: PresenceListener = (users) => {
+    const presenceListener: PresenceListener = (users) => {
       setOnlineUsers(users);
       setIsConnected(true);
     };
-    presenceListeners.add(listener);
+    const activityListener: ActivityListener = (event) => {
+      setWsEvent(event);
+    };
+    presenceListeners.add(presenceListener);
+    activityListeners.add(activityListener);
     connectWs(user);
     if (globalUsers.length > 0) setOnlineUsers(globalUsers);
     return () => {
-      presenceListeners.delete(listener);
+      presenceListeners.delete(presenceListener);
+      activityListeners.delete(activityListener);
       if (presenceListeners.size === 0 && activityListeners.size === 0) disconnectWs();
     };
   }, [user?.id]);
@@ -188,7 +195,7 @@ export function usePresence() {
     [onlineUsers],
   );
 
-  return { onlineUsers, onlineCount: onlineUsers.length, isConnected, isOnline };
+  return { onlineUsers, onlineCount: onlineUsers.length, isConnected, isOnline, wsEvent };
 }
 
 // ── useActivityFeed ──────────────────────────────────────────────

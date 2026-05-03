@@ -1,0 +1,17 @@
+import { pgTable, serial, integer, text, timestamp } from "drizzle-orm/pg-core";
+import { createInsertSchema } from "drizzle-zod";
+import { z } from "zod/v4";
+import { usersTable } from "./users";
+
+export const directMessagesTable = pgTable("direct_messages", {
+  id: serial("id").primaryKey(),
+  senderId: integer("sender_id").notNull().references(() => usersTable.id),
+  recipientId: integer("recipient_id").notNull().references(() => usersTable.id),
+  content: text("content").notNull(),
+  readAt: timestamp("read_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const insertDirectMessageSchema = createInsertSchema(directMessagesTable).omit({ id: true, createdAt: true });
+export type InsertDirectMessage = z.infer<typeof insertDirectMessageSchema>;
+export type DirectMessage = typeof directMessagesTable.$inferSelect;

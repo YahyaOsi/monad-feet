@@ -125,7 +125,7 @@ export default function Settings() {
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground font-medium w-24 flex-shrink-0">Reg. Tx</span>
               <a
-                href={`https://explorer.monad.xyz/tx/${user.registrationTxHash}`}
+                href={`https://testnet.monadexplorer.com/tx/${user.registrationTxHash}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-1 text-xs text-violet-600 hover:text-violet-800 font-mono transition-colors"
@@ -153,7 +153,7 @@ export default function Settings() {
             </div>
             {address && (
               <a
-                href={`https://explorer.monad.xyz/address/${address}`}
+                href={`https://testnet.monadexplorer.com/address/${address}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex-shrink-0 text-muted-foreground hover:text-violet-600 transition-colors"

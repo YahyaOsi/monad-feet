@@ -1,15 +1,15 @@
 /**
- * MonadFeet Smart Contract — Monad Mainnet (chainId 41454)
+ * MonadFeet Smart Contract — Monad Testnet (chainId 10143)
  *
  * Deploy:
- *   forge create --rpc-url https://rpc.monad.xyz \
+ *   forge create --rpc-url https://testnet-rpc.monad.xyz \
  *     --private-key $PRIVATE_KEY contracts/MonadFeet.sol:MonadFeet
  *
  * Then set VITE_CONTRACT_ADDRESS to the deployed address.
- * Explorer: https://explorer.monad.xyz
+ * Explorer: https://testnet.monadexplorer.com
  */
 
-export const MONAD_MAINNET_CHAIN_ID = 41454;
+export const MONAD_MAINNET_CHAIN_ID = 10143;
 
 export const MONAD_FEET_CONTRACT_ADDRESS =
   (import.meta.env.VITE_CONTRACT_ADDRESS as `0x${string}`) ??
