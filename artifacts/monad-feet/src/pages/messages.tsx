@@ -159,7 +159,9 @@ function MsgBubble({ msg }: { msg: Message }) {
         <p className="whitespace-pre-wrap break-words">{msg.content}</p>
         <p className={`text-[10px] mt-1 ${msg.sentByMe ? "text-primary-foreground/60 text-right" : "text-muted-foreground"}`}>
           {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}
-          {msg.sentByMe && msg.readAt && " · Read"}
+          {msg.sentByMe && msg.readAt && (
+            <span> · Seen {formatDistanceToNow(new Date(msg.readAt), { addSuffix: true })}</span>
+          )}
         </p>
       </div>
     </div>
