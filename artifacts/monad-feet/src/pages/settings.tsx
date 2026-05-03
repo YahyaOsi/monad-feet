@@ -10,7 +10,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useAccount } from "wagmi";
 import { useOnChainUser } from "@/lib/useOnChain";
 import { CONTRACT_DEPLOYED } from "@/lib/contract";
-import { CheckCircle2, AlertCircle, ExternalLink, Link2, Copy } from "lucide-react";
+import { CheckCircle2, AlertCircle, ExternalLink, Link2, Copy, ShieldX, ShieldCheck, Loader2 } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 export default function Settings() {
   const { user } = useUser();
@@ -22,6 +23,37 @@ export default function Settings() {
   const [avatarUrl, setAvatarUrl] = useState("");
   const [subPrice, setSubPrice] = useState("");
   const [copiedAddress, setCopiedAddress] = useState(false);
+
+  type BlockedUser = { id: number; name: string | null; username: string | null; avatarUrl: string | null };
+  const [blockedUsers, setBlockedUsers] = useState<BlockedUser[]>([]);
+  const [unblockingId, setUnblockingId] = useState<number | null>(null);
+
+  const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+  const wallet = () => localStorage.getItem("mf_wallet_address") ?? "";
+
+  useEffect(() => {
+    if (!user) return;
+    fetch(`${BASE}/api/users/blocked`, { headers: { "x-wallet-address": wallet() } })
+      .then((r) => r.ok ? r.json() : [])
+      .then((data: BlockedUser[]) => setBlockedUsers(data))
+      .catch(() => {});
+  }, [user]);
+
+  const handleUnblock = async (targetId: number) => {
+    setUnblockingId(targetId);
+    try {
+      await fetch(`${BASE}/api/users/block/${targetId}`, {
+        method: "DELETE",
+        headers: { "x-wallet-address": wallet(), "Content-Type": "application/json" },
+      });
+      setBlockedUsers((prev) => prev.filter((u) => u.id !== targetId));
+      toast({ title: "User unblocked" });
+    } catch {
+      toast({ title: "Failed to unblock", variant: "destructive" });
+    } finally {
+      setUnblockingId(null);
+    }
+  };
 
   const updateMe = useUpdateMe();
   const updatePrice = useUpdateSubscriptionPrice();
@@ -224,6 +256,57 @@ export default function Settings() {
           <Button onClick={handleUpdatePrice} disabled={updatePrice.isPending}>
             {updatePrice.isPending ? "Saving..." : "Save Price"}
           </Button>
+        </CardContent>
+      </Card>
+      {/* Blocked Users */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ShieldX className="h-4 w-4 text-destructive" />
+            Blocked Users
+          </CardTitle>
+          <CardDescription>
+            Blocked users cannot send you messages. You can unblock them at any time.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {blockedUsers.length === 0 ? (
+            <div className="flex items-center gap-3 text-sm text-muted-foreground bg-muted/50 rounded-lg px-4 py-3">
+              <ShieldCheck className="h-4 w-4 flex-shrink-0 text-green-500" />
+              You haven't blocked anyone.
+            </div>
+          ) : (
+            <ul className="divide-y divide-border">
+              {blockedUsers.map((u) => (
+                <li key={u.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
+                  <Avatar className="h-9 w-9 flex-shrink-0">
+                    <AvatarImage src={u.avatarUrl ?? ""} />
+                    <AvatarFallback className="text-xs font-semibold bg-muted text-muted-foreground">
+                      {u.name?.slice(0, 2).toUpperCase() ?? "??"}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{u.name ?? u.username ?? "Unknown"}</p>
+                    <p className="text-xs text-muted-foreground truncate">@{u.username ?? "—"}</p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-shrink-0 gap-1.5 text-xs"
+                    onClick={() => void handleUnblock(u.id)}
+                    disabled={unblockingId === u.id}
+                  >
+                    {unblockingId === u.id ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <ShieldCheck className="h-3 w-3" />
+                    )}
+                    Unblock
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
         </CardContent>
       </Card>
     </div>
