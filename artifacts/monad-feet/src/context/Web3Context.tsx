@@ -11,21 +11,21 @@ const projectId = '19c9787ece0fcd04698c96c998167b4a';
 // Source: https://docs.monad.xyz/developer-essentials/network-information
 export const monadMainnet = defineChain({
   id: 143,
-  name: 'Monad',
-  network: 'monad',
+  caipNetworkId: 'eip155:143',
+  chainNamespace: 'eip155',
+  name: 'Monad Mainnet',
+  network: 'monad-mainnet',
   nativeCurrency: { name: 'MON', symbol: 'MON', decimals: 18 },
   rpcUrls: {
     default: {
       http: ['https://rpc.monad.xyz'],
-      webSocket: ['wss://rpc.monad.xyz'],
     },
     public: {
       http: ['https://rpc.monad.xyz'],
     },
   },
   blockExplorers: {
-    default: { name: 'MonadScan', url: 'https://monadscan.com' },
-    monadVision: { name: 'MonadVision', url: 'https://monadvision.com' },
+    default: { name: 'MonVision', url: 'https://monvision.io' },
   },
 });
 

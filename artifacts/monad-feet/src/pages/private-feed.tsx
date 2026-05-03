@@ -59,7 +59,7 @@ function ChainSubBadge({ subscriber, creator, txHash }: {
   if (txHash) {
     return (
       <a
-        href={`https://monadscan.com/tx/${txHash}`}
+        href={`https://monvision.io/tx/${txHash}`}
         target="_blank"
         rel="noopener noreferrer"
         className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200 hover:bg-violet-200 transition-colors"
@@ -378,7 +378,7 @@ export default function PrivateFeed() {
                   </div>
                   {sub.txHash && (
                     <a
-                      href={`https://monadscan.com/tx/${sub.txHash}`}
+                      href={`https://monvision.io/tx/${sub.txHash}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={(e) => e.stopPropagation()}

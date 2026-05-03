@@ -6,7 +6,7 @@
  *     --private-key $PRIVATE_KEY contracts/MonadFeet.sol:MonadFeet
  *
  * Then set VITE_CONTRACT_ADDRESS to the deployed address.
- * Explorer: https://monadscan.com
+ * Explorer: https://monvision.io
  */
 
 export const MONAD_MAINNET_CHAIN_ID = 143;

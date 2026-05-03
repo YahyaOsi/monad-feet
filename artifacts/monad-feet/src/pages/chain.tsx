@@ -18,7 +18,7 @@ import { useContractUserCount, useContractPostCount } from "@/lib/useOnChain";
 import { useGetFeedSummary } from "@workspace/api-client-react";
 import { formatDistanceToNow } from "date-fns";
 
-const EXPLORER = "https://monadscan.com";
+const EXPLORER = "https://monvision.io";
 const RPC_URL = "https://rpc.monad.xyz";
 
 type EventKind = "UserRegistered" | "PostCreated" | "PostLiked" | "Subscribed" | "StreakCheckin";

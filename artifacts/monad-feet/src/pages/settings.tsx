@@ -157,7 +157,7 @@ export default function Settings() {
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground font-medium w-24 flex-shrink-0">Reg. Tx</span>
               <a
-                href={`https://monadscan.com/tx/${user.registrationTxHash}`}
+                href={`https://monvision.io/tx/${user.registrationTxHash}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-1 text-xs text-violet-600 hover:text-violet-800 font-mono transition-colors"
@@ -185,7 +185,7 @@ export default function Settings() {
             </div>
             {address && (
               <a
-                href={`https://monadscan.com/address/${address}`}
+                href={`https://monvision.io/address/${address}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex-shrink-0 text-muted-foreground hover:text-violet-600 transition-colors"

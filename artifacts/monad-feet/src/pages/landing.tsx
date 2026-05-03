@@ -135,12 +135,12 @@ export default function Landing() {
             <Link2 className="h-3 w-3" />
             Monad Mainnet · Chain {MONAD_MAINNET_CHAIN_ID}
             <a
-              href="https://monadscan.com"
+              href="https://monvision.io"
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-muted-foreground transition-colors flex items-center gap-0.5 ml-1"
             >
-              monadscan.com <ArrowRight className="h-2.5 w-2.5" />
+              monvision.io <ArrowRight className="h-2.5 w-2.5" />
             </a>
           </div>
         </div>

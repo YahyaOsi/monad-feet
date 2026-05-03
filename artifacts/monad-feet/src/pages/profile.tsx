@@ -250,7 +250,7 @@ export default function Profile() {
 
           <div className="flex flex-wrap gap-y-2 gap-x-5 text-sm text-muted-foreground">
             <a
-              href={`https://monadscan.com/address/${profile.walletAddress}`}
+              href={`https://monvision.io/address/${profile.walletAddress}`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1 hover:text-primary transition-colors"
@@ -266,7 +266,7 @@ export default function Profile() {
             </div>
             {profile.registrationTxHash && (
               <a
-                href={`https://monadscan.com/tx/${profile.registrationTxHash}`}
+                href={`https://monvision.io/tx/${profile.registrationTxHash}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-1 text-violet-600 hover:text-violet-800 transition-colors text-xs"
