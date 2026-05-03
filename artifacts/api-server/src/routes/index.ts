@@ -12,6 +12,7 @@ import storageRouter from "./storage";
 import presenceRouter from "./presence";
 import trendingRouter from "./trending";
 import leaderboardRouter from "./leaderboard";
+import searchRouter from "./search";
 
 const router: IRouter = Router();
 
@@ -28,5 +29,6 @@ router.use(storageRouter);
 router.use(presenceRouter);
 router.use(trendingRouter);
 router.use(leaderboardRouter);
+router.use(searchRouter);
 
 export default router;

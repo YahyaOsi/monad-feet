@@ -20,6 +20,7 @@ import ChainPage from "@/pages/chain";
 import Discover from "@/pages/discover";
 import PostDetail from "@/pages/post-detail";
 import Trending from "@/pages/trending";
+import SearchPage from "@/pages/search";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -75,6 +76,7 @@ function Router() {
         <Route path="/settings" component={() => <ProtectedRoute component={Settings} />} />
         <Route path="/notifications" component={() => <ProtectedRoute component={Notifications} />} />
         <Route path="/chain" component={() => <ProtectedRoute component={ChainPage} />} />
+        <Route path="/search" component={() => <ProtectedRoute component={SearchPage} />} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>
