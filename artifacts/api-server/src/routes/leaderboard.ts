@@ -1,6 +1,20 @@
 import { Router, type IRouter } from "express";
-import { sql } from "drizzle-orm";
-import { db } from "@workspace/db";
+import { sql, eq } from "drizzle-orm";
+import { db, usersTable } from "@workspace/db";
+
+function getWalletAddress(req: { headers: Record<string, string | string[] | undefined> }): string | null {
+  const addr = req.headers["x-wallet-address"];
+  if (!addr) return null;
+  return Array.isArray(addr) ? addr[0] : addr;
+}
+
+async function getUserByWallet(wallet: string) {
+  const [user] = await db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.walletAddress, wallet.toLowerCase()));
+  return user ?? null;
+}
 
 const router: IRouter = Router();
 
@@ -84,6 +98,62 @@ router.get("/leaderboard", async (req, res): Promise<void> => {
   }));
 
   res.json({ entries, sortBy, period, generatedAt: new Date().toISOString() });
+});
+
+// ── GET /leaderboard/me ─────────────────────────────────────────
+// Returns the authenticated user's rank, points, subscriber count,
+// and total number of ranked users — works regardless of whether
+// the user appears in the top-25 list.
+router.get("/leaderboard/me", async (req, res): Promise<void> => {
+  const walletAddress = getWalletAddress(req);
+  if (!walletAddress) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const currentUser = await getUserByWallet(walletAddress);
+  if (!currentUser) { res.status(404).json({ error: "User not found" }); return; }
+
+  const result = await db.execute(sql`
+    WITH ranked AS (
+      SELECT
+        u.id,
+        u.name,
+        u.username,
+        u.avatar_url                                        AS "avatarUrl",
+        COALESCE(st.total_points, 0)::int                   AS "totalPoints",
+        COALESCE(st.current_streak, 0)::int                 AS "currentStreak",
+        (
+          SELECT COUNT(*)::int
+          FROM subscriptions s
+          WHERE s.creator_id = u.id AND s.expires_at > NOW()
+        )                                                   AS "subscriberCount",
+        RANK() OVER (
+          ORDER BY COALESCE(st.total_points, 0) DESC
+        )::int                                              AS rank,
+        COUNT(*) OVER ()::int                               AS "totalUsers"
+      FROM users u
+      LEFT JOIN streaks st ON st.user_id = u.id
+    )
+    SELECT * FROM ranked WHERE id = ${currentUser.id}
+  `);
+
+  const raw = result as unknown as { rows?: Record<string, unknown>[] };
+  const rows: Record<string, unknown>[] = Array.isArray(result)
+    ? (result as unknown as Record<string, unknown>[])
+    : (raw.rows ?? []);
+
+  if (rows.length === 0) { res.status(404).json({ error: "No rank data" }); return; }
+
+  const row = rows[0];
+  res.json({
+    userId:         currentUser.id,
+    rank:           (row.rank           as number) ?? 0,
+    totalUsers:     (row.totalUsers     as number) ?? 0,
+    totalPoints:    (row.totalPoints    as number) ?? 0,
+    currentStreak:  (row.currentStreak  as number) ?? 0,
+    subscriberCount:(row.subscriberCount as number) ?? 0,
+    name:           (row.name           as string | null) ?? null,
+    username:       (row.username       as string | null) ?? null,
+    avatarUrl:      (row.avatarUrl      as string | null) ?? null,
+  });
 });
 
 export default router;

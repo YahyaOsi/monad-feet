@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Link } from "wouter";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Trophy, Users, Star, Link2, Shield, Flame, RotateCcw } from "lucide-react";
+import { Trophy, Users, Star, Link2, Shield, Flame, RotateCcw, TrendingUp } from "lucide-react";
 import { useContractUserCount } from "@/lib/useOnChain";
 import { CONTRACT_DEPLOYED } from "@/lib/contract";
 import { useUser } from "@/context/UserContext";
@@ -23,13 +23,137 @@ interface LeaderEntry {
 
 type Period = "alltime" | "weekly";
 
+interface MyRank {
+  rank: number;
+  totalUsers: number;
+  totalPoints: number;
+  currentStreak: number;
+  subscriberCount: number;
+  avatarUrl?: string | null;
+  name?: string | null;
+  username?: string | null;
+}
+
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+async function fetchMyRank(): Promise<MyRank | null> {
+  const wallet = localStorage.getItem("mf_wallet_address") ?? "";
+  if (!wallet) return null;
+  const res = await fetch(`${BASE}/api/leaderboard/me`, {
+    headers: { "x-wallet-address": wallet },
+  });
+  if (!res.ok) return null;
+  return res.json() as Promise<MyRank>;
+}
 
 async function fetchLeaderboard(period: Period): Promise<LeaderEntry[]> {
   const res = await fetch(`${BASE}/api/leaderboard?sortBy=points&period=${period}`);
   if (!res.ok) return [];
   const data = await res.json() as { entries?: LeaderEntry[] };
   return (data.entries ?? []).slice(0, 25);
+}
+
+// ── My Rank Card ─────────────────────────────────────────────────
+
+function rankLabel(rank: number): { emoji: string; label: string; color: string; bg: string; border: string } {
+  if (rank === 1) return { emoji: "🥇", label: "1st Place",   color: "text-yellow-700", bg: "bg-yellow-50",  border: "border-yellow-300" };
+  if (rank === 2) return { emoji: "🥈", label: "2nd Place",   color: "text-slate-600",  bg: "bg-slate-50",   border: "border-slate-300" };
+  if (rank === 3) return { emoji: "🥉", label: "3rd Place",   color: "text-amber-700",  bg: "bg-amber-50",   border: "border-amber-300" };
+  if (rank <= 10) return { emoji: "🏆", label: "Top 10",      color: "text-violet-700", bg: "bg-violet-50",  border: "border-violet-300" };
+  if (rank <= 25) return { emoji: "⭐", label: "Top 25",      color: "text-primary",    bg: "bg-primary/5",  border: "border-primary/30" };
+  if (rank <= 50) return { emoji: "🔥", label: "Top 50",      color: "text-orange-700", bg: "bg-orange-50",  border: "border-orange-300" };
+  return                 { emoji: "📈", label: `Rank #${rank}`, color: "text-foreground", bg: "bg-muted/40",  border: "border-border" };
+}
+
+function rankMessage(rank: number, totalUsers: number): string {
+  const pct = Math.round((rank / totalUsers) * 100);
+  if (rank === 1) return "You're #1 — keep that streak alive!";
+  if (rank <= 3)  return `Incredible — you're in the top 3 out of ${totalUsers.toLocaleString()} members!`;
+  if (rank <= 10) return `You're in the elite top 10. Keep posting and checking in!`;
+  if (rank <= 25) return `Top 25 out of ${totalUsers.toLocaleString()} — just ${rank - 1} spots from the top!`;
+  return `You're in the top ${pct}% of all ${totalUsers.toLocaleString()} members. Keep earning points!`;
+}
+
+function MyRankCard({ myRank, period }: { myRank: MyRank; period: Period }) {
+  const { emoji, label, color, bg, border } = rankLabel(myRank.rank);
+  const ordinal = myRank.rank === 1 ? "1st" : myRank.rank === 2 ? "2nd" : myRank.rank === 3 ? "3rd" : `${myRank.rank}th`;
+
+  return (
+    <Card className={`${bg} border-2 ${border} shadow-sm`}>
+      <CardHeader className="pb-2 pt-4 px-4">
+        <CardTitle className={`text-sm font-semibold flex items-center gap-2 ${color}`}>
+          <TrendingUp className="h-4 w-4" />
+          Your Ranking
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="px-4 pb-4">
+        <div className="flex items-center gap-4">
+          {/* Avatar */}
+          <Avatar className={`h-14 w-14 border-4 ${border} shadow-md flex-shrink-0`}>
+            <AvatarImage src={myRank.avatarUrl ?? ""} />
+            <AvatarFallback className="bg-primary/10 text-primary font-bold text-base">
+              {myRank.name?.slice(0, 2).toUpperCase() ?? "??"}
+            </AvatarFallback>
+          </Avatar>
+
+          {/* Rank badge + name */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-2xl">{emoji}</span>
+              <span className={`text-2xl font-black ${color}`}>{ordinal}</span>
+              <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${color} ${bg} ${border}`}>
+                {label}
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5 truncate">
+              @{myRank.username} · out of {myRank.totalUsers.toLocaleString()} members
+            </p>
+          </div>
+
+          {/* Stats */}
+          <div className="flex gap-3 flex-shrink-0">
+            <div className="text-center">
+              <div className="flex items-center gap-0.5 justify-center mb-0.5">
+                <Star className="h-3 w-3 text-primary" />
+                <span className="text-[10px] font-semibold text-muted-foreground uppercase">Points</span>
+              </div>
+              <span className={`text-xl font-black ${color}`}>{myRank.totalPoints.toLocaleString()}</span>
+            </div>
+            <div className="w-px bg-border" />
+            <div className="text-center">
+              <div className="flex items-center gap-0.5 justify-center mb-0.5">
+                <Users className="h-3 w-3 text-purple-500" />
+                <span className="text-[10px] font-semibold text-muted-foreground uppercase">Subs</span>
+              </div>
+              <span className="text-xl font-black text-purple-600">{myRank.subscriberCount}</span>
+            </div>
+            {myRank.currentStreak > 0 && (
+              <>
+                <div className="w-px bg-border" />
+                <div className="text-center">
+                  <div className="flex items-center gap-0.5 justify-center mb-0.5">
+                    <Flame className="h-3 w-3 text-orange-500" />
+                    <span className="text-[10px] font-semibold text-muted-foreground uppercase">Streak</span>
+                  </div>
+                  <span className="text-xl font-black text-orange-500">{myRank.currentStreak}d</span>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        <p className={`text-xs mt-3 font-medium ${color} bg-white/60 rounded-lg px-3 py-2 border ${border}`}>
+          {rankMessage(myRank.rank, myRank.totalUsers)}
+        </p>
+
+        {period === "weekly" && (
+          <p className="text-[10px] text-muted-foreground mt-2 text-center">
+            * Your personal rank is always all-time regardless of the period filter
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 // ── Rank styling ─────────────────────────────────────────────────
@@ -390,6 +514,17 @@ export default function Leaderboard() {
   const { data: chainUserCount } = useContractUserCount();
   const { user } = useUser();
   const [period, setPeriod] = useState<Period>("alltime");
+  const [myRank, setMyRank] = useState<MyRank | null>(null);
+  const [rankLoading, setRankLoading] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    setRankLoading(true);
+    fetchMyRank()
+      .then((r) => setMyRank(r))
+      .catch(() => setMyRank(null))
+      .finally(() => setRankLoading(false));
+  }, [user?.id]);
 
   return (
     <div className="space-y-6">
@@ -413,6 +548,29 @@ export default function Leaderboard() {
           </div>
         )}
       </div>
+
+      {/* My Rank Card — only for logged-in users */}
+      {user && (
+        rankLoading ? (
+          <Card className="border-2 border-border animate-pulse">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-4">
+                <div className="h-14 w-14 rounded-full bg-muted flex-shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-5 bg-muted rounded w-1/3" />
+                  <div className="h-3 bg-muted rounded w-1/4" />
+                </div>
+                <div className="flex gap-4">
+                  <div className="h-10 w-14 bg-muted rounded" />
+                  <div className="h-10 w-12 bg-muted rounded" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ) : myRank ? (
+          <MyRankCard myRank={myRank} period={period} />
+        ) : null
+      )}
 
       {/* Period toggle */}
       <div className="flex items-center gap-2">
