@@ -41,8 +41,8 @@ createAppKit({
   networks,
   projectId,
   features: {
-    email: true,
-    socials: ['x'],
+    email: false,
+    socials: [],
     analytics: false,
   },
   metadata: {
