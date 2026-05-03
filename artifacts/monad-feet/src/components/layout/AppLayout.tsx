@@ -18,11 +18,26 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useUser();
   const { isConnected: walletConnected } = useAccount();
   const [unreadCount, setUnreadCount] = useState(0);
+  const [dmUnreadCount, setDmUnreadCount] = useState(0);
   const [bannerDismissed, setBannerDismissed] = useState(false);
-  const { onlineCount } = usePresence();
+  const { onlineCount, wsEvent } = usePresence();
   const { alert: trendingAlert, dismiss: dismissTrending } = useTrendingAlert();
   const { alert: badgeAlert, dismiss: dismissBadge } = useBadgeAlert();
   const { toast } = useToast();
+
+  const onMessagesPage = location === "/messages" || location.startsWith("/messages/");
+
+  const fetchDmUnread = () => {
+    const wallet = localStorage.getItem("mf_wallet_address") ?? "";
+    if (!wallet) return;
+    fetch(`${BASE}/api/dm/conversations`, { headers: { "x-wallet-address": wallet } })
+      .then((r) => r.ok ? r.json() : Promise.reject())
+      .then((convs: { unreadCount: number }[]) => {
+        const total = convs.reduce((sum, c) => sum + (c.unreadCount ?? 0), 0);
+        setDmUnreadCount(total);
+      })
+      .catch(() => {});
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -34,9 +49,24 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         .catch(() => {});
     };
     fetchCount();
-    const interval = setInterval(fetchCount, 60_000);
+    fetchDmUnread();
+    const interval = setInterval(() => { fetchCount(); fetchDmUnread(); }, 60_000);
     return () => clearInterval(interval);
   }, [user]);
+
+  // Reset DM badge instantly when the user navigates to Messages
+  useEffect(() => {
+    if (onMessagesPage) setDmUnreadCount(0);
+  }, [onMessagesPage]);
+
+  // Bump DM badge in real-time on incoming message (unless already on Messages page)
+  useEffect(() => {
+    if (!wsEvent) return;
+    const ev = wsEvent as { type?: string };
+    if (ev.type === "new_dm" && !onMessagesPage) {
+      fetchDmUnread();
+    }
+  }, [wsEvent, onMessagesPage]);
 
   // Show a toast when one of the user's posts enters the top 3 on Trending
   useEffect(() => {
@@ -67,7 +97,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const navItems = [
     { label: "Feed", href: "/feed", icon: Home },
     { label: "Search", href: "/search", icon: Search },
-    { label: "Messages", href: "/messages", icon: MessageCircle },
+    { label: "Messages", href: "/messages", icon: MessageCircle, badge: dmUnreadCount, badgeVariant: "red" as const },
     { label: "Trending", href: "/trending", icon: Flame },
     {
       label: "Discover",
