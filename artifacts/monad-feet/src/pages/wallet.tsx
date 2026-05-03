@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useGetStreak, useGetMyInvites, useGetUser } from "@workspace/api-client-react";
+import { useState, useCallback } from "react";
+import { useGetStreak, useGetMyInvites, useGetUser, getGetMyInvitesQueryKey, getGetUserQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,8 @@ import { useContractActions } from "@/lib/useContractActions";
 import { useOnChainUser } from "@/lib/useOnChain";
 import { CONTRACT_DEPLOYED, MONAD_MAINNET_CHAIN_ID } from "@/lib/contract";
 import { useUser } from "@/context/UserContext";
+import { useInviteCodeAlert } from "@/hooks/usePresence";
+import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -65,6 +67,19 @@ export default function WalletPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: myProfile } = useGetUser(user?.id ?? 0, { query: { enabled: !!user?.id, queryKey: [] as any } });
   const myPostCount = myProfile?.postCount ?? 0;
+  const { toast } = useToast();
+
+  const handleInviteCodesEarned = useCallback((codes: number, reason: string) => {
+    queryClient.invalidateQueries({ queryKey: getGetMyInvitesQueryKey() });
+    if (user?.id) queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.id) });
+    toast({
+      title: `🎟️ You earned ${codes} invite code${codes > 1 ? "s" : ""}!`,
+      description: `Reward for ${reason}. Check below to copy and share them.`,
+    });
+  }, [queryClient, user?.id, toast]);
+
+  useInviteCodeAlert(handleInviteCodesEarned);
+
   const { contractDeployed, dailyCheckinOnChain } = useContractActions();
 
   const { data: monBalance, isLoading: balanceLoading } = useBalance({

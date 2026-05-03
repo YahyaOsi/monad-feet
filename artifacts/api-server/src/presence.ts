@@ -34,7 +34,8 @@ export type ActivityEvent =
   | { type: "trending_alert"; postId: number; rank: number; postContent: string | null }
   | { type: "badge_earned"; userId: number; badge: { badgeType: string; label: string; description: string; emoji: string } }
   | { type: "new_dm"; messageId: number; senderId: number; senderName: string | null; senderAvatarUrl: string | null; preview: string }
-  | { type: "new_subscription"; subscriberId: number; subscriberName: string | null; subscriberUsername: string | null; subscriberAvatarUrl: string | null; isRenewal: boolean };
+  | { type: "new_subscription"; subscriberId: number; subscriberName: string | null; subscriberUsername: string | null; subscriberAvatarUrl: string | null; isRenewal: boolean }
+  | { type: "invite_codes_earned"; userId: number; codes: number; reason: string };
 
 interface ExtWS extends WebSocket {
   __isAlive?: boolean;

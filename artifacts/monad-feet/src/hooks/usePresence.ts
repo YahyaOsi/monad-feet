@@ -19,7 +19,8 @@ export type ActivityEvent =
   | { type: "trending_alert"; postId: number; rank: number; postContent: string | null }
   | { type: "badge_earned"; userId: number; badge: BadgeInfo }
   | { type: "new_dm"; messageId: number; senderId: number; senderName: string | null; senderAvatarUrl: string | null; preview: string }
-  | { type: "new_subscription"; subscriberId: number; subscriberName: string | null; subscriberUsername: string | null; subscriberAvatarUrl: string | null; isRenewal: boolean };
+  | { type: "new_subscription"; subscriberId: number; subscriberName: string | null; subscriberUsername: string | null; subscriberAvatarUrl: string | null; isRenewal: boolean }
+  | { type: "invite_codes_earned"; userId: number; codes: number; reason: string };
 
 export type BadgeInfo = {
   badgeType: string;
@@ -297,6 +298,26 @@ export function useSubscriptionAlert() {
 
   const dismiss = useCallback(() => setAlert(null), []);
   return { alert, dismiss };
+}
+
+// ── useInviteCodeAlert ───────────────────────────────────────────
+export function useInviteCodeAlert(onEarned: (codes: number, reason: string) => void) {
+  const { user } = useUser();
+
+  useEffect(() => {
+    if (!user) return;
+    const listener: ActivityListener = (event) => {
+      if (event.type === "invite_codes_earned" && event.userId === user.id) {
+        onEarned(event.codes, event.reason);
+      }
+    };
+    activityListeners.add(listener);
+    connectWs(user);
+    return () => {
+      activityListeners.delete(listener);
+      if (presenceListeners.size === 0 && activityListeners.size === 0) disconnectWs();
+    };
+  }, [user?.id, onEarned]);
 }
 
 // ── useBadgeAlert ────────────────────────────────────────────────

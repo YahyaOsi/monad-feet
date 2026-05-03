@@ -190,6 +190,7 @@ export async function checkMilestones(userId: number): Promise<void> {
           read: false,
         });
       }
+      notifyUser(userId, { type: "invite_codes_earned", userId, codes: award.codes, reason: award.reason });
     }
 
     if (toAward.length === 0) return;
