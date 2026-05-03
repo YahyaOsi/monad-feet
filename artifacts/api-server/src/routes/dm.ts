@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and, or, sql } from "drizzle-orm";
-import { db, usersTable, directMessagesTable, subscriptionsTable, notificationsTable } from "@workspace/db";
+import { db, usersTable, directMessagesTable, subscriptionsTable, notificationsTable, mutedUsersTable, blockedUsersTable } from "@workspace/db";
 import { notifyUser } from "../presence";
 
 const router: IRouter = Router();
@@ -30,8 +30,59 @@ async function isSubscribedTo(subscriberId: number, creatorId: number): Promise<
   return !!sub;
 }
 
-// PUT /api/dm/settings — toggle dmRequiresSubscription
-// MUST be declared before /dm/:userId to avoid "settings" being parsed as a userId
+// ── Mute endpoints (must be before /:userId) ─────────────────────
+
+// GET /api/dm/muted — list muted user IDs for current user
+router.get("/dm/muted", async (req, res): Promise<void> => {
+  const wallet = getWalletAddress(req);
+  if (!wallet) { res.status(400).json({ error: "Missing x-wallet-address header" }); return; }
+  const me = await getUserByWallet(wallet);
+  if (!me) { res.status(404).json({ error: "User not found" }); return; }
+
+  const rows = await db
+    .select({ mutedUserId: mutedUsersTable.mutedUserId })
+    .from(mutedUsersTable)
+    .where(eq(mutedUsersTable.userId, me.id));
+
+  res.json(rows.map((r) => r.mutedUserId));
+});
+
+// POST /api/dm/mute/:userId — mute a user
+router.post("/dm/mute/:userId", async (req, res): Promise<void> => {
+  const wallet = getWalletAddress(req);
+  if (!wallet) { res.status(400).json({ error: "Missing x-wallet-address header" }); return; }
+  const me = await getUserByWallet(wallet);
+  if (!me) { res.status(404).json({ error: "User not found" }); return; }
+
+  const targetId = parseInt(req.params.userId, 10);
+  if (isNaN(targetId) || targetId === me.id) { res.status(400).json({ error: "Invalid userId" }); return; }
+
+  await db
+    .insert(mutedUsersTable)
+    .values({ userId: me.id, mutedUserId: targetId })
+    .onConflictDoNothing();
+
+  res.json({ muted: true, userId: targetId });
+});
+
+// DELETE /api/dm/mute/:userId — unmute a user
+router.delete("/dm/mute/:userId", async (req, res): Promise<void> => {
+  const wallet = getWalletAddress(req);
+  if (!wallet) { res.status(400).json({ error: "Missing x-wallet-address header" }); return; }
+  const me = await getUserByWallet(wallet);
+  if (!me) { res.status(404).json({ error: "User not found" }); return; }
+
+  const targetId = parseInt(req.params.userId, 10);
+  if (isNaN(targetId)) { res.status(400).json({ error: "Invalid userId" }); return; }
+
+  await db
+    .delete(mutedUsersTable)
+    .where(and(eq(mutedUsersTable.userId, me.id), eq(mutedUsersTable.mutedUserId, targetId)));
+
+  res.json({ muted: false, userId: targetId });
+});
+
+// PUT /api/dm/settings — toggle dmRequiresSubscription (before /:userId)
 router.put("/dm/settings", async (req, res): Promise<void> => {
   const wallet = getWalletAddress(req);
   if (!wallet) { res.status(400).json({ error: "Missing x-wallet-address header" }); return; }
@@ -53,7 +104,7 @@ router.put("/dm/settings", async (req, res): Promise<void> => {
   res.json({ dmRequiresSubscription: user.dmRequiresSubscription });
 });
 
-// GET /api/dm/conversations — list all conversations for current user
+// GET /api/dm/conversations — list all conversations, with isMuted flag
 router.get("/dm/conversations", async (req, res): Promise<void> => {
   const wallet = getWalletAddress(req);
   if (!wallet) { res.status(400).json({ error: "Missing x-wallet-address header" }); return; }
@@ -81,12 +132,28 @@ router.get("/dm/conversations", async (req, res): Promise<void> => {
       u.username,
       u.avatar_url   AS "avatarUrl",
       u.dm_requires_subscription AS "dmRequiresSubscription",
-      (
-        SELECT COUNT(*)::int FROM direct_messages d2
-        WHERE d2.sender_id = r.other_id
-          AND d2.recipient_id = ${me.id}
-          AND d2.read_at IS NULL
-      ) AS unread_count
+      EXISTS(
+        SELECT 1 FROM muted_users mu
+        WHERE mu.user_id = ${me.id} AND mu.muted_user_id = r.other_id
+      ) AS "isMuted",
+      EXISTS(
+        SELECT 1 FROM blocked_users bu
+        WHERE (bu.user_id = ${me.id} AND bu.blocked_user_id = r.other_id)
+           OR (bu.user_id = r.other_id AND bu.blocked_user_id = ${me.id})
+      ) AS "isBlocked",
+      -- Unread count is 0 for muted users
+      CASE
+        WHEN EXISTS(
+          SELECT 1 FROM muted_users mu
+          WHERE mu.user_id = ${me.id} AND mu.muted_user_id = r.other_id
+        ) THEN 0
+        ELSE (
+          SELECT COUNT(*)::int FROM direct_messages d2
+          WHERE d2.sender_id = r.other_id
+            AND d2.recipient_id = ${me.id}
+            AND d2.read_at IS NULL
+        )
+      END AS unread_count
     FROM ranked r
     JOIN users u ON u.id = r.other_id
     WHERE r.rn = 1
@@ -102,6 +169,8 @@ router.get("/dm/conversations", async (req, res): Promise<void> => {
     username: string | null;
     avatarUrl: string | null;
     dmRequiresSubscription: boolean;
+    isMuted: boolean;
+    isBlocked: boolean;
     unread_count: number;
   };
 
@@ -115,6 +184,8 @@ router.get("/dm/conversations", async (req, res): Promise<void> => {
       username: r.username,
       avatarUrl: r.avatarUrl,
       dmRequiresSubscription: r.dmRequiresSubscription,
+      isMuted: r.isMuted ?? false,
+      isBlocked: r.isBlocked ?? false,
       lastMessage: {
         content: r.last_content,
         sentByMe: r.last_sender_id === me.id,
@@ -125,7 +196,7 @@ router.get("/dm/conversations", async (req, res): Promise<void> => {
   );
 });
 
-// GET /api/dm/:userId — fetch message thread with a user
+// GET /api/dm/:userId — fetch thread, with isMuted & isBlocked on otherUser
 router.get("/dm/:userId", async (req, res): Promise<void> => {
   const wallet = getWalletAddress(req);
   if (!wallet) { res.status(400).json({ error: "Missing x-wallet-address header" }); return; }
@@ -138,7 +209,23 @@ router.get("/dm/:userId", async (req, res): Promise<void> => {
   const [other] = await db.select().from(usersTable).where(eq(usersTable.id, otherId));
   if (!other) { res.status(404).json({ error: "User not found" }); return; }
 
-  if (other.dmRequiresSubscription && me.id !== otherId) {
+  // Check block status (either direction)
+  const [blocked] = await db
+    .select({ id: blockedUsersTable.id })
+    .from(blockedUsersTable)
+    .where(
+      or(
+        and(eq(blockedUsersTable.userId, me.id), eq(blockedUsersTable.blockedUserId, otherId)),
+        and(eq(blockedUsersTable.userId, otherId), eq(blockedUsersTable.blockedUserId, me.id)),
+      ),
+    );
+
+  const [muted] = await db
+    .select({ id: mutedUsersTable.id })
+    .from(mutedUsersTable)
+    .where(and(eq(mutedUsersTable.userId, me.id), eq(mutedUsersTable.mutedUserId, otherId)));
+
+  if (other.dmRequiresSubscription && me.id !== otherId && !blocked) {
     const subscribed = await isSubscribedTo(me.id, otherId);
     if (!subscribed) {
       res.status(403).json({
@@ -164,16 +251,18 @@ router.get("/dm/:userId", async (req, res): Promise<void> => {
     )
     .orderBy(directMessagesTable.createdAt);
 
-  await db
-    .update(directMessagesTable)
-    .set({ readAt: new Date() })
-    .where(
-      and(
-        eq(directMessagesTable.senderId, otherId),
-        eq(directMessagesTable.recipientId, me.id),
-        sql`${directMessagesTable.readAt} IS NULL`,
-      ),
-    );
+  if (!blocked) {
+    await db
+      .update(directMessagesTable)
+      .set({ readAt: new Date() })
+      .where(
+        and(
+          eq(directMessagesTable.senderId, otherId),
+          eq(directMessagesTable.recipientId, me.id),
+          sql`${directMessagesTable.readAt} IS NULL`,
+        ),
+      );
+  }
 
   res.json({
     otherUser: {
@@ -183,6 +272,8 @@ router.get("/dm/:userId", async (req, res): Promise<void> => {
       avatarUrl: other.avatarUrl,
       dmRequiresSubscription: other.dmRequiresSubscription,
       subscriptionPrice: other.subscriptionPrice ? Number(other.subscriptionPrice) : null,
+      isMuted: !!muted,
+      isBlocked: !!blocked,
     },
     messages: messages.map((m) => ({
       id: m.id,
@@ -194,7 +285,7 @@ router.get("/dm/:userId", async (req, res): Promise<void> => {
   });
 });
 
-// POST /api/dm/:userId — send a message
+// POST /api/dm/:userId — send a message (blocked check)
 router.post("/dm/:userId", async (req, res): Promise<void> => {
   const wallet = getWalletAddress(req);
   if (!wallet) { res.status(400).json({ error: "Missing x-wallet-address header" }); return; }
@@ -211,6 +302,22 @@ router.post("/dm/:userId", async (req, res): Promise<void> => {
 
   const [other] = await db.select().from(usersTable).where(eq(usersTable.id, otherId));
   if (!other) { res.status(404).json({ error: "Recipient not found" }); return; }
+
+  // Block check — either direction
+  const [blocked] = await db
+    .select({ id: blockedUsersTable.id })
+    .from(blockedUsersTable)
+    .where(
+      or(
+        and(eq(blockedUsersTable.userId, me.id), eq(blockedUsersTable.blockedUserId, otherId)),
+        and(eq(blockedUsersTable.userId, otherId), eq(blockedUsersTable.blockedUserId, me.id)),
+      ),
+    );
+
+  if (blocked) {
+    res.status(403).json({ error: "blocked", message: "Cannot send messages to this user." });
+    return;
+  }
 
   if (other.dmRequiresSubscription) {
     const subscribed = await isSubscribedTo(me.id, otherId);

@@ -4,5 +4,6 @@ export * from "./subscriptions";
 export * from "./streaks";
 export * from "./notifications";
 export * from "./messages";
+export { mutedUsersTable, blockedUsersTable } from "./messages";
 export { commentsTable, insertCommentSchema } from "./posts";
 export type { Comment, InsertComment } from "./posts";

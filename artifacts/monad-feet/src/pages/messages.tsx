@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import {
   MessageCircle, Send, Lock, ChevronLeft, Settings2,
   Shield, Loader2, Star, AlertCircle, SquarePen, Search, X,
+  BellOff, Bell, ShieldX, ShieldCheck,
 } from "lucide-react";
 import { useUser } from "@/context/UserContext";
 import { usePresence } from "@/hooks/usePresence";
@@ -24,6 +25,8 @@ type Conversation = {
   username: string | null;
   avatarUrl: string | null;
   dmRequiresSubscription: boolean;
+  isMuted: boolean;
+  isBlocked: boolean;
   lastMessage: { content: string; sentByMe: boolean; at: string };
   unreadCount: number;
 };
@@ -43,6 +46,8 @@ type OtherUser = {
   avatarUrl: string | null;
   dmRequiresSubscription: boolean;
   subscriptionPrice: number | null;
+  isMuted: boolean;
+  isBlocked: boolean;
 };
 
 type ThreadData = {
@@ -90,7 +95,12 @@ function ConvItem({
             {conv.name?.slice(0, 2).toUpperCase() ?? "??"}
           </AvatarFallback>
         </Avatar>
-        {conv.dmRequiresSubscription && (
+        {conv.isMuted && (
+          <div className="absolute -top-0.5 -right-0.5 h-4 w-4 bg-muted-foreground/50 rounded-full flex items-center justify-center border border-background">
+            <BellOff className="h-2 w-2 text-white" />
+          </div>
+        )}
+        {!conv.isMuted && conv.dmRequiresSubscription && (
           <div className="absolute -bottom-0.5 -right-0.5 h-4 w-4 bg-amber-500 rounded-full flex items-center justify-center border border-background">
             <Lock className="h-2 w-2 text-white" />
           </div>
@@ -240,6 +250,46 @@ export default function MessagesPage() {
   const [dmPaid, setDmPaid] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
   const [mobileView, setMobileView] = useState<"list" | "thread">("list");
+
+  // Mute / block actions
+  const [muteLoading, setMuteLoading] = useState(false);
+  const [blockLoading, setBlockLoading] = useState(false);
+
+  const toggleMute = async () => {
+    if (!thread || muteLoading) return;
+    const { id, isMuted } = thread.otherUser;
+    setMuteLoading(true);
+    try {
+      const method = isMuted ? "DELETE" : "POST";
+      await fetch(`${BASE}/api/dm/mute/${id}`, { method, headers: authHeaders() });
+      setThread((prev) =>
+        prev ? { ...prev, otherUser: { ...prev.otherUser, isMuted: !isMuted } } : prev,
+      );
+      setConversations((prev) =>
+        prev.map((c) => c.userId === id ? { ...c, isMuted: !isMuted } : c),
+      );
+    } catch { /* ignore */ } finally {
+      setMuteLoading(false);
+    }
+  };
+
+  const toggleBlock = async () => {
+    if (!thread || blockLoading) return;
+    const { id, isBlocked } = thread.otherUser;
+    setBlockLoading(true);
+    try {
+      const method = isBlocked ? "DELETE" : "POST";
+      await fetch(`${BASE}/api/users/block/${id}`, { method, headers: authHeaders() });
+      setThread((prev) =>
+        prev ? { ...prev, otherUser: { ...prev.otherUser, isBlocked: !isBlocked } } : prev,
+      );
+      setConversations((prev) =>
+        prev.map((c) => c.userId === id ? { ...c, isBlocked: !isBlocked } : c),
+      );
+    } catch { /* ignore */ } finally {
+      setBlockLoading(false);
+    }
+  };
 
   // Compose / new conversation search
   const [composing, setComposing] = useState(false);
@@ -662,14 +712,36 @@ export default function MessagesPage() {
                     </div>
                     <span className="text-xs text-muted-foreground">@{thread.otherUser.username ?? "—"}</span>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-xs text-muted-foreground"
-                    onClick={() => navigate(`/profile/${thread.otherUser.id}`)}
-                  >
-                    Profile
-                  </Button>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-xs text-muted-foreground"
+                      onClick={() => navigate(`/profile/${thread.otherUser.id}`)}
+                    >
+                      Profile
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={`h-8 w-8 ${thread.otherUser.isMuted ? "text-primary" : "text-muted-foreground"}`}
+                      onClick={() => void toggleMute()}
+                      disabled={muteLoading}
+                      title={thread.otherUser.isMuted ? "Unmute notifications" : "Mute notifications"}
+                    >
+                      {muteLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : thread.otherUser.isMuted ? <BellOff className="h-4 w-4" /> : <Bell className="h-4 w-4" />}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={`h-8 w-8 ${thread.otherUser.isBlocked ? "text-destructive" : "text-muted-foreground"}`}
+                      onClick={() => void toggleBlock()}
+                      disabled={blockLoading}
+                      title={thread.otherUser.isBlocked ? "Unblock user" : "Block user"}
+                    >
+                      {blockLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : thread.otherUser.isBlocked ? <ShieldCheck className="h-4 w-4" /> : <ShieldX className="h-4 w-4" />}
+                    </Button>
+                  </div>
                 </div>
 
                 {/* Messages */}
@@ -685,34 +757,55 @@ export default function MessagesPage() {
                   <div ref={bottomRef} />
                 </div>
 
-                {/* Compose box */}
-                <div className="px-4 py-3 border-t bg-background flex-shrink-0">
-                  <div className="flex items-end gap-2">
-                    <textarea
-                      ref={inputRef}
-                      value={input}
-                      onChange={(e) => setInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault();
-                          void sendMessage();
-                        }
-                      }}
-                      placeholder="Type a message… (Enter to send)"
-                      rows={1}
-                      className="flex-1 resize-none rounded-xl border bg-muted/50 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/50 transition-all max-h-32"
-                      style={{ overflow: "auto" }}
-                    />
-                    <Button
-                      size="sm"
-                      onClick={() => void sendMessage()}
-                      disabled={!input.trim() || sending}
-                      className="h-10 w-10 p-0 rounded-xl flex-shrink-0"
-                    >
-                      {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                    </Button>
+                {/* Compose box or blocked state */}
+                {thread.otherUser.isBlocked ? (
+                  <div className="px-4 py-3 border-t bg-background flex-shrink-0">
+                    <div className="flex items-center justify-between gap-3 bg-destructive/5 border border-destructive/20 rounded-xl px-4 py-3">
+                      <div className="flex items-center gap-2 text-sm text-destructive">
+                        <ShieldX className="h-4 w-4 flex-shrink-0" />
+                        <span>You've blocked this user. Unblock to send messages.</span>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="flex-shrink-0 text-xs border-destructive/40 text-destructive hover:bg-destructive/10"
+                        onClick={() => void toggleBlock()}
+                        disabled={blockLoading}
+                      >
+                        {blockLoading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                        Unblock
+                      </Button>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="px-4 py-3 border-t bg-background flex-shrink-0">
+                    <div className="flex items-end gap-2">
+                      <textarea
+                        ref={inputRef}
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            void sendMessage();
+                          }
+                        }}
+                        placeholder="Type a message… (Enter to send)"
+                        rows={1}
+                        className="flex-1 resize-none rounded-xl border bg-muted/50 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/50 transition-all max-h-32"
+                        style={{ overflow: "auto" }}
+                      />
+                      <Button
+                        size="sm"
+                        onClick={() => void sendMessage()}
+                        disabled={!input.trim() || sending}
+                        className="h-10 w-10 p-0 rounded-xl flex-shrink-0"
+                      >
+                        {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </>
             ) : (
               /* Thread selected but empty state — fresh conversation */

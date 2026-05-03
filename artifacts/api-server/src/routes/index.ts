@@ -14,6 +14,7 @@ import trendingRouter from "./trending";
 import leaderboardRouter from "./leaderboard";
 import searchRouter from "./search";
 import dmRouter from "./dm";
+import blocksRouter from "./blocks";
 
 const router: IRouter = Router();
 
@@ -32,5 +33,6 @@ router.use(trendingRouter);
 router.use(leaderboardRouter);
 router.use(searchRouter);
 router.use(dmRouter);
+router.use(blocksRouter);
 
 export default router;

@@ -20,6 +20,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const { isConnected: walletConnected } = useAccount();
   const [unreadCount, setUnreadCount] = useState(0);
   const [dmUnreadCount, setDmUnreadCount] = useState(0);
+  const [mutedIds, setMutedIds] = useState<Set<number>>(new Set());
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const { onlineCount, wsEvent } = usePresence();
   const { alert: trendingAlert, dismiss: dismissTrending } = useTrendingAlert();
@@ -40,6 +41,15 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       .catch(() => {});
   };
 
+  const fetchMutedIds = () => {
+    const wallet = localStorage.getItem("mf_wallet_address") ?? "";
+    if (!wallet) return;
+    fetch(`${BASE}/api/dm/muted`, { headers: { "x-wallet-address": wallet } })
+      .then((r) => r.ok ? r.json() : Promise.reject())
+      .then((ids: number[]) => setMutedIds(new Set(ids)))
+      .catch(() => {});
+  };
+
   useEffect(() => {
     if (!user) return;
     const fetchCount = () => {
@@ -51,7 +61,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     };
     fetchCount();
     fetchDmUnread();
-    const interval = setInterval(() => { fetchCount(); fetchDmUnread(); }, 60_000);
+    fetchMutedIds();
+    const interval = setInterval(() => { fetchCount(); fetchDmUnread(); fetchMutedIds(); }, 60_000);
     return () => clearInterval(interval);
   }, [user]);
 
@@ -70,22 +81,25 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       preview?: string | null;
     };
     if (ev.type === "new_dm" && !onMessagesPage) {
+      const isMuted = ev.senderId !== undefined && mutedIds.has(ev.senderId);
       fetchDmUnread();
-      toast({
-        title: ev.senderName ? `💬 ${ev.senderName}` : "💬 New message",
-        description: ev.preview ?? "Sent you a message",
-        duration: 6_000,
-        action: (
-          <ToastAction
-            altText="Reply"
-            onClick={() => navigate(`/messages?userId=${ev.senderId ?? ""}`)}
-          >
-            Reply
-          </ToastAction>
-        ),
-      });
+      if (!isMuted) {
+        toast({
+          title: ev.senderName ? `💬 ${ev.senderName}` : "💬 New message",
+          description: ev.preview ?? "Sent you a message",
+          duration: 6_000,
+          action: (
+            <ToastAction
+              altText="Reply"
+              onClick={() => navigate(`/messages?userId=${ev.senderId ?? ""}`)}
+            >
+              Reply
+            </ToastAction>
+          ),
+        });
+      }
     }
-  }, [wsEvent, onMessagesPage]);
+  }, [wsEvent, onMessagesPage, mutedIds]);
 
   // Show a toast when one of the user's posts enters the top 3 on Trending
   useEffect(() => {

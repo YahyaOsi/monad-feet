@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "wouter";
 import { useUser } from "@/context/UserContext";
 import { useGetUser, useListPosts, useListBadges, useGetCreatorSubscriptionPrice, useGetCreatorAnalytics } from "@workspace/api-client-react";
@@ -10,7 +10,7 @@ import { PostCard } from "@/components/post/PostCard";
 import {
   Trophy, Calendar, Flame, Lock, ExternalLink, Link2,
   Loader2, CheckCircle2, Shield, AlertCircle, BarChart2,
-  Users, Coins, TrendingUp, Star, MessageCircle
+  Users, Coins, TrendingUp, Star, MessageCircle, ShieldX, ShieldCheck,
 } from "lucide-react";
 import { format } from "date-fns";
 import { useContractActions } from "@/lib/useContractActions";
@@ -47,6 +47,32 @@ export default function Profile() {
   const queryClient = useQueryClient();
   const isOwnProfile = currentUser?.id === userId;
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [blockLoading, setBlockLoading] = useState(false);
+
+  useEffect(() => {
+    if (isOwnProfile || !userId) return;
+    const wallet = localStorage.getItem("mf_wallet_address") ?? "";
+    fetch(`${BASE}/api/users/${userId}/block-status`, { headers: { "x-wallet-address": wallet } })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d: { isBlocked?: boolean } | null) => { if (d) setIsBlocked(d.isBlocked ?? false); })
+      .catch(() => {});
+  }, [userId, isOwnProfile]);
+
+  const toggleBlock = async () => {
+    setBlockLoading(true);
+    const wallet = localStorage.getItem("mf_wallet_address") ?? "";
+    try {
+      const method = isBlocked ? "DELETE" : "POST";
+      await fetch(`${BASE}/api/users/block/${userId}`, {
+        method,
+        headers: { "x-wallet-address": wallet, "Content-Type": "application/json" },
+      });
+      setIsBlocked((b) => !b);
+    } catch { /* ignore */ } finally {
+      setBlockLoading(false);
+    }
+  };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: profile, isLoading } = useGetUser(userId, { query: { enabled: !!userId, queryKey: [] as any } });
@@ -179,6 +205,21 @@ export default function Profile() {
                   >
                     <MessageCircle className="h-4 w-4" />
                     Message
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className={`gap-2 ${isBlocked ? "border-destructive/50 text-destructive hover:bg-destructive/10" : "text-muted-foreground"}`}
+                    onClick={() => void toggleBlock()}
+                    disabled={blockLoading}
+                  >
+                    {blockLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : isBlocked ? (
+                      <ShieldCheck className="h-4 w-4" />
+                    ) : (
+                      <ShieldX className="h-4 w-4" />
+                    )}
+                    {isBlocked ? "Unblock" : "Block"}
                   </Button>
                 </div>
                 {isSubscribedOnChain && (
