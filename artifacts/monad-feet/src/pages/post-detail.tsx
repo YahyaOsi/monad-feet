@@ -224,7 +224,7 @@ export default function PostDetail() {
           </div>
           {isChainVerified && post.onChainTxHash && (
             <a
-              href={`https://testnet.monadexplorer.com/tx/${post.onChainTxHash}`}
+              href={`https://monadscan.com/tx/${post.onChainTxHash}`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full bg-violet-100 text-violet-700 border border-violet-200 hover:bg-violet-200 transition-colors"

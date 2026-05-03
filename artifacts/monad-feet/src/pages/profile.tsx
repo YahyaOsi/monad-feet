@@ -10,7 +10,7 @@ import { PostCard } from "@/components/post/PostCard";
 import {
   Trophy, Calendar, Flame, Lock, ExternalLink, Link2,
   Loader2, CheckCircle2, Shield, AlertCircle, BarChart2,
-  Users, Coins, TrendingUp, Star
+  Users, Coins, TrendingUp, Star, MessageCircle
 } from "lucide-react";
 import { format } from "date-fns";
 import { useContractActions } from "@/lib/useContractActions";
@@ -19,6 +19,7 @@ import { useAccount } from "wagmi";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetUserQueryKey } from "@workspace/api-client-react";
 import { CONTRACT_DEPLOYED } from "@/lib/contract";
+import { useLocation } from "wouter";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -40,6 +41,7 @@ async function apiSubscribe(creatorId: number, txHash: string | null): Promise<v
 export default function Profile() {
   const params = useParams();
   const userId = Number(params.userId);
+  const [, navigate] = useLocation();
   const { user: currentUser } = useUser();
   const { address } = useAccount();
   const queryClient = useQueryClient();
@@ -153,22 +155,32 @@ export default function Profile() {
             </div>
 
             {!isOwnProfile && subPrice !== undefined && (
-              <div className="pb-2 flex flex-col items-start gap-1">
-                <Button
-                  onClick={handleSubscribe}
-                  disabled={isSubPending || subState === "done" || isSubscribedOnChain === true}
-                  className="gap-2"
-                  variant={subState === "done" || isSubscribedOnChain ? "secondary" : "default"}
-                >
-                  {isSubPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : subState === "done" || isSubscribedOnChain ? (
-                    <CheckCircle2 className="h-4 w-4" />
-                  ) : (
-                    <Lock className="h-4 w-4" />
-                  )}
-                  {subLabel()}
-                </Button>
+              <div className="pb-2 flex flex-col items-start gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Button
+                    onClick={handleSubscribe}
+                    disabled={isSubPending || subState === "done" || isSubscribedOnChain === true}
+                    className="gap-2"
+                    variant={subState === "done" || isSubscribedOnChain ? "secondary" : "default"}
+                  >
+                    {isSubPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : subState === "done" || isSubscribedOnChain ? (
+                      <CheckCircle2 className="h-4 w-4" />
+                    ) : (
+                      <Lock className="h-4 w-4" />
+                    )}
+                    {subLabel()}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="gap-2"
+                    onClick={() => navigate(`/messages?userId=${userId}`)}
+                  >
+                    <MessageCircle className="h-4 w-4" />
+                    Message
+                  </Button>
+                </div>
                 {isSubscribedOnChain && (
                   <p className="text-xs text-green-600 flex items-center gap-1">
                     <Link2 className="h-3 w-3" /> Verified on-chain
@@ -197,7 +209,7 @@ export default function Profile() {
 
           <div className="flex flex-wrap gap-y-2 gap-x-5 text-sm text-muted-foreground">
             <a
-              href={`https://testnet.monadexplorer.com/address/${profile.walletAddress}`}
+              href={`https://monadscan.com/address/${profile.walletAddress}`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1 hover:text-primary transition-colors"
@@ -213,7 +225,7 @@ export default function Profile() {
             </div>
             {profile.registrationTxHash && (
               <a
-                href={`https://testnet.monadexplorer.com/tx/${profile.registrationTxHash}`}
+                href={`https://monadscan.com/tx/${profile.registrationTxHash}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-1 text-violet-600 hover:text-violet-800 transition-colors text-xs"

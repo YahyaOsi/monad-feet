@@ -102,7 +102,7 @@ export function PostCard({ post }: { post: Post }) {
 
   const initials = post.authorName ? post.authorName.slice(0, 2).toUpperCase() : "??";
   const explorerTxUrl = post.onChainTxHash
-    ? `https://testnet.monadexplorer.com/tx/${post.onChainTxHash}`
+    ? `https://monadscan.com/tx/${post.onChainTxHash}`
     : null;
   const isChainVerified = !!post.onChainTxHash;
   const usingChainCount = CONTRACT_DEPLOYED && chainLikeCount !== undefined;
@@ -222,7 +222,7 @@ export function PostCard({ post }: { post: Post }) {
           {/* Tx hash shortlink */}
           {post.onChainTxHash && (
             <a
-              href={`https://testnet.monadexplorer.com/tx/${post.onChainTxHash}`}
+              href={`https://monadscan.com/tx/${post.onChainTxHash}`}
               target="_blank"
               rel="noopener noreferrer"
               className="text-[10px] text-muted-foreground hover:text-violet-600 transition-colors font-mono flex items-center gap-0.5"

@@ -133,14 +133,14 @@ export default function Landing() {
           </p>
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground/60">
             <Link2 className="h-3 w-3" />
-            Monad Testnet · Chain {MONAD_MAINNET_CHAIN_ID}
+            Monad Mainnet · Chain {MONAD_MAINNET_CHAIN_ID}
             <a
-              href="https://testnet.monadexplorer.com"
+              href="https://monadscan.com"
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-muted-foreground transition-colors flex items-center gap-0.5 ml-1"
             >
-              monadexplorer.com <ArrowRight className="h-2.5 w-2.5" />
+              monadscan.com <ArrowRight className="h-2.5 w-2.5" />
             </a>
           </div>
         </div>

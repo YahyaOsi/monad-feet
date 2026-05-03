@@ -180,8 +180,17 @@ export default function MessagesPage() {
   const [, navigate] = useLocation();
   const { wsEvent } = usePresence();
 
+  // Support direct links like /messages?userId=5 (from profile page)
+  const urlUserId = (() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const id = parseInt(params.get("userId") ?? "", 10);
+      return isNaN(id) ? null : id;
+    } catch { return null; }
+  })();
+
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [activeUserId, setActiveUserId] = useState<number | null>(null);
+  const [activeUserId, setActiveUserId] = useState<number | null>(urlUserId);
   const [thread, setThread] = useState<ThreadData | null>(null);
   const [subGate, setSubGate] = useState<SubGateError | null>(null);
   const [loadingThread, setLoadingThread] = useState(false);

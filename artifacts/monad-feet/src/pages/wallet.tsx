@@ -169,7 +169,7 @@ export default function WalletPage() {
               </div>
               {address && (
                 <a
-                  href={`https://testnet.monadexplorer.com/address/${address}`}
+                  href={`https://monadscan.com/address/${address}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors mt-1"
@@ -197,7 +197,7 @@ export default function WalletPage() {
             </div>
 
             <Button variant="outline" className="w-full" asChild>
-              <a href={`https://testnet.monadexplorer.com/address/${address}`} target="_blank" rel="noopener noreferrer">
+              <a href={`https://monadscan.com/address/${address}`} target="_blank" rel="noopener noreferrer">
                 <ExternalLink className="h-4 w-4 mr-2" /> View on Monad Explorer
               </a>
             </Button>
@@ -248,7 +248,7 @@ export default function WalletPage() {
 
             {streak?.lastCheckinTxHash && (
               <a
-                href={`https://testnet.monadexplorer.com/tx/${streak.lastCheckinTxHash}`}
+                href={`https://monadscan.com/tx/${streak.lastCheckinTxHash}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-2 text-xs text-violet-600 hover:text-violet-800 transition-colors"
@@ -412,7 +412,7 @@ export default function WalletPage() {
                     </div>
                   </div>
                   <a
-                    href={`https://testnet.monadexplorer.com/tx/${tx.txHash}`}
+                    href={`https://monadscan.com/tx/${tx.txHash}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-1 text-xs text-violet-600 hover:text-violet-800 font-mono transition-colors flex-shrink-0"
@@ -426,7 +426,7 @@ export default function WalletPage() {
             {address && (
               <div className="pt-3 mt-3 border-t border-border/50">
                 <a
-                  href={`https://testnet.monadexplorer.com/address/${address}`}
+                  href={`https://monadscan.com/address/${address}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-2 text-xs text-muted-foreground hover:text-violet-600 transition-colors"
