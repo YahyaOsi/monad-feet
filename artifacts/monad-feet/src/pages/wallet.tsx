@@ -320,6 +320,97 @@ export default function WalletPage() {
         </Card>
       </div>
 
+      {/* Invite Code Progress */}
+      <Card className="border-violet-200 bg-gradient-to-br from-violet-50/40 to-purple-50/40">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            🎟️ Invite Code Progress
+          </CardTitle>
+          <CardDescription>
+            Earn invite codes automatically by staying active — no manual generation needed.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {(() => {
+            const currentStreak = CONTRACT_DEPLOYED && chainStreak !== null ? chainStreak : dbStreak;
+            const milestones = [
+              {
+                label: "7-day streak",
+                current: currentStreak,
+                target: 7,
+                reward: "1 invite code",
+                done: currentStreak >= 7,
+                color: "bg-orange-500",
+                trackColor: "bg-orange-100",
+              },
+              {
+                label: "30-day streak",
+                current: currentStreak,
+                target: 30,
+                reward: "3 invite codes",
+                done: currentStreak >= 30,
+                color: "bg-orange-500",
+                trackColor: "bg-orange-100",
+              },
+              {
+                label: "10 posts published",
+                current: myPostCount,
+                target: 10,
+                reward: "1 invite code",
+                done: myPostCount >= 10,
+                color: "bg-blue-500",
+                trackColor: "bg-blue-100",
+              },
+              {
+                label: "25 posts published",
+                current: myPostCount,
+                target: 25,
+                reward: "1 invite code",
+                done: myPostCount >= 25,
+                color: "bg-blue-500",
+                trackColor: "bg-blue-100",
+              },
+            ];
+            return milestones.map(({ label, current, target, reward, done, color, trackColor }) => {
+              const pct = Math.min(100, Math.round((current / target) * 100));
+              const remaining = Math.max(0, target - current);
+              return (
+                <div key={label} className="space-y-1.5">
+                  <div className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2">
+                      {done
+                        ? <CheckCircle2 className="h-4 w-4 text-green-600 flex-shrink-0" />
+                        : <div className="h-4 w-4 rounded-full border-2 border-muted-foreground/30 flex-shrink-0" />
+                      }
+                      <span className={`font-medium ${done ? "text-green-700" : "text-foreground"}`}>{label}</span>
+                    </div>
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${done ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground"}`}>
+                      {done ? `✓ +${reward}` : `+${reward}`}
+                    </span>
+                  </div>
+                  <div className={`h-2 rounded-full overflow-hidden ${trackColor}`}>
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${done ? "bg-green-500" : color}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>{current} / {target}</span>
+                    {done
+                      ? <span className="text-green-600 font-medium">Earned!</span>
+                      : <span>{remaining} more to go</span>
+                    }
+                  </div>
+                </div>
+              );
+            });
+          })()}
+          <p className="text-xs text-muted-foreground pt-1 border-t border-violet-100">
+            Codes appear automatically in the Invite Codes section below once earned.
+          </p>
+        </CardContent>
+      </Card>
+
       {/* $MFEET Airdrop Estimator */}
       <Card className="border-yellow-200 bg-gradient-to-br from-yellow-50/50 to-amber-50/50">
         <CardHeader>
