@@ -1,15 +1,26 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Redirect } from "wouter";
 import { useValidateInviteCode, useRegisterUser } from "@workspace/api-client-react";
 import { useUser } from "@/context/UserContext";
-import { useAccount } from "wagmi";
+import { useAccount, useReadContract } from "wagmi";
 import { useContractActions } from "@/lib/useContractActions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Link2, CheckCircle2 } from "lucide-react";
+import { Loader2, Link2, CheckCircle2, Gem } from "lucide-react";
+
+const NFT_CONTRACT = "0x656b1011a20b826f7c4ce1a07e5f350a52a3711d" as const;
+const ERC721_BALANCE_ABI = [
+  {
+    name: "balanceOf",
+    type: "function" as const,
+    stateMutability: "view" as const,
+    inputs: [{ name: "owner", type: "address" as const }],
+    outputs: [{ name: "", type: "uint256" as const }],
+  },
+] as const;
 
 type Step = 1 | 2;
 type TxState = "idle" | "signing" | "confirmed" | "skipped";
@@ -30,6 +41,22 @@ export default function Onboarding() {
   const validateInvite = useValidateInviteCode();
   const register = useRegisterUser();
   const { contractDeployed, registerOnChain } = useContractActions();
+
+  // Check if wallet holds the Monad Feet NFT
+  const { data: nftBalance, isLoading: nftLoading } = useReadContract({
+    address: NFT_CONTRACT,
+    abi: ERC721_BALANCE_ABI,
+    functionName: "balanceOf",
+    args: address ? [address] : undefined,
+    chainId: 143,
+    query: { enabled: !!address },
+  });
+  const hasNft = nftBalance !== undefined && nftBalance > 0n;
+
+  // Auto-advance past the invite step if NFT detected
+  useEffect(() => {
+    if (hasNft && step === 1) setStep(2);
+  }, [hasNft]);
 
   if (isLoading) return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
   if (!isConnected) return <Redirect to="/" />;
@@ -74,7 +101,7 @@ export default function Onboarding() {
       await register.mutateAsync({
         data: {
           walletAddress: address,
-          inviteCode,
+          inviteCode: inviteCode || undefined,
           name: name.trim(),
           username: username.trim(),
           bio: bio.trim() || undefined,
@@ -99,37 +126,74 @@ export default function Onboarding() {
           <CardTitle className="text-2xl font-bold">Welcome to Monad Feet</CardTitle>
           <CardDescription>
             {step === 1
-              ? "Enter your invite code to continue."
+              ? nftLoading
+                ? "Checking your wallet for NFT access..."
+                : "Enter your invite code or hold the Monad Feet NFT to join."
+              : hasNft
+              ? "NFT access granted — set up your profile to join."
               : "Set up your profile to join."}
           </CardDescription>
         </CardHeader>
         <CardContent>
           {step === 1 ? (
             <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="invite">Invite Code</Label>
-                <Input
-                  id="invite"
-                  placeholder="e.g. MONAD00001"
-                  value={inviteCode}
-                  onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-                  onKeyDown={(e) => e.key === "Enter" && handleValidate()}
-                  className="text-center text-lg tracking-widest uppercase"
-                />
-                {inviteError && <p className="text-sm text-destructive">{inviteError}</p>}
-              </div>
-              <Button
-                className="w-full"
-                onClick={handleValidate}
-                disabled={!inviteCode.trim() || validateInvite.isPending}
-              >
-                {validateInvite.isPending ? (
-                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Verifying...</>
-                ) : "Verify Code"}
-              </Button>
+              {/* NFT check loading state */}
+              {nftLoading && (
+                <div className="flex items-center justify-center gap-3 rounded-lg border border-violet-200 bg-violet-50 px-4 py-4">
+                  <Loader2 className="h-4 w-4 text-violet-600 animate-spin flex-shrink-0" />
+                  <p className="text-sm text-violet-700">Checking for Monad Feet NFT in your wallet...</p>
+                </div>
+              )}
+              {!nftLoading && (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="invite">Invite Code</Label>
+                    <Input
+                      id="invite"
+                      placeholder="e.g. MONAD00001"
+                      value={inviteCode}
+                      onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                      onKeyDown={(e) => e.key === "Enter" && handleValidate()}
+                      className="text-center text-lg tracking-widest uppercase"
+                    />
+                    {inviteError && <p className="text-sm text-destructive">{inviteError}</p>}
+                  </div>
+                  <Button
+                    className="w-full"
+                    onClick={handleValidate}
+                    disabled={!inviteCode.trim() || validateInvite.isPending}
+                  >
+                    {validateInvite.isPending ? (
+                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Verifying...</>
+                    ) : "Verify Code"}
+                  </Button>
+                  <p className="text-center text-xs text-muted-foreground">
+                    — or hold the{" "}
+                    <a
+                      href="https://monvision.io/address/0x656b1011a20b826f7c4ce1a07e5f350a52a3711d"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-violet-600 hover:underline"
+                    >
+                      Monad Feet NFT
+                    </a>
+                    {" "}to join without a code —
+                  </p>
+                </>
+              )}
             </div>
           ) : (
             <div className="space-y-4">
+              {/* NFT access badge */}
+              {hasNft && (
+                <div className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
+                  <Gem className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+                  <div>
+                    <p className="text-xs font-semibold text-emerald-700">Monad Feet NFT detected</p>
+                    <p className="text-xs text-emerald-600">No invite code needed — your NFT grants you access.</p>
+                  </div>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="name">Display Name</Label>
                 <Input

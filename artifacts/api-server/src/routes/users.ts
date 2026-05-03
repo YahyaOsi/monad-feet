@@ -7,6 +7,44 @@ import {
   GetUserParams,
 } from "@workspace/api-zod";
 import { nanoid } from "nanoid";
+import { createPublicClient, http, defineChain } from "viem";
+
+const monadMainnet = defineChain({
+  id: 143,
+  name: "Monad Mainnet",
+  nativeCurrency: { name: "MON", symbol: "MON", decimals: 18 },
+  rpcUrls: { default: { http: ["https://rpc.monad.xyz"] } },
+});
+
+const NFT_CONTRACT = "0x656b1011a20b826f7c4ce1a07e5f350a52a3711d" as const;
+const ERC721_BALANCE_ABI = [
+  {
+    name: "balanceOf",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "owner", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+] as const;
+
+const publicClient = createPublicClient({
+  chain: monadMainnet,
+  transport: http("https://rpc.monad.xyz"),
+});
+
+async function hasMonadFeetNft(wallet: string): Promise<boolean> {
+  try {
+    const balance = await publicClient.readContract({
+      address: NFT_CONTRACT,
+      abi: ERC721_BALANCE_ABI,
+      functionName: "balanceOf",
+      args: [wallet as `0x${string}`],
+    });
+    return balance > 0n;
+  } catch {
+    return false;
+  }
+}
 
 const router: IRouter = Router();
 
@@ -49,27 +87,13 @@ router.post("/auth/register", async (req, res): Promise<void> => {
 
   const { walletAddress, inviteCode, email, name, username, avatarUrl } = parsed.data;
   const registrationTxHash = typeof req.body?.txHash === "string" ? req.body.txHash : null;
+  const normalizedWallet = walletAddress.toLowerCase();
 
-  const [invite] = await db
-    .select()
-    .from(inviteCodesTable)
-    .where(eq(inviteCodesTable.code, inviteCode));
-
-  if (!invite) {
-    res.status(400).json({ error: "Invalid invite code" });
-    return;
-  }
-
-  if (invite.usedById !== null) {
-    res.status(400).json({ error: "Invite code already used" });
-    return;
-  }
-
+  // Check for duplicate wallet / username first
   const [existingUser] = await db
     .select()
     .from(usersTable)
-    .where(eq(usersTable.walletAddress, walletAddress.toLowerCase()));
-
+    .where(eq(usersTable.walletAddress, normalizedWallet));
   if (existingUser) {
     res.status(409).json({ error: "User already exists" });
     return;
@@ -79,16 +103,43 @@ router.post("/auth/register", async (req, res): Promise<void> => {
     .select()
     .from(usersTable)
     .where(eq(usersTable.username, username));
-
   if (existingUsername) {
     res.status(400).json({ error: "Username already taken" });
     return;
   }
 
+  // Determine access path: NFT holder OR valid invite code
+  const nftHolder = await hasMonadFeetNft(normalizedWallet);
+
+  let invite: typeof inviteCodesTable.$inferSelect | null = null;
+
+  if (!nftHolder) {
+    // Must supply a valid, unused invite code
+    if (!inviteCode) {
+      res.status(400).json({ error: "An invite code is required to join." });
+      return;
+    }
+    const [found] = await db
+      .select()
+      .from(inviteCodesTable)
+      .where(eq(inviteCodesTable.code, inviteCode.toUpperCase()));
+
+    if (!found) {
+      res.status(400).json({ error: "Invalid invite code" });
+      return;
+    }
+    if (found.usedById !== null) {
+      res.status(400).json({ error: "Invite code already used" });
+      return;
+    }
+    invite = found;
+  }
+
+  // Create the user
   const [newUser] = await db
     .insert(usersTable)
     .values({
-      walletAddress: walletAddress.toLowerCase(),
+      walletAddress: normalizedWallet,
       email,
       name,
       username,
@@ -97,21 +148,25 @@ router.post("/auth/register", async (req, res): Promise<void> => {
     })
     .returning();
 
-  await db
-    .update(inviteCodesTable)
-    .set({ usedById: newUser.id, usedAt: new Date() })
-    .where(eq(inviteCodesTable.id, invite.id));
+  // Mark invite as used (invite-code path only)
+  if (invite) {
+    await db
+      .update(inviteCodesTable)
+      .set({ usedById: newUser.id, usedAt: new Date() })
+      .where(eq(inviteCodesTable.id, invite.id));
+  }
 
-  const inviteCode1 = nanoid(10).toUpperCase();
-  const inviteCode2 = nanoid(10).toUpperCase();
+  // Everyone gets 2 invite codes to share
+  const code1 = nanoid(10).toUpperCase();
+  const code2 = nanoid(10).toUpperCase();
   await db.insert(inviteCodesTable).values([
-    { code: inviteCode1, ownerId: newUser.id },
-    { code: inviteCode2, ownerId: newUser.id },
+    { code: code1, ownerId: newUser.id },
+    { code: code2, ownerId: newUser.id },
   ]);
 
   await db.insert(streaksTable).values({ userId: newUser.id });
 
-  res.status(201).json(formatUser({ ...newUser }));
+  res.status(201).json({ ...formatUser({ ...newUser }), nftHolder });
 });
 
 router.get("/users/me", async (req, res): Promise<void> => {
