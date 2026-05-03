@@ -3,6 +3,7 @@ import { useParams } from "wouter";
 import { useUser } from "@/context/UserContext";
 import { useGetUser, useListPosts, useListBadges, useGetCreatorSubscriptionPrice, useGetCreatorAnalytics, useUpdateMe } from "@workspace/api-client-react";
 import { useContractActions } from "@/lib/useContractActions";
+import { Slider } from "@/components/ui/slider";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -132,6 +133,46 @@ export default function Profile() {
   const [subState, setSubState] = useState<SubState>("idle");
   const [subError, setSubError] = useState<string | null>(null);
   const [editStep, setEditStep] = useState<"idle" | "saving" | "signing" | "done">("idle");
+
+  // Subscription price picker state
+  const [priceOpen, setPriceOpen] = useState(false);
+  const [priceValue, setPriceValue] = useState(100);
+  const [priceSaving, setPriceSaving] = useState(false);
+  const [priceError, setPriceError] = useState<string | null>(null);
+  const [priceSaved, setPriceSaved] = useState(false);
+
+  const openPriceDialog = () => {
+    const current = profile?.subscriptionPrice ? Number(profile.subscriptionPrice) : 100;
+    setPriceValue(Math.min(8000, Math.max(10, current)));
+    setPriceError(null);
+    setPriceSaved(false);
+    setPriceOpen(true);
+  };
+
+  const savePrice = async () => {
+    if (!profile) return;
+    setPriceSaving(true);
+    setPriceError(null);
+    try {
+      const wallet = localStorage.getItem("mf_wallet_address") ?? "";
+      const res = await fetch(`${BASE}/api/subscriptions/price`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "x-wallet-address": wallet },
+        body: JSON.stringify({ walletAddress: profile.walletAddress, pricePerMonth: priceValue }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(err.error ?? "Failed to save price");
+      }
+      queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(userId) });
+      setPriceSaved(true);
+      setTimeout(() => setPriceOpen(false), 1200);
+    } catch (e) {
+      setPriceError(e instanceof Error ? e.message : "Failed to save price");
+    } finally {
+      setPriceSaving(false);
+    }
+  };
 
   const { mutateAsync: updateMeAsync, isPending: isUpdating } = useUpdateMe();
 
@@ -336,6 +377,15 @@ export default function Profile() {
                 >
                   <BarChart2 className="h-4 w-4" />
                   {analyticsOpen ? "Hide Analytics" : "Creator Analytics"}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={openPriceDialog}
+                  className="gap-2"
+                >
+                  <Coins className="h-4 w-4" />
+                  {profile?.subscriptionPrice ? `${profile.subscriptionPrice} MON / mo` : "Set Subscription Price"}
                 </Button>
               </div>
             )}
@@ -700,6 +750,104 @@ export default function Profile() {
           userPosts.map((post) => <PostCard key={post.id} post={post} />)
         )}
       </div>
+
+      {/* Subscription Price Picker Dialog */}
+      <Dialog open={priceOpen} onOpenChange={setPriceOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Coins className="h-5 w-5 text-yellow-500" /> Subscription Price
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-5 py-2">
+            <p className="text-sm text-muted-foreground">
+              Set how much subscribers pay per month to access your exclusive content.
+            </p>
+
+            {/* Current display */}
+            <div className="text-center">
+              <span className="text-4xl font-bold text-primary">{priceValue}</span>
+              <span className="text-lg font-semibold text-muted-foreground ml-2">MON / mo</span>
+            </div>
+
+            {/* Slider */}
+            <div className="px-1">
+              <Slider
+                min={10}
+                max={8000}
+                step={10}
+                value={[priceValue]}
+                onValueChange={([v]) => setPriceValue(v ?? priceValue)}
+                className="w-full"
+              />
+              <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                <span>10 MON</span>
+                <span>8,000 MON</span>
+              </div>
+            </div>
+
+            {/* Number input */}
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={10}
+                max={8000}
+                step={10}
+                value={priceValue}
+                onChange={(e) => {
+                  const v = Math.min(8000, Math.max(10, Number(e.target.value) || 10));
+                  setPriceValue(v);
+                }}
+                className="text-center font-mono"
+              />
+              <span className="text-sm font-medium text-muted-foreground flex-shrink-0">MON / mo</span>
+            </div>
+
+            {/* Preset chips */}
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-2">Quick presets</p>
+              <div className="flex flex-wrap gap-2">
+                {[10, 50, 100, 250, 500, 1000, 5000].map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setPriceValue(p)}
+                    className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${
+                      priceValue === p
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "border-border text-muted-foreground hover:border-primary hover:text-primary"
+                    }`}
+                  >
+                    {p} MON
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {priceError && (
+              <p className="text-sm text-destructive flex items-center gap-1.5">
+                <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                {priceError}
+              </p>
+            )}
+            {priceSaved && (
+              <p className="text-sm text-green-600 flex items-center gap-1.5">
+                <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
+                Subscription price saved!
+              </p>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPriceOpen(false)} disabled={priceSaving}>
+              Cancel
+            </Button>
+            <Button onClick={() => void savePrice()} disabled={priceSaving || priceSaved} className="gap-2">
+              {priceSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+              {priceSaved ? "Saved!" : priceSaving ? "Saving…" : "Save Price"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="max-w-md">

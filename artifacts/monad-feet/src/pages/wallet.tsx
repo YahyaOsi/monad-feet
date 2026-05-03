@@ -276,26 +276,27 @@ export default function WalletPage() {
               {checkinLabel()}
             </Button>
 
-            {/* Streak milestones */}
+            {/* Invite code milestones */}
             <div className="space-y-1.5">
-              <p className="text-xs font-semibold text-muted-foreground">Streak Milestones</p>
-              {[
-                { days: 7, reward: "+1 invite code" },
-                { days: 30, reward: "+3 invite codes" },
-                { days: 100, reward: "Legendary badge" },
-              ].map(({ days, reward }) => {
-                const current = CONTRACT_DEPLOYED && chainStreak !== null ? chainStreak : dbStreak;
-                const done = current >= days;
-                return (
-                  <div key={days} className={`flex items-center justify-between text-xs px-3 py-1.5 rounded-lg ${done ? "bg-green-50 text-green-700" : "bg-muted text-muted-foreground"}`}>
-                    <span className="font-medium">{days}-day streak</span>
+              <p className="text-xs font-semibold text-muted-foreground">Earn Invite Codes</p>
+              {(() => {
+                const currentStreak = CONTRACT_DEPLOYED && chainStreak !== null ? chainStreak : dbStreak;
+                const milestones = [
+                  { label: "7-day streak", done: currentStreak >= 7, reward: "+1 invite code" },
+                  { label: "30-day streak", done: currentStreak >= 30, reward: "+3 invite codes" },
+                  { label: "10 posts published", done: false, reward: "+1 invite code" },
+                  { label: "25 posts published", done: false, reward: "+1 invite code" },
+                ];
+                return milestones.map(({ label, done, reward }) => (
+                  <div key={label} className={`flex items-center justify-between text-xs px-3 py-1.5 rounded-lg ${done ? "bg-green-50 text-green-700" : "bg-muted text-muted-foreground"}`}>
+                    <span className="font-medium">{label}</span>
                     <span className="flex items-center gap-1">
                       {done && <CheckCircle2 className="h-3 w-3" />}
                       {reward}
                     </span>
                   </div>
-                );
-              })}
+                ));
+              })()}
             </div>
           </CardContent>
         </Card>

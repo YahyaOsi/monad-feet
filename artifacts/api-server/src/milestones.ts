@@ -16,9 +16,22 @@ import {
   badgesTable,
   notificationsTable,
   notificationPreferencesTable,
+  inviteCodesTable,
 } from "@workspace/db";
 import { notifyUser } from "./presence";
 import { logger } from "./lib/logger";
+import { nanoid } from "nanoid";
+
+// ── Invite code award helper ─────────────────────────────────────
+
+async function awardInviteCodes(userId: number, count: number): Promise<void> {
+  const codes = Array.from({ length: count }, () => ({
+    code: nanoid(8).toUpperCase(),
+    ownerId: userId,
+  }));
+  await db.insert(inviteCodesTable).values(codes);
+  logger.info({ userId, count }, "Invite codes awarded");
+}
 
 // ── Milestone definitions ────────────────────────────────────────
 
@@ -57,6 +70,23 @@ const SUBSCRIBER_MILESTONES: MilestoneDef[] = [
   { count: 5,  type: "subs_5",  label: "Rising Creator", description: "Got 5 subscribers",            emoji: "📈" },
   { count: 10, type: "subs_10", label: "Creator Pro",    description: "Got 10 subscribers",           emoji: "🌈" },
   { count: 25, type: "subs_25", label: "Monad Star",     description: "Got 25 subscribers",           emoji: "⭐" },
+];
+
+// Invite code awards — tracked via a hidden badge type so they only fire once.
+// `codes` = how many invite codes to grant when this threshold is first crossed.
+type InviteAwardDef = {
+  stat: "streak" | "posts";
+  count: number;
+  type: string; // unique badge-type marker
+  codes: number;
+  reason: string;
+};
+
+const INVITE_AWARDS: InviteAwardDef[] = [
+  { stat: "streak", count: 7,  type: "icm_streak_7",  codes: 1, reason: "7-day check-in streak" },
+  { stat: "streak", count: 30, type: "icm_streak_30", codes: 3, reason: "30-day check-in streak" },
+  { stat: "posts",  count: 10, type: "icm_posts_10",  codes: 1, reason: "publishing 10 posts" },
+  { stat: "posts",  count: 25, type: "icm_posts_25",  codes: 1, reason: "publishing 25 posts" },
 ];
 
 // ── Stat fetch ───────────────────────────────────────────────────
@@ -127,6 +157,39 @@ export async function checkMilestones(userId: number): Promise<void> {
     }
     for (const m of SUBSCRIBER_MILESTONES) {
       if (stats.subscriberCount >= m.count && !earnedSet.has(m.type)) toAward.push(m);
+    }
+
+    // Check invite code awards (use earnedSet for deduplication)
+    const inviteAwards: InviteAwardDef[] = [];
+    for (const award of INVITE_AWARDS) {
+      const statValue = award.stat === "streak" ? stats.currentStreak : stats.postCount;
+      if (statValue >= award.count && !earnedSet.has(award.type)) {
+        inviteAwards.push(award);
+      }
+    }
+
+    if (toAward.length === 0 && inviteAwards.length === 0) return;
+
+    // Grant invite codes first (fire-and-forget per award)
+    for (const award of inviteAwards) {
+      // Insert a hidden marker badge so we never double-award
+      await db.insert(badgesTable).values({
+        userId,
+        badgeType: award.type,
+        label: `Invite codes: ${award.reason}`,
+        description: `Earned ${award.codes} invite code${award.codes > 1 ? "s" : ""} for ${award.reason}`,
+      });
+      await awardInviteCodes(userId, award.codes);
+      if (badgesEnabled) {
+        await db.insert(notificationsTable).values({
+          userId,
+          type: "system",
+          title: `🎟️ You earned ${award.codes} invite code${award.codes > 1 ? "s" : ""}!`,
+          body: `Reward for ${award.reason}. Find your codes in the Wallet tab.`,
+          resourceType: "invite",
+          read: false,
+        });
+      }
     }
 
     if (toAward.length === 0) return;
