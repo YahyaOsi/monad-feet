@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
+import { ToastAction } from "@/components/ui/toast";
 import { useUser } from "@/context/UserContext";
 import { useAccount } from "wagmi";
 import {
@@ -14,7 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
   const { user, logout } = useUser();
   const { isConnected: walletConnected } = useAccount();
   const [unreadCount, setUnreadCount] = useState(0);
@@ -59,12 +60,30 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     if (onMessagesPage) setDmUnreadCount(0);
   }, [onMessagesPage]);
 
-  // Bump DM badge in real-time on incoming message (unless already on Messages page)
+  // Bump DM badge + show toast in real-time on incoming message (unless already on Messages page)
   useEffect(() => {
     if (!wsEvent) return;
-    const ev = wsEvent as { type?: string };
+    const ev = wsEvent as {
+      type?: string;
+      senderId?: number;
+      senderName?: string | null;
+      preview?: string | null;
+    };
     if (ev.type === "new_dm" && !onMessagesPage) {
       fetchDmUnread();
+      toast({
+        title: ev.senderName ? `💬 ${ev.senderName}` : "💬 New message",
+        description: ev.preview ?? "Sent you a message",
+        duration: 6_000,
+        action: (
+          <ToastAction
+            altText="Reply"
+            onClick={() => navigate(`/messages?userId=${ev.senderId ?? ""}`)}
+          >
+            Reply
+          </ToastAction>
+        ),
+      });
     }
   }, [wsEvent, onMessagesPage]);
 
