@@ -17,6 +17,7 @@ import {
   ListPrivatePostsQueryParams,
   CreatePrivatePostBody,
 } from "@workspace/api-zod";
+import { notifyUser } from "../presence";
 
 const router: IRouter = Router();
 
@@ -145,6 +146,16 @@ router.post("/subscriptions", async (req, res): Promise<void> => {
       read: false,
     });
   }
+
+  // Real-time WS notification to the creator
+  notifyUser(creator.id, {
+    type: "new_subscription",
+    subscriberId: subscriber.id,
+    subscriberName: subscriber.name,
+    subscriberUsername: subscriber.username,
+    subscriberAvatarUrl: subscriber.avatarUrl,
+    isRenewal: !isNewSub,
+  });
 
   res.status(201).json({
     id: sub.id,

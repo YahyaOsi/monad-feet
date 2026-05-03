@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CONTRACT_DEPLOYED } from "@/lib/contract";
-import { usePresence, useTrendingAlert, useBadgeAlert } from "@/hooks/usePresence";
+import { usePresence, useTrendingAlert, useBadgeAlert, useSubscriptionAlert } from "@/hooks/usePresence";
 import { useToast } from "@/hooks/use-toast";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -27,6 +27,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const { onlineCount, wsEvent } = usePresence();
   const { alert: trendingAlert, dismiss: dismissTrending } = useTrendingAlert();
   const { alert: badgeAlert, dismiss: dismissBadge } = useBadgeAlert();
+  const { alert: subAlert, dismiss: dismissSub } = useSubscriptionAlert();
   const { toast } = useToast();
 
   const onMessagesPage = location === "/messages" || location.startsWith("/messages/");
@@ -124,6 +125,28 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     });
     dismissBadge();
   }, [badgeAlert?.badge.badgeType, badgeAlert?.seenAt]);
+
+  useEffect(() => {
+    if (!subAlert) return;
+    const name = subAlert.subscriberName ?? subAlert.subscriberUsername ?? "Someone";
+    const handle = subAlert.subscriberUsername ? `@${subAlert.subscriberUsername}` : null;
+    toast({
+      title: subAlert.isRenewal ? `🔄 Subscription renewed!` : `💜 New subscriber!`,
+      description: subAlert.isRenewal
+        ? `${handle ?? name} renewed their subscription to your exclusive content.`
+        : `${handle ?? name} just subscribed to your exclusive content.`,
+      duration: 8_000,
+      action: subAlert.subscriberUsername ? (
+        <ToastAction
+          altText="View profile"
+          onClick={() => navigate(`/profile/${subAlert.subscriberUsername}`)}
+        >
+          View
+        </ToastAction>
+      ) : undefined,
+    });
+    dismissSub();
+  }, [subAlert?.subscriberId, subAlert?.seenAt]);
 
   const primaryNav = [
     { label: "Home", href: "/feed", icon: Home },

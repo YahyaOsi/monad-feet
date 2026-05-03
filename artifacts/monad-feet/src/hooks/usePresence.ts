@@ -18,7 +18,8 @@ export type ActivityEvent =
   | { type: "post_anchored"; postId: number; txHash: string }
   | { type: "trending_alert"; postId: number; rank: number; postContent: string | null }
   | { type: "badge_earned"; userId: number; badge: BadgeInfo }
-  | { type: "new_dm"; messageId: number; senderId: number; senderName: string | null; senderAvatarUrl: string | null; preview: string };
+  | { type: "new_dm"; messageId: number; senderId: number; senderName: string | null; senderAvatarUrl: string | null; preview: string }
+  | { type: "new_subscription"; subscriberId: number; subscriberName: string | null; subscriberUsername: string | null; subscriberAvatarUrl: string | null; isRenewal: boolean };
 
 export type BadgeInfo = {
   badgeType: string;
@@ -45,6 +46,15 @@ export type TrendingAlert = {
   postId: number;
   rank: number;
   postContent: string | null;
+  seenAt: number;
+};
+
+export type SubscriptionAlert = {
+  subscriberId: number;
+  subscriberName: string | null;
+  subscriberUsername: string | null;
+  subscriberAvatarUrl: string | null;
+  isRenewal: boolean;
   seenAt: number;
 };
 
@@ -244,6 +254,37 @@ export function useTrendingAlert() {
     const listener: ActivityListener = (event) => {
       if (event.type === "trending_alert") {
         setAlert({ postId: event.postId, rank: event.rank, postContent: event.postContent, seenAt: Date.now() });
+      }
+    };
+    activityListeners.add(listener);
+    connectWs(user);
+    return () => {
+      activityListeners.delete(listener);
+      if (presenceListeners.size === 0 && activityListeners.size === 0) disconnectWs();
+    };
+  }, [user?.id]);
+
+  const dismiss = useCallback(() => setAlert(null), []);
+  return { alert, dismiss };
+}
+
+// ── useSubscriptionAlert ─────────────────────────────────────────
+export function useSubscriptionAlert() {
+  const { user } = useUser();
+  const [alert, setAlert] = useState<SubscriptionAlert | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    const listener: ActivityListener = (event) => {
+      if (event.type === "new_subscription") {
+        setAlert({
+          subscriberId: event.subscriberId,
+          subscriberName: event.subscriberName,
+          subscriberUsername: event.subscriberUsername,
+          subscriberAvatarUrl: event.subscriberAvatarUrl,
+          isRenewal: event.isRenewal,
+          seenAt: Date.now(),
+        });
       }
     };
     activityListeners.add(listener);
