@@ -9,6 +9,7 @@ import { Badge as UiBadge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { useUpload } from "@workspace/object-storage-web";
 import {
   Dialog,
   DialogContent,
@@ -65,6 +66,16 @@ export default function Profile() {
   const [editBio, setEditBio] = useState("");
   const [editAvatarUrl, setEditAvatarUrl] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
+
+  const { uploadFile, isUploading: isAvatarUploading, progress: avatarProgress } = useUpload({
+    basePath: `${BASE}/api/storage`,
+    onSuccess: (res) => {
+      setEditAvatarUrl(`${BASE}/api/storage${res.objectPath}`);
+    },
+    onError: (err) => {
+      setEditError(`Image upload failed: ${err.message}`);
+    },
+  });
 
   useEffect(() => {
     if (isOwnProfile || !userId) return;
@@ -513,18 +524,41 @@ export default function Profile() {
 
           <div className="space-y-5 py-2">
             <div className="flex items-center gap-4">
-              <Avatar className="h-16 w-16 border-2 border-border flex-shrink-0">
-                <AvatarImage src={editAvatarUrl} />
-                <AvatarFallback className="text-lg">{editName.slice(0, 2).toUpperCase() || "?"}</AvatarFallback>
-              </Avatar>
-              <div className="flex-1 space-y-1">
-                <Label htmlFor="edit-avatar">Profile picture URL</Label>
-                <Input
-                  id="edit-avatar"
-                  placeholder="https://..."
-                  value={editAvatarUrl}
-                  onChange={(e) => setEditAvatarUrl(e.target.value)}
+              <div className="relative group flex-shrink-0">
+                <Avatar className="h-20 w-20 border-2 border-border">
+                  <AvatarImage src={editAvatarUrl} />
+                  <AvatarFallback className="text-xl">{editName.slice(0, 2).toUpperCase() || "?"}</AvatarFallback>
+                </Avatar>
+                <label
+                  htmlFor="avatar-upload"
+                  className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                >
+                  {isAvatarUploading ? (
+                    <Loader2 className="h-5 w-5 text-white animate-spin" />
+                  ) : (
+                    <Pencil className="h-5 w-5 text-white" />
+                  )}
+                </label>
+                <input
+                  id="avatar-upload"
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  disabled={isAvatarUploading}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void uploadFile(file);
+                    e.target.value = "";
+                  }}
                 />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-medium">Profile picture</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {isAvatarUploading
+                    ? `Uploading… ${avatarProgress}%`
+                    : "Hover over the avatar and click to upload a new photo"}
+                </p>
               </div>
             </div>
 
@@ -576,7 +610,7 @@ export default function Profile() {
             <Button variant="outline" onClick={() => setEditOpen(false)} disabled={isUpdating}>
               Cancel
             </Button>
-            <Button onClick={handleEditSave} disabled={isUpdating} className="gap-2">
+            <Button onClick={handleEditSave} disabled={isUpdating || isAvatarUploading} className="gap-2">
               {isUpdating && <Loader2 className="h-4 w-4 animate-spin" />}
               Save changes
             </Button>
