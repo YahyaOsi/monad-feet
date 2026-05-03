@@ -5,23 +5,38 @@ pragma solidity ^0.8.24;
  * @title MonadFeet
  * @notice Core on-chain registry for the Monad Feet social platform.
  *         All user actions — registration, posts, likes, subscriptions,
- *         and daily streaks — are recorded on Monad Mainnet.
+ *         daily streaks, and profile updates — are recorded on Monad Mainnet.
  *
  * Deployment:
- *   - Network: Monad Mainnet (chainId 41454)
- *   - RPC: https://rpc.monad.xyz
- *   - Explorer: https://explorer.monad.xyz
- *   - forge create --rpc-url https://rpc.monad.xyz --private-key $PRIVATE_KEY \
+ *   - Network : Monad Mainnet (chainId 143)
+ *   - RPC     : https://rpc.monad.xyz
+ *   - Explorer: https://monvision.io
+ *
+ *   forge create --rpc-url https://rpc.monad.xyz --private-key $PRIVATE_KEY \
  *       contracts/MonadFeet.sol:MonadFeet
- *   - Set VITE_CONTRACT_ADDRESS to the deployed address.
+ *
+ *   Then set VITE_CONTRACT_ADDRESS in your environment to the deployed address.
  */
 contract MonadFeet {
 
     // ─── Events ───────────────────────────────────────────────────────────────
 
-    event UserRegistered(address indexed wallet, string username, uint256 timestamp);
-    event PostCreated(address indexed author, uint256 indexed postId, string contentUri, uint256 timestamp);
-    event PostLiked(address indexed liker, uint256 indexed postId, uint256 timestamp);
+    event UserRegistered(
+        address indexed wallet,
+        string username,
+        uint256 timestamp
+    );
+    event PostCreated(
+        address indexed author,
+        uint256 indexed postId,
+        string contentUri,
+        uint256 timestamp
+    );
+    event PostLiked(
+        address indexed liker,
+        uint256 indexed postId,
+        uint256 timestamp
+    );
     event Subscribed(
         address indexed subscriber,
         address indexed creator,
@@ -32,6 +47,13 @@ contract MonadFeet {
         address indexed user,
         uint256 currentStreak,
         uint256 totalPoints,
+        uint256 timestamp
+    );
+    event ProfileUpdated(
+        address indexed wallet,
+        string name,
+        string bio,
+        string avatarUri,
         uint256 timestamp
     );
 
@@ -47,14 +69,18 @@ contract MonadFeet {
         uint256 currentStreak;
         uint256 longestStreak;
         uint256 lastCheckin;
+        // Profile metadata (stored for event history; canonical source is the DB)
+        string name;
+        string bio;
+        string avatarUri;
     }
 
     // ─── State ────────────────────────────────────────────────────────────────
 
     mapping(address => UserInfo) public users;
-    mapping(uint256 => address) public postAuthor;                      // DB postId => author
-    mapping(uint256 => mapping(address => bool)) public postLikes;      // postId => liker => liked
-    mapping(uint256 => uint256) public postLikeCount;                   // postId => count
+    mapping(uint256 => address) public postAuthor;                           // DB postId => author
+    mapping(uint256 => mapping(address => bool)) public postLikes;           // postId => liker => liked
+    mapping(uint256 => uint256) public postLikeCount;                        // postId => count
     mapping(address => mapping(address => uint256)) public subscriptionExpiry; // subscriber => creator => expiry
 
     address public feeRecipient;
@@ -80,8 +106,9 @@ contract MonadFeet {
     // ─── Registration ─────────────────────────────────────────────────────────
 
     /**
-     * @notice Register a new user. The invite code is validated off-chain;
-     *         it is passed here only for event-log transparency.
+     * @notice Register a new user.
+     *         The invite code is validated off-chain; it is passed here only
+     *         for event-log transparency.
      */
     function registerUser(string calldata username, string calldata inviteCode) external {
         require(!users[msg.sender].registered, "MonadFeet: already registered");
@@ -96,13 +123,16 @@ contract MonadFeet {
             streakPoints: 0,
             currentStreak: 0,
             longestStreak: 0,
-            lastCheckin: 0
+            lastCheckin: 0,
+            name: "",
+            bio: "",
+            avatarUri: ""
         });
         userCount++;
 
         emit UserRegistered(msg.sender, username, block.timestamp);
-        // silence unused var warning — inviteCode is intentionally logged off-chain
-        (inviteCode);
+        // Silence unused-variable warning; inviteCode is intentionally logged off-chain.
+        inviteCode;
     }
 
     // ─── Posts ────────────────────────────────────────────────────────────────
@@ -158,7 +188,7 @@ contract MonadFeet {
         emit Subscribed(msg.sender, creator, msg.value, expiry);
     }
 
-    // ─── Streak ───────────────────────────────────────────────────────────────
+    // ─── Daily streak ─────────────────────────────────────────────────────────
 
     /**
      * @notice Record a daily check-in and earn streak points.
@@ -189,6 +219,31 @@ contract MonadFeet {
         emit StreakCheckin(msg.sender, newStreak, u.streakPoints, block.timestamp);
     }
 
+    // ─── Profile ──────────────────────────────────────────────────────────────
+
+    /**
+     * @notice Update the caller's display name, bio, and avatar URI.
+     *         The DB is the canonical read source; this anchors the update
+     *         on-chain for transparency and immutable history.
+     *         avatarUri should be a GCS path or IPFS CID.
+     */
+    function updateProfile(
+        string calldata name,
+        string calldata bio,
+        string calldata avatarUri
+    ) external onlyRegistered {
+        require(bytes(name).length <= 64,      "MonadFeet: name too long");
+        require(bytes(bio).length <= 256,      "MonadFeet: bio too long");
+        require(bytes(avatarUri).length <= 512, "MonadFeet: avatarUri too long");
+
+        UserInfo storage u = users[msg.sender];
+        u.name      = name;
+        u.bio       = bio;
+        u.avatarUri = avatarUri;
+
+        emit ProfileUpdated(msg.sender, name, bio, avatarUri, block.timestamp);
+    }
+
     // ─── Views ────────────────────────────────────────────────────────────────
 
     function isSubscribed(address subscriber, address creator) external view returns (bool) {
@@ -208,9 +263,12 @@ contract MonadFeet {
 
     // ─── Admin ────────────────────────────────────────────────────────────────
 
+    /**
+     * @notice Transfer the platform fee recipient address.
+     */
     function setFeeRecipient(address newRecipient) external {
         require(msg.sender == feeRecipient, "MonadFeet: not authorized");
-        require(newRecipient != address(0), "MonadFeet: zero address");
+        require(newRecipient != address(0),  "MonadFeet: zero address");
         feeRecipient = newRecipient;
     }
 }
