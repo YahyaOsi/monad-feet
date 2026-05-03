@@ -11,6 +11,7 @@ import notificationsRouter from "./notifications";
 import storageRouter from "./storage";
 import presenceRouter from "./presence";
 import trendingRouter from "./trending";
+import leaderboardRouter from "./leaderboard";
 
 const router: IRouter = Router();
 
@@ -26,5 +27,6 @@ router.use(notificationsRouter);
 router.use(storageRouter);
 router.use(presenceRouter);
 router.use(trendingRouter);
+router.use(leaderboardRouter);
 
 export default router;
