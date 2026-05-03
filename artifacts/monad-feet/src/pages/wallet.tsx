@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useGetStreak, useGetMyInvites } from "@workspace/api-client-react";
+import { useGetStreak, useGetMyInvites, useGetUser } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -62,6 +62,9 @@ export default function WalletPage() {
   const { user } = useUser();
   const { data: streak, isLoading: streakLoading } = useGetStreak();
   const { data: invites } = useGetMyInvites();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: myProfile } = useGetUser(user?.id ?? 0, { query: { enabled: !!user?.id, queryKey: [] as any } });
+  const myPostCount = myProfile?.postCount ?? 0;
   const { contractDeployed, dailyCheckinOnChain } = useContractActions();
 
   const { data: monBalance, isLoading: balanceLoading } = useBalance({
@@ -284,8 +287,8 @@ export default function WalletPage() {
                 const milestones = [
                   { label: "7-day streak", done: currentStreak >= 7, reward: "+1 invite code" },
                   { label: "30-day streak", done: currentStreak >= 30, reward: "+3 invite codes" },
-                  { label: "10 posts published", done: false, reward: "+1 invite code" },
-                  { label: "25 posts published", done: false, reward: "+1 invite code" },
+                  { label: "10 posts published", done: myPostCount >= 10, reward: "+1 invite code" },
+                  { label: "25 posts published", done: myPostCount >= 25, reward: "+1 invite code" },
                 ];
                 return milestones.map(({ label, done, reward }) => (
                   <div key={label} className={`flex items-center justify-between text-xs px-3 py-1.5 rounded-lg ${done ? "bg-green-50 text-green-700" : "bg-muted text-muted-foreground"}`}>
