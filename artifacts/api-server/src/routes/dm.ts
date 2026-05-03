@@ -30,6 +30,29 @@ async function isSubscribedTo(subscriberId: number, creatorId: number): Promise<
   return !!sub;
 }
 
+// PUT /api/dm/settings — toggle dmRequiresSubscription
+// MUST be declared before /dm/:userId to avoid "settings" being parsed as a userId
+router.put("/dm/settings", async (req, res): Promise<void> => {
+  const wallet = getWalletAddress(req);
+  if (!wallet) { res.status(400).json({ error: "Missing x-wallet-address header" }); return; }
+
+  const dmRequiresSubscription = req.body?.dmRequiresSubscription;
+  if (typeof dmRequiresSubscription !== "boolean") {
+    res.status(400).json({ error: "dmRequiresSubscription must be a boolean" });
+    return;
+  }
+
+  const [user] = await db
+    .update(usersTable)
+    .set({ dmRequiresSubscription })
+    .where(eq(usersTable.walletAddress, wallet.toLowerCase()))
+    .returning();
+
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+
+  res.json({ dmRequiresSubscription: user.dmRequiresSubscription });
+});
+
 // GET /api/dm/conversations — list all conversations for current user
 router.get("/dm/conversations", async (req, res): Promise<void> => {
   const wallet = getWalletAddress(req);
@@ -37,7 +60,6 @@ router.get("/dm/conversations", async (req, res): Promise<void> => {
   const me = await getUserByWallet(wallet);
   if (!me) { res.status(404).json({ error: "User not found" }); return; }
 
-  // Get the latest message per conversation partner with unread counts
   const rows = await db.execute(sql`
     WITH ranked AS (
       SELECT
@@ -116,7 +138,6 @@ router.get("/dm/:userId", async (req, res): Promise<void> => {
   const [other] = await db.select().from(usersTable).where(eq(usersTable.id, otherId));
   if (!other) { res.status(404).json({ error: "User not found" }); return; }
 
-  // If the other user requires subscription for DMs, check that the requester is subscribed
   if (other.dmRequiresSubscription && me.id !== otherId) {
     const subscribed = await isSubscribedTo(me.id, otherId);
     if (!subscribed) {
@@ -132,7 +153,6 @@ router.get("/dm/:userId", async (req, res): Promise<void> => {
     }
   }
 
-  // Fetch messages
   const messages = await db
     .select()
     .from(directMessagesTable)
@@ -144,7 +164,6 @@ router.get("/dm/:userId", async (req, res): Promise<void> => {
     )
     .orderBy(directMessagesTable.createdAt);
 
-  // Mark incoming unread messages as read
   await db
     .update(directMessagesTable)
     .set({ readAt: new Date() })
@@ -193,7 +212,6 @@ router.post("/dm/:userId", async (req, res): Promise<void> => {
   const [other] = await db.select().from(usersTable).where(eq(usersTable.id, otherId));
   if (!other) { res.status(404).json({ error: "Recipient not found" }); return; }
 
-  // Subscription gate — recipient controls this
   if (other.dmRequiresSubscription) {
     const subscribed = await isSubscribedTo(me.id, otherId);
     if (!subscribed) {
@@ -212,7 +230,6 @@ router.post("/dm/:userId", async (req, res): Promise<void> => {
     .values({ senderId: me.id, recipientId: otherId, content })
     .returning();
 
-  // Real-time notification to recipient (if online)
   notifyUser(otherId, {
     type: "new_dm",
     messageId: msg.id,
@@ -222,7 +239,6 @@ router.post("/dm/:userId", async (req, res): Promise<void> => {
     preview: content.slice(0, 80),
   });
 
-  // Persistent notification
   await db.insert(notificationsTable).values({
     userId: otherId,
     type: "dm",
@@ -240,28 +256,6 @@ router.post("/dm/:userId", async (req, res): Promise<void> => {
     readAt: null,
     createdAt: msg.createdAt instanceof Date ? msg.createdAt.toISOString() : String(msg.createdAt),
   });
-});
-
-// PUT /api/dm/settings — toggle dmRequiresSubscription
-router.put("/dm/settings", async (req, res): Promise<void> => {
-  const wallet = getWalletAddress(req);
-  if (!wallet) { res.status(400).json({ error: "Missing x-wallet-address header" }); return; }
-
-  const dmRequiresSubscription = req.body?.dmRequiresSubscription;
-  if (typeof dmRequiresSubscription !== "boolean") {
-    res.status(400).json({ error: "dmRequiresSubscription must be a boolean" });
-    return;
-  }
-
-  const [user] = await db
-    .update(usersTable)
-    .set({ dmRequiresSubscription })
-    .where(eq(usersTable.walletAddress, wallet.toLowerCase()))
-    .returning();
-
-  if (!user) { res.status(404).json({ error: "User not found" }); return; }
-
-  res.json({ dmRequiresSubscription: user.dmRequiresSubscription });
 });
 
 export default router;

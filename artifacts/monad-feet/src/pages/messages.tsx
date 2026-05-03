@@ -5,9 +5,10 @@ import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { Input } from "@/components/ui/input";
 import {
   MessageCircle, Send, Lock, ChevronLeft, Settings2,
-  Shield, Loader2, Star, AlertCircle
+  Shield, Loader2, Star, AlertCircle, SquarePen, Search, X,
 } from "lucide-react";
 import { useUser } from "@/context/UserContext";
 import { usePresence } from "@/hooks/usePresence";
@@ -54,6 +55,14 @@ type SubGateError = {
   message: string;
   creatorName: string | null;
   subscriptionPrice: number | null;
+};
+
+type UserResult = {
+  id: number;
+  name: string | null;
+  username: string | null;
+  avatarUrl: string | null;
+  subscriberCount: number;
 };
 
 // ── Conversation list item ──────────────────────────────────────
@@ -103,6 +112,34 @@ function ConvItem({
           {conv.unreadCount > 9 ? "9+" : conv.unreadCount}
         </span>
       )}
+    </button>
+  );
+}
+
+// ── Search result item ──────────────────────────────────────────
+
+function UserResultItem({
+  user,
+  onClick,
+}: {
+  user: UserResult;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/60"
+    >
+      <Avatar className="h-9 w-9 flex-shrink-0">
+        <AvatarImage src={user.avatarUrl ?? ""} />
+        <AvatarFallback className="text-xs font-semibold bg-primary/10 text-primary">
+          {user.name?.slice(0, 2).toUpperCase() ?? "??"}
+        </AvatarFallback>
+      </Avatar>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold truncate">{user.name ?? user.username ?? "Unknown"}</p>
+        <p className="text-xs text-muted-foreground truncate">@{user.username ?? "—"}</p>
+      </div>
     </button>
   );
 }
@@ -201,6 +238,14 @@ export default function MessagesPage() {
   const [dmPaid, setDmPaid] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
   const [mobileView, setMobileView] = useState<"list" | "thread">("list");
+
+  // Compose / new conversation search
+  const [composing, setComposing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<UserResult[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -219,7 +264,7 @@ export default function MessagesPage() {
 
   useEffect(() => { void loadConversations(); }, [loadConversations]);
 
-  // Sync dmPaid setting from user profile
+  // Sync dmPaid from user profile
   useEffect(() => {
     if (!user) return;
     const fetchUser = async () => {
@@ -266,7 +311,6 @@ export default function MessagesPage() {
     const ev = wsEvent as { type?: string; senderId?: number };
     if (ev.type === "new_dm") {
       void loadConversations();
-      // If we're looking at this sender's thread, refresh it
       if (ev.senderId === activeUserId) {
         fetch(`${BASE}/api/dm/${activeUserId}`, { headers: { "x-wallet-address": getWallet() } })
           .then((r) => r.ok ? r.json() as Promise<ThreadData> : Promise.reject())
@@ -276,9 +320,57 @@ export default function MessagesPage() {
     }
   }, [wsEvent, activeUserId, loadConversations]);
 
+  // Debounced user search for compose mode
+  useEffect(() => {
+    if (!composing) { setSearchResults([]); return; }
+    if (!searchQuery.trim()) { setSearchResults([]); return; }
+
+    const timer = setTimeout(async () => {
+      setSearchLoading(true);
+      try {
+        const res = await fetch(
+          `${BASE}/api/search?q=${encodeURIComponent(searchQuery)}&type=users`,
+          { headers: { "x-wallet-address": getWallet() } },
+        );
+        if (res.ok) {
+          const data = await res.json() as { users: UserResult[] };
+          // Filter out the current user
+          setSearchResults(data.users.filter((u) => u.id !== user?.id));
+        }
+      } catch { /* ignore */ } finally {
+        setSearchLoading(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery, composing, user?.id]);
+
+  // Focus search input when compose mode opens
+  useEffect(() => {
+    if (composing) {
+      setTimeout(() => searchInputRef.current?.focus(), 50);
+    }
+  }, [composing]);
+
   const openThread = (userId: number) => {
     setActiveUserId(userId);
     setMobileView("thread");
+    // Exit compose mode
+    setComposing(false);
+    setSearchQuery("");
+    setSearchResults([]);
+  };
+
+  const startCompose = () => {
+    setComposing(true);
+    setSearchQuery("");
+    setSearchResults([]);
+  };
+
+  const cancelCompose = () => {
+    setComposing(false);
+    setSearchQuery("");
+    setSearchResults([]);
   };
 
   const sendMessage = async () => {
@@ -395,50 +487,127 @@ export default function MessagesPage() {
       <div className="border rounded-xl overflow-hidden bg-background" style={{ height: "calc(100vh - 280px)", minHeight: 400 }}>
         <div className="flex h-full">
 
-          {/* ── Conversation list ─────────────────────────── */}
+          {/* ── Conversation list ──────────────────────────────── */}
           <div className={`
             flex flex-col border-r bg-muted/20
-            ${activeUserId ? "hidden md:flex md:w-72 lg:w-80" : "flex w-full md:w-72 lg:w-80"}
+            ${activeUserId && !composing ? "hidden md:flex md:w-72 lg:w-80" : "flex w-full md:w-72 lg:w-80"}
           `}>
-            <div className="px-4 py-3 border-b bg-background flex items-center justify-between">
-              <span className="font-semibold text-sm">Conversations</span>
-              <span className="text-xs text-muted-foreground">{conversations.length}</span>
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              {loadingConvs ? (
-                <div className="flex items-center justify-center h-24">
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                </div>
-              ) : conversations.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full gap-3 p-6 text-center">
-                  <MessageCircle className="h-10 w-10 text-muted-foreground/30" />
-                  <p className="text-sm text-muted-foreground">No conversations yet</p>
-                  <p className="text-xs text-muted-foreground">
-                    Visit a member's profile and tap "Message" to start a conversation.
-                  </p>
-                </div>
+
+            {/* List header */}
+            <div className="px-4 py-3 border-b bg-background flex items-center justify-between gap-2 flex-shrink-0">
+              {composing ? (
+                <>
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <Search className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    <Input
+                      ref={searchInputRef}
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Search members…"
+                      className="h-7 text-sm border-0 bg-transparent p-0 focus-visible:ring-0 focus-visible:ring-offset-0"
+                    />
+                  </div>
+                  <button
+                    onClick={cancelCompose}
+                    className="p-1 text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
+                    aria-label="Cancel"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </>
               ) : (
-                conversations.map((conv) => (
-                  <ConvItem
-                    key={conv.userId}
-                    conv={conv}
-                    isActive={activeUserId === conv.userId}
-                    onClick={() => openThread(conv.userId)}
-                  />
-                ))
+                <>
+                  <span className="font-semibold text-sm">Conversations</span>
+                  <div className="flex items-center gap-2">
+                    {conversations.length > 0 && (
+                      <span className="text-xs text-muted-foreground">{conversations.length}</span>
+                    )}
+                    <button
+                      onClick={startCompose}
+                      className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+                      aria-label="New conversation"
+                      title="New conversation"
+                    >
+                      <SquarePen className="h-4 w-4" />
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* List body */}
+            <div className="flex-1 overflow-y-auto">
+              {composing ? (
+                /* Search results */
+                searchLoading ? (
+                  <div className="flex items-center justify-center h-24">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : searchQuery.trim() === "" ? (
+                  <div className="flex flex-col items-center justify-center h-full gap-2 p-6 text-center">
+                    <Search className="h-8 w-8 text-muted-foreground/30" />
+                    <p className="text-sm text-muted-foreground">Type a name or username to find members</p>
+                  </div>
+                ) : searchResults.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full gap-2 p-6 text-center">
+                    <p className="text-sm text-muted-foreground">No members found for "{searchQuery}"</p>
+                  </div>
+                ) : (
+                  <div className="py-1">
+                    <p className="px-4 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                      Members
+                    </p>
+                    {searchResults.map((u) => (
+                      <UserResultItem
+                        key={u.id}
+                        user={u}
+                        onClick={() => openThread(u.id)}
+                      />
+                    ))}
+                  </div>
+                )
+              ) : (
+                /* Normal conversation list */
+                loadingConvs ? (
+                  <div className="flex items-center justify-center h-24">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : conversations.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full gap-3 p-6 text-center">
+                    <MessageCircle className="h-10 w-10 text-muted-foreground/30" />
+                    <p className="text-sm text-muted-foreground">No conversations yet</p>
+                    <p className="text-xs text-muted-foreground">
+                      Tap <SquarePen className="h-3 w-3 inline" /> above to find a member and start a conversation.
+                    </p>
+                  </div>
+                ) : (
+                  conversations.map((conv) => (
+                    <ConvItem
+                      key={conv.userId}
+                      conv={conv}
+                      isActive={activeUserId === conv.userId}
+                      onClick={() => openThread(conv.userId)}
+                    />
+                  ))
+                )
               )}
             </div>
           </div>
 
-          {/* ── Thread panel ─────────────────────────────── */}
+          {/* ── Thread panel ──────────────────────────────────── */}
           <div className={`
             flex flex-col flex-1 min-w-0
             ${activeUserId ? "flex" : "hidden md:flex"}
           `}>
             {!activeUserId ? (
-              <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground p-6">
+              <div className="flex-1 flex flex-col items-center justify-center gap-4 text-muted-foreground p-6">
                 <MessageCircle className="h-12 w-12 opacity-20" />
-                <p className="text-sm">Select a conversation</p>
+                <div className="text-center">
+                  <p className="text-sm font-medium">No conversation selected</p>
+                  <p className="text-xs mt-1 opacity-70">
+                    Choose from your conversations or tap <SquarePen className="h-3 w-3 inline" /> to message someone new
+                  </p>
+                </div>
               </div>
             ) : loadingThread ? (
               <div className="flex-1 flex items-center justify-center">
@@ -446,7 +615,6 @@ export default function MessagesPage() {
               </div>
             ) : subGate ? (
               <>
-                {/* Thread header with back button */}
                 <div className="px-4 py-3 border-b flex items-center gap-3 bg-background">
                   <button
                     className="md:hidden p-1 text-muted-foreground hover:text-foreground"
@@ -459,7 +627,7 @@ export default function MessagesPage() {
                   err={subGate}
                   onSubscribe={() => {
                     setSubGate(null);
-                    setActiveUserId((id) => id); // re-trigger load
+                    setActiveUserId((id) => id);
                   }}
                 />
               </>
@@ -515,7 +683,7 @@ export default function MessagesPage() {
                   <div ref={bottomRef} />
                 </div>
 
-                {/* Compose */}
+                {/* Compose box */}
                 <div className="px-4 py-3 border-t bg-background flex-shrink-0">
                   <div className="flex items-end gap-2">
                     <textarea
@@ -544,7 +712,13 @@ export default function MessagesPage() {
                   </div>
                 </div>
               </>
-            ) : null}
+            ) : (
+              /* Thread selected but empty state — fresh conversation */
+              <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground p-6">
+                <MessageCircle className="h-10 w-10 opacity-20" />
+                <p className="text-sm">Start the conversation</p>
+              </div>
+            )}
           </div>
         </div>
       </div>
