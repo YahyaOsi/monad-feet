@@ -183,6 +183,8 @@ export const ListPostsResponse = zod.object({
       authorNftHolder: zod.boolean().nullish(),
       likeCount: zod.number(),
       likedByMe: zod.boolean(),
+      isPaid: zod.boolean(),
+      isSubscribedToAuthor: zod.boolean(),
       createdAt: zod.coerce.date(),
     }),
   ),
@@ -197,6 +199,7 @@ export const CreatePostBody = zod.object({
   content: zod.string(),
   imageUrl: zod.string().nullish(),
   authorWalletAddress: zod.string(),
+  isPaid: zod.boolean().nullish(),
 });
 
 /**
@@ -218,6 +221,8 @@ export const GetPostResponse = zod.object({
   authorNftHolder: zod.boolean().nullish(),
   likeCount: zod.number(),
   likedByMe: zod.boolean(),
+  isPaid: zod.boolean(),
+  isSubscribedToAuthor: zod.boolean(),
   createdAt: zod.coerce.date(),
 });
 

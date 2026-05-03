@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, sql, and, lt } from "drizzle-orm";
+import { eq, desc, sql, and, lt, inArray } from "drizzle-orm";
 import {
   db,
   postsTable,
@@ -9,6 +9,7 @@ import {
   inviteCodesTable,
   notificationsTable,
   notificationPreferencesTable,
+  subscriptionsTable,
 } from "@workspace/db";
 import {
   CreatePostBody,
@@ -45,6 +46,20 @@ async function shouldNotify(userId: number, type: string): Promise<boolean> {
   return true;
 }
 
+/** Returns the set of authorIds that currentUserId is actively subscribed to */
+async function getSubscribedAuthorIds(currentUserId: number): Promise<Set<number>> {
+  const subs = await db
+    .select({ creatorId: subscriptionsTable.creatorId })
+    .from(subscriptionsTable)
+    .where(
+      and(
+        eq(subscriptionsTable.subscriberId, currentUserId),
+        sql`${subscriptionsTable.expiresAt} > now()`,
+      ),
+    );
+  return new Set(subs.map((s) => s.creatorId));
+}
+
 router.get("/posts", async (req, res): Promise<void> => {
   const query = ListPostsQueryParams.safeParse(req.query);
   const limit = query.success ? (query.data.limit ?? 20) : 20;
@@ -60,6 +75,7 @@ router.get("/posts", async (req, res): Promise<void> => {
       imageUrl: postsTable.imageUrl,
       authorId: postsTable.authorId,
       onChainTxHash: postsTable.onChainTxHash,
+      isPaid: postsTable.isPaid,
       createdAt: postsTable.createdAt,
       authorName: usersTable.name,
       authorUsername: usersTable.username,
@@ -76,6 +92,7 @@ router.get("/posts", async (req, res): Promise<void> => {
   const total = await db.select({ count: sql<number>`count(*)::int` }).from(postsTable);
   const postIds = posts.map((p) => p.id);
   let likedByMe: number[] = [];
+  let subscribedAuthorIds = new Set<number>();
 
   if (currentUser && postIds.length > 0) {
     const likes = await db
@@ -83,11 +100,17 @@ router.get("/posts", async (req, res): Promise<void> => {
       .from(postLikesTable)
       .where(eq(postLikesTable.userId, currentUser.id));
     likedByMe = likes.map((l) => l.postId);
+    subscribedAuthorIds = await getSubscribedAuthorIds(currentUser.id);
   }
 
   const nextCursor = posts.length === limit ? posts[posts.length - 1]?.id ?? null : null;
   res.json({
-    posts: posts.map((p) => ({ ...p, likedByMe: likedByMe.includes(p.id) })),
+    posts: posts.map((p) => ({
+      ...p,
+      likedByMe: likedByMe.includes(p.id),
+      isSubscribedToAuthor:
+        currentUser?.id === p.authorId || subscribedAuthorIds.has(p.authorId),
+    })),
     nextCursor,
     total: total[0]?.count ?? 0,
   });
@@ -97,7 +120,7 @@ router.post("/posts", async (req, res): Promise<void> => {
   const parsed = CreatePostBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
 
-  const { content, imageUrl, authorWalletAddress } = parsed.data;
+  const { content, imageUrl, authorWalletAddress, isPaid } = parsed.data;
 
   if (!imageUrl) {
     res.status(400).json({ error: "An image is required for every post." });
@@ -109,7 +132,7 @@ router.post("/posts", async (req, res): Promise<void> => {
 
   const [post] = await db
     .insert(postsTable)
-    .values({ content: content ?? "", imageUrl, authorId: author.id })
+    .values({ content: content ?? "", imageUrl, authorId: author.id, isPaid: isPaid ?? false })
     .returning();
 
   const payload = {
@@ -122,6 +145,8 @@ router.post("/posts", async (req, res): Promise<void> => {
     authorAvatarUrl: author.avatarUrl,
     authorNftHolder: author.nftHolder,
     onChainTxHash: null as string | null,
+    isPaid: post.isPaid,
+    isSubscribedToAuthor: true,
     likeCount: 0,
     likedByMe: false,
     createdAt: post.createdAt,
@@ -152,6 +177,7 @@ router.get("/posts/:postId", async (req, res): Promise<void> => {
       authorId: postsTable.authorId,
       createdAt: postsTable.createdAt,
       onChainTxHash: postsTable.onChainTxHash,
+      isPaid: postsTable.isPaid,
       authorName: usersTable.name,
       authorUsername: usersTable.username,
       authorAvatarUrl: usersTable.avatarUrl,
@@ -165,14 +191,21 @@ router.get("/posts/:postId", async (req, res): Promise<void> => {
   if (!post) { res.status(404).json({ error: "Post not found" }); return; }
 
   let likedByMe = false;
+  let isSubscribedToAuthor = false;
   if (currentUser) {
     const [like] = await db
       .select()
       .from(postLikesTable)
       .where(and(eq(postLikesTable.postId, post.id), eq(postLikesTable.userId, currentUser.id)));
     likedByMe = !!like;
+    if (currentUser.id === post.authorId) {
+      isSubscribedToAuthor = true;
+    } else {
+      const subs = await getSubscribedAuthorIds(currentUser.id);
+      isSubscribedToAuthor = subs.has(post.authorId);
+    }
   }
-  res.json({ ...post, likedByMe });
+  res.json({ ...post, likedByMe, isSubscribedToAuthor });
 });
 
 router.delete("/posts/:postId", async (req, res): Promise<void> => {
@@ -276,13 +309,8 @@ router.post("/posts/:postId/like", async (req, res): Promise<void> => {
   const newLikeCount = countRow?.count ?? 0;
   res.json({ likeCount: newLikeCount, likedByMe: true });
 
-  // Broadcast like to all connected clients
   broadcastActivity({ type: "post_liked", postId: params.data.postId, likeCount: newLikeCount, actorId: currentUser.id });
-
-  // Fire-and-forget: check if this post just entered the top 3
   void checkAndNotifyTrending(params.data.postId, post.authorId, post.content);
-
-  // Fire-and-forget: check if the post author crossed any likes-received milestones
   void checkMilestones(post.authorId);
 });
 
@@ -309,8 +337,6 @@ router.patch("/posts/:postId/anchor", async (req, res): Promise<void> => {
     .returning({ onChainTxHash: postsTable.onChainTxHash });
 
   res.json({ onChainTxHash: updated.onChainTxHash });
-
-  // Broadcast anchor so feed cards update with on-chain badge live
   broadcastActivity({ type: "post_anchored", postId, txHash });
 });
 
@@ -334,8 +360,6 @@ router.delete("/posts/:postId/like", async (req, res): Promise<void> => {
 
   const newLikeCount = countRow?.count ?? 0;
   res.json({ likeCount: newLikeCount, likedByMe: false });
-
-  // Broadcast unlike count correction
   broadcastActivity({ type: "post_liked", postId: params.data.postId, likeCount: newLikeCount, actorId: currentUser.id });
 });
 

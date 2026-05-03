@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { PostCard } from "@/components/post/PostCard";
 import {
   Plus, Users, Heart, MessageSquare, ImageIcon, X, Loader2,
-  Link2, CheckCircle2, Flame, TrendingUp, ArrowUp, Zap
+  Link2, CheckCircle2, Flame, TrendingUp, ArrowUp, Zap, Crown, Lock
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getListPostsQueryKey, getGetFeedSummaryQueryKey } from "@workspace/api-client-react";
@@ -76,6 +76,7 @@ export default function Feed() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [postStep, setPostStep] = useState<PostStep>("idle");
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isExclusive, setIsExclusive] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>("latest");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const feedTopRef = useRef<HTMLDivElement>(null);
@@ -136,7 +137,7 @@ export default function Feed() {
 
       setPostStep("saving");
       const post = await createPost.mutateAsync({
-        data: { content: content.trim() || "", imageUrl, authorWalletAddress: user.walletAddress },
+        data: { content: content.trim() || "", imageUrl, authorWalletAddress: user.walletAddress, isPaid: isExclusive },
       });
 
       if (contractDeployed && post?.id) {
@@ -163,7 +164,7 @@ export default function Feed() {
 
   const handleOpenChange = (open: boolean) => {
     setIsComposeOpen(open);
-    if (!open) { clearImage(); setContent(""); setUploadError(null); setPostStep("idle"); }
+    if (!open) { clearImage(); setContent(""); setUploadError(null); setPostStep("idle"); setIsExclusive(false); }
   };
 
   const isPosting = postStep === "uploading" || postStep === "saving" || postStep === "signing";
@@ -342,6 +343,32 @@ export default function Feed() {
               onChange={(e) => setContent(e.target.value)}
               className="min-h-[80px] resize-none"
             />
+
+            {/* Exclusive post toggle */}
+            <button
+              type="button"
+              onClick={() => setIsExclusive((v) => !v)}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border-2 transition-all text-sm font-medium ${
+                isExclusive
+                  ? "border-amber-400 bg-amber-50 text-amber-800"
+                  : "border-border bg-muted/30 text-muted-foreground hover:border-primary/30 hover:bg-muted/50"
+              }`}
+            >
+              <div className={`p-1.5 rounded-lg ${isExclusive ? "bg-amber-200 text-amber-700" : "bg-muted text-muted-foreground"}`}>
+                {isExclusive ? <Lock className="h-4 w-4" /> : <Crown className="h-4 w-4" />}
+              </div>
+              <div className="flex-1 text-left">
+                <p className="font-semibold leading-tight">{isExclusive ? "Exclusive post" : "Make exclusive"}</p>
+                <p className="text-xs font-normal mt-0.5 opacity-75">
+                  {isExclusive
+                    ? "Only your subscribers can see this — others see it blurred"
+                    : "All followers see this — toggle to restrict to subscribers only"}
+                </p>
+              </div>
+              <div className={`h-5 w-9 rounded-full transition-all flex-shrink-0 ${isExclusive ? "bg-amber-500" : "bg-muted-foreground/30"}`}>
+                <div className={`h-5 w-5 rounded-full bg-white shadow transition-transform ${isExclusive ? "translate-x-4" : "translate-x-0"}`} />
+              </div>
+            </button>
 
             {contractDeployed && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-lg px-3 py-2">

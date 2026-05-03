@@ -25,7 +25,6 @@ import {
   Users, Coins, TrendingUp, Star, MessageCircle, ShieldX, ShieldCheck, Gem, Pencil,
 } from "lucide-react";
 import { format } from "date-fns";
-import { useContractActions } from "@/lib/useContractActions";
 import { useOnChainUser, useIsSubscribedOnChain } from "@/lib/useOnChain";
 import { useAccount } from "wagmi";
 import { useQueryClient } from "@tanstack/react-query";

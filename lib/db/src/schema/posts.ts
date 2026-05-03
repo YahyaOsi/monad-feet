@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
@@ -9,6 +9,7 @@ export const postsTable = pgTable("posts", {
   imageUrl: text("image_url"),
   authorId: integer("author_id").notNull().references(() => usersTable.id),
   onChainTxHash: text("on_chain_tx_hash"),
+  isPaid: boolean("is_paid").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
