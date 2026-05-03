@@ -62,5 +62,9 @@ export function useContractActions() {
 
     /** Daily streak check-in on-chain. Call before updating DB. */
     dailyCheckinOnChain: () => call("dailyCheckin", []),
+
+    /** Anchor a profile update on-chain. Call after saving to DB. */
+    updateProfileOnChain: (name: string, bio: string, avatarUri: string) =>
+      call("updateProfile", [name, bio, avatarUri]),
   };
 }

@@ -61,6 +61,17 @@ export const MONAD_FEET_ABI = [
     inputs: [],
     outputs: [],
   },
+  {
+    name: "updateProfile",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "name", type: "string" },
+      { name: "bio", type: "string" },
+      { name: "avatarUri", type: "string" },
+    ],
+    outputs: [],
+  },
   // ── Read ───────────────────────────────────────────────────────────────────
   {
     name: "users",
@@ -183,6 +194,17 @@ export const MONAD_FEET_ABI = [
       { name: "user", type: "address", indexed: true },
       { name: "currentStreak", type: "uint256", indexed: false },
       { name: "totalPoints", type: "uint256", indexed: false },
+      { name: "timestamp", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    name: "ProfileUpdated",
+    type: "event",
+    inputs: [
+      { name: "wallet", type: "address", indexed: true },
+      { name: "name", type: "string", indexed: false },
+      { name: "bio", type: "string", indexed: false },
+      { name: "avatarUri", type: "string", indexed: false },
       { name: "timestamp", type: "uint256", indexed: false },
     ],
   },

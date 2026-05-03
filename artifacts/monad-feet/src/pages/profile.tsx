@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useParams } from "wouter";
 import { useUser } from "@/context/UserContext";
 import { useGetUser, useListPosts, useListBadges, useGetCreatorSubscriptionPrice, useGetCreatorAnalytics, useUpdateMe } from "@workspace/api-client-react";
+import { useContractActions } from "@/lib/useContractActions";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -125,22 +126,12 @@ export default function Profile() {
     !isOwnProfile ? (profile?.walletAddress as `0x${string}` | undefined) : undefined
   );
 
-  const { contractDeployed, subscribeOnChain } = useContractActions();
+  const { contractDeployed, subscribeOnChain, updateProfileOnChain } = useContractActions();
   const [subState, setSubState] = useState<SubState>("idle");
   const [subError, setSubError] = useState<string | null>(null);
+  const [editStep, setEditStep] = useState<"idle" | "saving" | "signing" | "done">("idle");
 
-  const { mutate: updateMe, isPending: isUpdating } = useUpdateMe({
-    mutation: {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(userId) });
-        setEditOpen(false);
-        setEditError(null);
-      },
-      onError: (err: unknown) => {
-        setEditError((err as Error)?.message ?? "Failed to save changes");
-      },
-    },
-  });
+  const { mutateAsync: updateMeAsync, isPending: isUpdating } = useUpdateMe();
 
   const openEditDialog = () => {
     if (!profile) return;
@@ -149,14 +140,45 @@ export default function Profile() {
     setEditBio(profile.bio ?? "");
     setEditAvatarUrl(profile.avatarUrl ?? "");
     setEditError(null);
+    setEditStep("idle");
     setEditOpen(true);
   };
 
-  const handleEditSave = () => {
+  const handleEditSave = async () => {
     const wallet = localStorage.getItem("mf_wallet_address") ?? "";
     if (!editName.trim()) { setEditError("Name is required"); return; }
     if (!editUsername.trim()) { setEditError("Username is required"); return; }
-    updateMe({ data: { walletAddress: wallet, name: editName.trim(), username: editUsername.trim(), bio: editBio.trim() || null, avatarUrl: editAvatarUrl.trim() || null } });
+    setEditError(null);
+    try {
+      setEditStep("saving");
+      await updateMeAsync({
+        data: {
+          walletAddress: wallet,
+          name: editName.trim(),
+          username: editUsername.trim(),
+          bio: editBio.trim() || null,
+          avatarUrl: editAvatarUrl.trim() || null,
+        },
+      });
+
+      if (contractDeployed) {
+        setEditStep("signing");
+        try {
+          await updateProfileOnChain(
+            editName.trim(),
+            editBio.trim(),
+            editAvatarUrl.trim(),
+          );
+        } catch { /* user declined — profile already saved to DB */ }
+      }
+
+      setEditStep("done");
+      queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(userId) });
+      setTimeout(() => { setEditOpen(false); setEditStep("idle"); }, 800);
+    } catch (err) {
+      setEditError((err as Error)?.message ?? "Failed to save changes");
+      setEditStep("idle");
+    }
   };
 
   const handleSubscribe = async () => {
@@ -606,13 +628,26 @@ export default function Profile() {
             )}
           </div>
 
+          {contractDeployed && editStep === "signing" && (
+            <div className="flex items-center gap-2 text-xs text-violet-700 bg-violet-50 border border-violet-200 rounded-lg px-3 py-2">
+              <Loader2 className="h-3.5 w-3.5 animate-spin flex-shrink-0" />
+              Check your wallet — sign to anchor your profile on Monad Mainnet…
+            </div>
+          )}
+          {editStep === "done" && (
+            <div className="flex items-center gap-2 text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+              <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" />
+              Profile saved{contractDeployed ? " & anchored on-chain" : ""}!
+            </div>
+          )}
+
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditOpen(false)} disabled={isUpdating}>
+            <Button variant="outline" onClick={() => setEditOpen(false)} disabled={editStep === "saving" || editStep === "signing"}>
               Cancel
             </Button>
-            <Button onClick={handleEditSave} disabled={isUpdating || isAvatarUploading} className="gap-2">
-              {isUpdating && <Loader2 className="h-4 w-4 animate-spin" />}
-              Save changes
+            <Button onClick={() => void handleEditSave()} disabled={editStep !== "idle" || isAvatarUploading} className="gap-2">
+              {(editStep === "saving" || editStep === "signing") && <Loader2 className="h-4 w-4 animate-spin" />}
+              {editStep === "saving" ? "Saving…" : editStep === "signing" ? "Sign on Monad…" : editStep === "done" ? "Saved!" : contractDeployed ? "Save & Sign on Monad" : "Save changes"}
             </Button>
           </DialogFooter>
         </DialogContent>

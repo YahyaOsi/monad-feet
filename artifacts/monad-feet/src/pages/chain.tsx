@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Link2, Copy, CheckCircle2, ExternalLink, Users, FileText,
   Zap, Shield, AlertCircle, Terminal, RefreshCw, Globe,
-  Activity, UserPlus, Heart, Repeat2, Flame, Radio
+  Activity, UserPlus, Heart, Repeat2, Flame, Radio, UserCog
 } from "lucide-react";
 import {
   CONTRACT_DEPLOYED,
@@ -21,7 +21,7 @@ import { formatDistanceToNow } from "date-fns";
 const EXPLORER = "https://monvision.io";
 const RPC_URL = "https://rpc.monad.xyz";
 
-type EventKind = "UserRegistered" | "PostCreated" | "PostLiked" | "Subscribed" | "StreakCheckin";
+type EventKind = "UserRegistered" | "PostCreated" | "PostLiked" | "Subscribed" | "StreakCheckin" | "ProfileUpdated";
 
 interface LiveEvent {
   id: string;
@@ -33,11 +33,12 @@ interface LiveEvent {
 }
 
 const EVENT_META: Record<EventKind, { icon: React.ReactNode; color: string; bg: string }> = {
-  UserRegistered: { icon: <UserPlus className="h-3.5 w-3.5" />, color: "text-green-700", bg: "bg-green-50 border-green-200" },
-  PostCreated:    { icon: <FileText className="h-3.5 w-3.5" />, color: "text-blue-700",  bg: "bg-blue-50 border-blue-200"  },
-  PostLiked:      { icon: <Heart className="h-3.5 w-3.5" />,    color: "text-red-700",   bg: "bg-red-50 border-red-200"    },
-  Subscribed:     { icon: <Repeat2 className="h-3.5 w-3.5" />,  color: "text-purple-700",bg: "bg-purple-50 border-purple-200"},
-  StreakCheckin:  { icon: <Flame className="h-3.5 w-3.5" />,    color: "text-orange-700",bg: "bg-orange-50 border-orange-200"},
+  UserRegistered: { icon: <UserPlus className="h-3.5 w-3.5" />, color: "text-green-700",  bg: "bg-green-50 border-green-200"   },
+  PostCreated:    { icon: <FileText className="h-3.5 w-3.5" />, color: "text-blue-700",   bg: "bg-blue-50 border-blue-200"     },
+  PostLiked:      { icon: <Heart className="h-3.5 w-3.5" />,    color: "text-red-700",    bg: "bg-red-50 border-red-200"       },
+  Subscribed:     { icon: <Repeat2 className="h-3.5 w-3.5" />,  color: "text-purple-700", bg: "bg-purple-50 border-purple-200" },
+  StreakCheckin:  { icon: <Flame className="h-3.5 w-3.5" />,    color: "text-orange-700", bg: "bg-orange-50 border-orange-200" },
+  ProfileUpdated: { icon: <UserCog className="h-3.5 w-3.5" />,  color: "text-cyan-700",   bg: "bg-cyan-50 border-cyan-200"     },
 };
 
 function CopyButton({ text }: { text: string }) {
@@ -165,6 +166,25 @@ export default function ChainPage() {
           kind: "StreakCheckin",
           label: `Streak check-in — ${args.currentStreak?.toString() ?? "?"} day streak`,
           sublabel: `${args.totalPoints?.toString() ?? "?"} total points · Block ${log.blockNumber}`,
+          txHash: log.transactionHash ?? "",
+          at: new Date(),
+        });
+      });
+    },
+  });
+
+  useWatchContractEvent({
+    address: CONTRACT_DEPLOYED ? MONAD_FEET_CONTRACT_ADDRESS : undefined,
+    abi: MONAD_FEET_ABI,
+    eventName: "ProfileUpdated",
+    onLogs(logs) {
+      logs.forEach(log => {
+        const args = log.args as { name?: string };
+        addEvent({
+          id: `${log.transactionHash}:profile`,
+          kind: "ProfileUpdated",
+          label: `Profile updated on-chain${args.name ? ` — ${args.name}` : ""}`,
+          sublabel: `Block ${log.blockNumber}`,
           txHash: log.transactionHash ?? "",
           at: new Date(),
         });
