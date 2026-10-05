@@ -31,6 +31,128 @@ tags:
   - name: feed
     description: Feed summaries
 paths:
+  /game:
+    get:
+      operationId: getGame
+      tags: [streak]
+      responses:
+        "200":
+          description: Live Monad game state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeetGameState"
+  /game/claims:
+    get:
+      operationId: listGameClaims
+      tags: [streak]
+      responses:
+        "200":
+          description: Latest twenty verified awards
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeetGameHistory"
+    post:
+      operationId: claimGame
+      tags: [streak]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeetGameClaimInput"
+      responses:
+        "200":
+          description: Receipt verified and rewards saved atomically
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeetGameAward"
+  /auth/session:
+    get:
+      operationId: getAuthSession
+      tags: [auth]
+      summary: Return the wallet authenticated by the HTTP-only session cookie
+      responses:
+        "200":
+          description: Session state (null if unauthenticated)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  walletAddress:
+                    type: ["string", "null"]
+                required: [walletAddress]
+  /auth/challenge:
+    post:
+      operationId: createAuthChallenge
+      tags: [auth]
+      summary: Request a five-minute one-time wallet sign-in message for Monad chain 143
+      description: Requires a same-origin Origin header. The message is bound to the requested wallet, origin, nonce, and chain.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                walletAddress:
+                  type: string
+              required: [walletAddress]
+      responses:
+        "200":
+          description: Message to sign with the requested wallet
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                required: [message]
+  /auth/verify:
+    post:
+      operationId: verifyAuthChallenge
+      tags: [auth]
+      summary: Verify a wallet signature and create an HTTP-only cookie session
+      description: Consumes the challenge exactly once; requires a same-origin Origin header. Supports EOAs and ERC-1271 wallets on Monad.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                walletAddress:
+                  type: string
+                message:
+                  type: string
+                signature:
+                  type: string
+              required: [walletAddress, message, signature]
+      responses:
+        "200":
+          description: Wallet session established
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  walletAddress:
+                    type: string
+                required: [walletAddress]
+        "401":
+          description: Signature invalid, expired, or challenge already used
+  /auth/logout:
+    post:
+      operationId: logoutAuth
+      tags: [auth]
+      summary: Revoke the current cookie session
+      responses:
+        "204":
+          description: Session revoked
   /healthz:
     get:
       operationId: healthCheck
@@ -45,12 +167,38 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
 
+  /auth/registration/prepare:
+    post:
+      operationId: prepareRegistration
+      tags: [auth]
+      summary: Validate app admission and recover an existing on-chain registration
+      description: Requires a signed wallet session. Normalizes username by trimming and lowercasing; accepts 3–32 ASCII letters, digits or underscores. New accounts require an unused app invite. Returns registered false only after a successful chain read. For registered wallets returns the original verified transaction hash, independent of the selected app handle. Already verified app accounts return their existing evidence without consuming another invite. This preflight does not reserve a username or invite; register rechecks atomically.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PrepareRegistrationBody"
+      responses:
+        "200":
+          description: Admission checked and chain status resolved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PrepareRegistrationResponse"
+        default:
+          description: Preparation failed; never interpret an error as unregistered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegistrationError"
+
   /auth/register:
     post:
       operationId: registerUser
       tags: [auth]
       summary: Register a new user
-      description: Register with a valid invite code and wallet address
+      description: Requires a signed wallet session matching walletAddress. Register using an unused invite code; NFT access is disabled until a verified contract is configured. Invite registrations receive no starter codes. A successful unique referral awards the inviter 1 point for the first referral, increasing by 1 up to 5 points per referral.
       requestBody:
         required: true
         content:
@@ -58,6 +206,12 @@ paths:
             schema:
               $ref: "#/components/schemas/RegisterUserBody"
       responses:
+        "200":
+          description: Already registered verified account (idempotent retry)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
         "201":
           description: User registered
           content:
@@ -201,6 +355,11 @@ paths:
           required: false
           schema:
             type: ["integer", "null"]
+        - name: authorId
+          in: query
+          required: false
+          schema:
+            type: integer
       responses:
         "200":
           description: List of posts
@@ -439,11 +598,50 @@ paths:
               schema:
                 $ref: "#/components/schemas/StreakInfo"
 
+  /rewards/x:
+    get:
+      operationId: getXRewards
+      tags: [streak]
+      summary: Server-side X reward status (UTC days)
+      responses:
+        "200":
+          description: Current account claims
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/XRewardsStatus"
+
+  /rewards/x/{task}:
+    post:
+      operationId: claimXReward
+      tags: [streak]
+      summary: Self-report an X action; no X verification
+      parameters:
+        - in: path
+          name: task
+          required: true
+          schema:
+            type: string
+            enum: [follow, like, comment, notifications, post_x]
+      responses:
+        "200":
+          description: Atomic claim result; claimed false means already claimed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/XClaimResult"
+
   /streak/checkin:
     post:
       operationId: dailyCheckin
       tags: [streak]
       summary: Daily login checkin for streak and points
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeetGameClaimInput"
       responses:
         "200":
           description: Updated streak
@@ -620,6 +818,116 @@ paths:
 
 components:
   schemas:
+    PrepareRegistrationBody:
+      type: object
+      required: [username, inviteCode]
+      properties:
+        username:
+          type: string
+        inviteCode:
+          type: string
+    PrepareRegistrationResponse:
+      type: object
+      required: [registered, txHash]
+      properties:
+        registered:
+          type: boolean
+        txHash:
+          type: string
+          nullable: true
+    RegistrationError:
+      type: object
+      required: [error, code]
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+          description: INVALID_USERNAME, USERNAME_TAKEN, INVALID_INVITE, INVITE_USED, AUTH_REQUIRED, WALLET_MISMATCH, INVALID_REGISTRATION, UNVERIFIED_ACCOUNT, REGISTRATION_UNAVAILABLE, RATE_LIMITED, or SAME_ORIGIN_REQUIRED
+    FeetGameClaimInput:
+      type: object
+      required: [txHash]
+      properties:
+        txHash: { type: string, pattern: "^0x[0-9a-fA-F]{64}$" }
+    FeetGameAward:
+      type: object
+      required: [alreadyClaimed, pointsAwarded, invitesAwarded, inviteCodes]
+      properties:
+        alreadyClaimed: { type: boolean }
+        pointsAwarded: { type: integer }
+        invitesAwarded: { type: integer }
+        inviteCodes: { type: array, items: { type: string } }
+    FeetGameHistory:
+      type: object
+      required: [claims]
+      properties:
+        claims:
+          type: array
+          items:
+            type: object
+            required: [txHash, pointsAwarded, invitesAwarded, createdAt]
+            properties:
+              txHash: { type: string }
+              pointsAwarded: { type: integer }
+              invitesAwarded: { type: integer }
+              createdAt: { type: string, format: date-time }
+    FeetGameState:
+      type: object
+      required: [contractAddress, treasuryAddress, chainId, enabled, disabledReason, registered, utcDay, nextResetAt, totalPurchases, purchasesUntilInvite, actions, onChainPoints, currentStreak, longestStreak, checkedInToday]
+      properties:
+        contractAddress: { type: string }
+        treasuryAddress: { type: string }
+        chainId: { type: integer }
+        enabled: { type: boolean }
+        disabledReason: { type: string }
+        registered: { type: boolean }
+        utcDay: { type: string }
+        nextResetAt: { type: string, format: date-time }
+        totalPurchases: { type: integer }
+        purchasesUntilInvite: { type: integer }
+        onChainPoints: { type: integer }
+        currentStreak: { type: integer }
+        longestStreak: { type: integer }
+        checkedInToday: { type: boolean }
+        actions:
+          type: array
+          items:
+            type: object
+            required: [id, name, priceMon, basePoints, count, remaining, nextPoints]
+            properties:
+              id: { type: integer }
+              name: { type: string }
+              priceMon: { type: string }
+              basePoints: { type: integer }
+              count: { type: integer }
+              remaining: { type: integer }
+              nextPoints: { type: integer }
+    XRewardsStatus:
+      type: object
+      properties:
+        utcDay:
+          type: string
+        lifetime:
+          type: object
+          additionalProperties:
+            type: boolean
+        postClaimedToday:
+          type: boolean
+        postStreakEligible:
+          type: boolean
+      required: [utcDay, lifetime, postClaimedToday, postStreakEligible]
+    XClaimResult:
+      type: object
+      properties:
+        claimed:
+          type: boolean
+        points:
+          type: integer
+        invites:
+          type: integer
+        utcDay:
+          type: string
+      required: [claimed, points, invites, utcDay]
     HealthStatus:
       type: object
       properties:
@@ -694,7 +1002,7 @@ components:
         totalLikes:
           type: integer
         streakPoints:
-          type: integer
+          type: number
         currentStreak:
           type: integer
       required:
@@ -844,6 +1152,8 @@ components:
           type: ["string", "null"]
         authorWalletAddress:
           type: string
+        isPaid:
+          type: boolean
       required:
         - content
         - authorWalletAddress
@@ -982,7 +1292,8 @@ components:
         longestStreak:
           type: integer
         totalPoints:
-          type: integer
+          type: number
+          description: Accumulated off-chain points; each UTC daily check-in awards 10 points. Streak milestone points are separate.
         lastCheckin:
           type: ["string", "null"]
           format: date-time
@@ -1078,7 +1389,7 @@ components:
         avatarUrl:
           type: ["string", "null"]
         totalPoints:
-          type: integer
+          type: number
         currentStreak:
           type: integer
         longestStreak:

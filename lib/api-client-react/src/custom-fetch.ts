@@ -78,6 +78,16 @@ function resolveUrl(input: RequestInfo | URL): string {
   return input.url;
 }
 
+function isPublicRead(method: string, input: RequestInfo | URL): boolean {
+  if (method !== "GET") return false;
+  const pathname = new URL(resolveUrl(input), "http://localhost").pathname;
+  return pathname === "/api/posts"
+    || /^\/api\/posts\/\d+$/.test(pathname)
+    || /^\/api\/posts\/\d+\/comments$/.test(pathname)
+    || /^\/api\/users\/\d+$/.test(pathname)
+    || /^\/api\/subscriptions\/price\/\d+$/.test(pathname);
+}
+
 function mergeHeaders(...sources: Array<HeadersInit | undefined>): Headers {
   const headers = new Headers();
 
@@ -347,6 +357,13 @@ export async function customFetch<T = unknown>(
 
   if (responseType === "json" && !headers.has("accept")) {
     headers.set("accept", DEFAULT_JSON_ACCEPT);
+  }
+
+  // Share pages and their public comments/creator data must work for guests
+  // even when an old wallet address is still present in local storage. The
+  // server authenticates writes and member-only reads from the session cookie.
+  if (isPublicRead(method, input)) {
+    headers.set("x-wallet-address", "");
   }
 
   // Attach bearer token when an auth getter is configured and no

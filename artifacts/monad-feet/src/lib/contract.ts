@@ -1,22 +1,30 @@
-/**
- * MonadFeet Smart Contract — Monad Mainnet (chainId 143 / 0x8f)
- *
- * Deploy:
- *   forge create --rpc-url https://rpc.monad.xyz \
- *     --private-key $PRIVATE_KEY contracts/MonadFeet.sol:MonadFeet
- *
- * Then set VITE_CONTRACT_ADDRESS to the deployed address.
- * Explorer: https://monvision.io
- */
+/** Platform registry on Monad Mainnet. This is NOT an NFT collection. */
 
 export const MONAD_MAINNET_CHAIN_ID = 143;
 
 export const MONAD_FEET_CONTRACT_ADDRESS =
-  (import.meta.env.VITE_CONTRACT_ADDRESS as `0x${string}`) ??
-  "0x0000000000000000000000000000000000000000";
+  "0x616929D84ED483a26a568fC97A364e5c5eCBe39D" as const;
+export const MONAD_TREASURY_ADDRESS =
+  "0x23B4C6DdcA73ba99045E1c0Def939BD41932E773" as const;
 
-export const CONTRACT_DEPLOYED =
-  MONAD_FEET_CONTRACT_ADDRESS !== "0x0000000000000000000000000000000000000000";
+/** Feet game writes. Source verification confirmed; set false to pause prompts. */
+export const GAME_ENABLED = true;
+
+/**
+ * keccak256 of the full live runtime bytecode (eth_getCode) of the verified
+ * deployment. Source runtime equivalence confirmed; only metadata differs.
+ * Every write refuses to proceed unless the live code hashes to this value.
+ */
+export const EXPECTED_RUNTIME_CODE_HASH =
+  "0x0e57820b5da0dce2e9154720eb1fcfccaf7cf80e0578ec190b8d53c0fd331678" as const;
+
+/** On-chain playFeetGame action ids (match backend actions[].id). */
+export const GAME_ACTION_IDS = [1, 2, 3] as const;
+
+// eth_getCode and the selectors/read calls were checked on chain 143.
+// Source provenance is NOT explorer-verified. Writes additionally check code at
+// call time, and only confirmed successful receipts count as completed actions.
+export const CONTRACT_DEPLOYED = true;
 
 export const MONAD_FEET_ABI = [
   // ── Write ──────────────────────────────────────────────────────────────────
@@ -55,6 +63,13 @@ export const MONAD_FEET_ABI = [
     outputs: [],
   },
   {
+    name: "playFeetGame",
+    type: "function",
+    stateMutability: "payable",
+    inputs: [{ name: "actionType", type: "uint8" }],
+    outputs: [],
+  },
+  {
     name: "dailyCheckin",
     type: "function",
     stateMutability: "nonpayable",
@@ -88,7 +103,30 @@ export const MONAD_FEET_ABI = [
       { name: "currentStreak", type: "uint256" },
       { name: "longestStreak", type: "uint256" },
       { name: "lastCheckin", type: "uint256" },
+       { name: "name", type: "string" },
+       { name: "bio", type: "string" },
+       { name: "avatarUri", type: "string" },
     ],
+  },
+  {
+    name: "gameStates",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "", type: "address" }],
+    outputs: [
+      { name: "lastPlayDay", type: "uint256" },
+      { name: "washCount", type: "uint8" },
+      { name: "massageCount", type: "uint8" },
+      { name: "pedicureCount", type: "uint8" },
+      { name: "totalPurchases", type: "uint256" },
+    ],
+  },
+  {
+    name: "feeRecipient",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
   },
   {
     name: "isSubscribed",
@@ -205,6 +243,24 @@ export const MONAD_FEET_ABI = [
       { name: "name", type: "string", indexed: false },
       { name: "bio", type: "string", indexed: false },
       { name: "avatarUri", type: "string", indexed: false },
+      { name: "timestamp", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    name: "GamePlayed",
+    type: "event",
+    inputs: [
+      { name: "user", type: "address", indexed: true },
+      { name: "actionType", type: "uint8", indexed: false },
+      { name: "pointsEarned", type: "uint256", indexed: false },
+      { name: "timestamp", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    name: "InviteEarned",
+    type: "event",
+    inputs: [
+      { name: "user", type: "address", indexed: true },
       { name: "timestamp", type: "uint256", indexed: false },
     ],
   },

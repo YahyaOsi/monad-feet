@@ -78,45 +78,45 @@
   --elevate-1: rgba(0,0,0, .03);
   --elevate-2: rgba(0,0,0, .08);
 
-  --background: 0 0% 99%;
-  --foreground: 263 30% 20%;
-  --border: 263 30% 90%;
-  --card: 0 0% 100%;
-  --card-foreground: 263 30% 20%;
-  --card-border: 263 30% 90%;
-  --sidebar: 263 20% 97%;
+  --background: 262 40% 98.5%;
+  --foreground: 263 35% 16%;
+  --border: 263 28% 89%;
+  --card: 260 60% 99.5%;
+  --card-foreground: 263 35% 16%;
+  --card-border: 263 28% 89%;
+  --sidebar: 262 36% 96.5%;
   --sidebar-foreground: 263 30% 20%;
-  --sidebar-border: 263 30% 90%;
-  --sidebar-primary: 263 70% 65%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 263 30% 93%;
-  --sidebar-accent-foreground: 263 30% 20%;
-  --sidebar-ring: 263 70% 65%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 263 30% 20%;
-  --popover-border: 263 30% 90%;
-  --primary: 263 70% 65%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 263 30% 95%;
-  --secondary-foreground: 263 30% 25%;
-  --muted: 263 20% 96%;
-  --muted-foreground: 263 20% 50%;
-  --accent: 280 60% 90%;
-  --accent-foreground: 263 50% 25%;
-  --destructive: 0 85% 60%;
-  --destructive-foreground: 0 0% 100%;
-  --input: 263 30% 85%;
-  --ring: 263 70% 65%;
+  --sidebar-border: 263 28% 89%;
+  --sidebar-primary: 263 68% 58%;
+  --sidebar-primary-foreground: 260 60% 99%;
+  --sidebar-accent: 263 36% 92%;
+  --sidebar-accent-foreground: 263 35% 18%;
+  --sidebar-ring: 263 68% 58%;
+  --popover: 260 60% 99.5%;
+  --popover-foreground: 263 35% 16%;
+  --popover-border: 263 28% 89%;
+  --primary: 263 68% 58%;
+  --primary-foreground: 260 60% 99%;
+  --secondary: 263 36% 94%;
+  --secondary-foreground: 263 35% 22%;
+  --muted: 263 30% 95%;
+  --muted-foreground: 263 14% 44%;
+  --accent: 36 95% 90%;
+  --accent-foreground: 28 70% 26%;
+  --destructive: 356 72% 52%;
+  --destructive-foreground: 0 0% 99%;
+  --input: 263 26% 84%;
+  --ring: 263 68% 58%;
   --chart-1: 263 60% 60%;
-  --chart-2: 280 50% 65%;
-  --chart-3: 245 55% 70%;
-  --chart-4: 300 45% 70%;
-  --chart-5: 263 80% 75%;
+  --chart-2: 36 90% 58%;
+  --chart-3: 245 55% 66%;
+  --chart-4: 320 50% 64%;
+  --chart-5: 170 45% 45%;
 
-  --app-font-sans: 'Inter', sans-serif;
+  --app-font-sans: 'Bricolage Grotesque', ui-sans-serif, system-ui, sans-serif;
   --app-font-serif: Georgia, serif;
-  --app-font-mono: Menlo, monospace;
-  --radius: .5rem; /* 8px */
+  --app-font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: .75rem;
   --shadow-2xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00); /*replace with H S L */
   --shadow-xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00); /*replace with H S L */
   --shadow-sm: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 1px 2px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
@@ -169,68 +169,40 @@
   --elevate-1: rgba(255,255,255, .04);
   --elevate-2: rgba(255,255,255, .09);
 
-  --background: red; /*replace with H S L */
-
-  --foreground: red; /*replace with H S L */
-
-  --border: red; /*replace with H S L */
-
-  --card: red; /*replace with H S L */
-
-  --card-foreground: red; /*replace with H S L */
-
-  --card-border: red; /*replace with H S L */
-
-  --sidebar: red; /*replace with H S L */
-
-  --sidebar-foreground: red; /*replace with H S L */
-
-  --sidebar-border: red; /*replace with H S L */
-
-  --sidebar-primary: red; /*replace with H S L */
-
-  --sidebar-primary-foreground: red; /*replace with H S L */
-
-  --sidebar-accent: red; /*replace with H S L */
-
-  --sidebar-accent-foreground: red; /*replace with H S L */
-
-  --sidebar-ring: red; /*replace with H S L */
-
-  --popover: red; /*replace with H S L */
-
-  --popover-foreground: red; /*replace with H S L */
-
-  --popover-border: red; /*replace with H S L */
-
-  --primary: red; /*replace with H S L */
-
-  --primary-foreground: red; /*replace with H S L */
-
-  --secondary: red; /*replace with H S L */
-
-  --secondary-foreground: red; /*replace with H S L */
-
-  --muted: red; /*replace with H S L */
-
-  --muted-foreground: red; /*replace with H S L */
-
-  --accent: red; /*replace with H S L */
-
-  --accent-foreground: red; /*replace with H S L */
-
-  --destructive: red; /*replace with H S L */
-
-  --destructive-foreground: red; /*replace with H S L */
-
-  /* Used as the border around inputs. Dark mode: Should be a border that is light enough to have high contrast when rendered on a --card background. More contrast than standard --border */
-  --input: red; /*replace with H S L */
-  --ring: red; /*replace with H S L */
-  --chart-1: red; /*replace with H S L */
-  --chart-2: red; /*replace with H S L */
-  --chart-3: red; /*replace with H S L */
-  --chart-4: red; /*replace with H S L */
-  --chart-5: red; /*replace with H S L */
+  --background: 262 30% 7%;
+  --foreground: 262 30% 94%;
+  --border: 262 20% 18%;
+  --card: 262 28% 10%;
+  --card-foreground: 262 30% 94%;
+  --card-border: 262 20% 18%;
+  --sidebar: 262 30% 8.5%;
+  --sidebar-foreground: 262 22% 86%;
+  --sidebar-border: 262 20% 16%;
+  --sidebar-primary: 263 80% 70%;
+  --sidebar-primary-foreground: 262 40% 8%;
+  --sidebar-accent: 262 22% 15%;
+  --sidebar-accent-foreground: 262 30% 94%;
+  --sidebar-ring: 263 80% 70%;
+  --popover: 262 28% 11%;
+  --popover-foreground: 262 30% 94%;
+  --popover-border: 262 20% 20%;
+  --primary: 263 80% 70%;
+  --primary-foreground: 262 40% 8%;
+  --secondary: 262 22% 16%;
+  --secondary-foreground: 262 30% 90%;
+  --muted: 262 20% 14%;
+  --muted-foreground: 262 12% 64%;
+  --accent: 34 60% 20%;
+  --accent-foreground: 38 90% 80%;
+  --destructive: 356 70% 58%;
+  --destructive-foreground: 0 0% 98%;
+  --input: 262 18% 26%;
+  --ring: 263 80% 70%;
+  --chart-1: 263 75% 70%;
+  --chart-2: 36 90% 62%;
+  --chart-3: 245 60% 72%;
+  --chart-4: 320 55% 68%;
+  --chart-5: 170 45% 52%;
 
   --shadow-2xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00);
   --shadow-xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00);
@@ -248,8 +220,18 @@
     @apply border-border;
   }
 
+  html { color-scheme: light; }
+  html.dark { color-scheme: dark; }
   body {
     @apply font-sans antialiased bg-background text-foreground;
+    font-optical-sizing: auto;
+  }
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
   }
 }
 
@@ -363,4 +345,30 @@
   .border.hover-elevate:not(.no-hover-interaction-elevate)::after {
     inset: -1px;
   }
+}
+/* Dark mode adjustments for hardcoded light tints used across pages */
+.dark .bg-white { background-color: hsl(var(--card)); }
+.dark [class*="bg-white/"] { background-color: hsl(var(--card) / .7); }
+.dark .bg-green-50, .dark .bg-emerald-50 { background-color: hsl(150 40% 14% / .6); }
+.dark .bg-amber-50, .dark .bg-yellow-50, .dark .bg-orange-50 { background-color: hsl(36 50% 14% / .6); }
+.dark .bg-violet-50, .dark .bg-purple-50, .dark .bg-blue-50 { background-color: hsl(263 40% 16% / .6); }
+.dark .bg-red-50, .dark .bg-slate-50, .dark .bg-gray-50 { background-color: hsl(262 15% 15% / .6); }
+.dark .bg-green-100, .dark .bg-emerald-100 { background-color: hsl(150 40% 18%); }
+.dark .bg-amber-100, .dark .bg-yellow-100, .dark .bg-orange-100 { background-color: hsl(36 50% 18%); }
+.dark .bg-violet-100, .dark .bg-blue-100, .dark .bg-purple-100 { background-color: hsl(263 40% 20%); }
+.dark [class*="border-green-"], .dark [class*="border-emerald-"] { border-color: hsl(150 35% 26%); }
+.dark [class*="border-amber-"], .dark [class*="border-yellow-"], .dark [class*="border-orange-"] { border-color: hsl(36 45% 28%); }
+.dark [class*="border-violet-"], .dark [class*="border-blue-"], .dark [class*="border-purple-"] { border-color: hsl(263 35% 30%); }
+.dark .text-green-700, .dark .text-green-600, .dark .text-emerald-700, .dark .text-emerald-600 { color: hsl(150 55% 66%); }
+.dark .text-amber-700, .dark .text-amber-800, .dark .text-yellow-600, .dark .text-yellow-700, .dark .text-orange-700 { color: hsl(38 85% 68%); }
+.dark .text-violet-700, .dark .text-violet-600, .dark .text-blue-600 { color: hsl(263 85% 78%); }
+.dark .text-gray-600, .dark .text-slate-600 { color: hsl(262 12% 72%); }
+.dark [class*="from-violet-50"], .dark [class*="from-yellow-50"] { --tw-gradient-from: hsl(var(--card)); }
+.dark [class*="to-purple-50"], .dark [class*="to-amber-50"] { --tw-gradient-to: hsl(var(--card)); }
+
+@keyframes mf-rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+.mf-rise { animation: mf-rise .6s cubic-bezier(.2,.7,.2,1) both; }
+.mf-grain::before {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: .05;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }

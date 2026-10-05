@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
+import { viewerId } from "../lib/contentPrivacy";
 
 const router: IRouter = Router();
 
@@ -16,6 +17,7 @@ router.get("/search", async (req, res): Promise<void> => {
   // Cap at 100 chars to avoid wildcard abuse
   const safe = q.slice(0, 100);
   const pattern = `%${safe}%`;
+  const viewer = await viewerId(req);
 
   const doUsers = type === "all" || type === "users";
   const doPosts = type === "all" || type === "posts";
@@ -68,7 +70,14 @@ router.get("/search", async (req, res): Promise<void> => {
           FROM posts p
           LEFT JOIN users u        ON u.id = p.author_id
           LEFT JOIN post_likes pl  ON pl.post_id = p.id
-          WHERE p.content ILIKE ${pattern}
+          WHERE p.content ILIKE ${pattern} AND (
+            NOT p.is_paid OR p.author_id = ${viewer} OR EXISTS (
+              SELECT 1 FROM subscriptions s JOIN subscription_payments sp
+                ON sp.tx_hash = lower(s.tx_hash) AND sp.subscriber_id = s.subscriber_id AND sp.creator_id = s.creator_id
+              WHERE s.subscriber_id = ${viewer} AND s.creator_id = p.author_id
+                AND s.expires_at > now() AND s.price_per_month > 0
+            )
+          )
           GROUP BY p.id, u.name, u.username, u.avatar_url
           ORDER BY "likeCount" DESC, p.created_at DESC
           LIMIT 15

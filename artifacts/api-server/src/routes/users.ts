@@ -1,49 +1,22 @@
 import { Router, type IRouter } from "express";
-import { eq, sql, ilike, or, desc } from "drizzle-orm";
-import { db, usersTable, inviteCodesTable, streaksTable, postsTable, postLikesTable, subscriptionsTable, privatePostsTable } from "@workspace/db";
+import { bindNewImage, viewerId } from "../lib/contentPrivacy";
+import { eq, sql, ilike, or, desc, and, isNull } from "drizzle-orm";
+import { db, usersTable, verifiedRegistrationsTable, inviteCodesTable, streaksTable, postsTable, postLikesTable, subscriptionsTable, privatePostsTable } from "@workspace/db";
 import {
   RegisterUserBody,
   UpdateMeBody,
   GetUserParams,
 } from "@workspace/api-zod";
 import { nanoid } from "nanoid";
-import { createPublicClient, http, defineChain } from "viem";
-
-const monadMainnet = defineChain({
-  id: 143,
-  name: "Monad Mainnet",
-  nativeCurrency: { name: "MON", symbol: "MON", decimals: 18 },
-  rpcUrls: { default: { http: ["https://rpc.monad.xyz"] } },
-});
-
-const NFT_CONTRACT = "0x656b1011a20b826f7c4ce1a07e5f350a52a3711d" as const;
-const ERC721_BALANCE_ABI = [
-  {
-    name: "balanceOf",
-    type: "function",
-    stateMutability: "view",
-    inputs: [{ name: "owner", type: "address" }],
-    outputs: [{ name: "", type: "uint256" }],
-  },
-] as const;
-
-const publicClient = createPublicClient({
-  chain: monadMainnet,
-  transport: http("https://rpc.monad.xyz"),
-});
-
-async function hasMonadFeetNft(wallet: string): Promise<boolean> {
-  try {
-    const balance = await publicClient.readContract({
-      address: NFT_CONTRACT,
-      abi: ERC721_BALANCE_ABI,
-      functionName: "balanceOf",
-      args: [wallet as `0x${string}`],
-    });
-    return balance > 0n;
-  } catch {
-    return false;
-  }
+import { referralPoints } from "../reward-rules";
+import { hasVerifiedRegistration, allowAttempt } from "../lib/walletAuth";
+import { discoverRegistration, verifyRegistration, normalizeRegistrationUsername, isUniqueViolation } from "../lib/registrationChain";
+import { consumeInviteCode, isInviteUsed } from "../lib/inviteCodes";
+// No verified NFT contract is configured. Ownership cannot be established
+// from a wallet-supplied field or the launch date. Reintroduce a fail-closed
+// on-chain check against a verified contract before enabling NFT admission.
+async function hasMonadFeetNft(_wallet: string): Promise<boolean> {
+  return false;
 }
 
 const router: IRouter = Router();
@@ -79,16 +52,74 @@ function formatUser(user: typeof usersTable.$inferSelect & {
   };
 }
 
+router.post("/auth/registration/prepare", async (req, res): Promise<void> => {
+  const wallet = getWalletAddress(req)?.toLowerCase();
+  if (!wallet) { res.status(401).json({ error: "Signed wallet session required", code: "AUTH_REQUIRED" }); return; }
+  if (!allowAttempt(`registration-prepare:${wallet}`, 6)) {
+    res.status(429).json({ error: "Too many registration checks; retry in a minute", code: "RATE_LIMITED" }); return;
+  }
+  const username = normalizeRegistrationUsername(req.body?.username);
+  if (!username) { res.status(400).json({ error: "Username must contain 3–32 letters, numbers or underscores", code: "INVALID_USERNAME" }); return; }
+  try {
+    const [existing] = await db.select().from(usersTable).where(eq(usersTable.walletAddress, wallet));
+    if (existing) {
+      if (!await hasVerifiedRegistration(existing)) {
+        res.status(403).json({ error: "Existing account requires receipt-verified migration", code: "UNVERIFIED_ACCOUNT" }); return;
+      }
+      // Already-admitted accounts must not consume another invite or rename.
+      if (!await verifyRegistration(existing.registrationTxHash!, wallet)) {
+        res.status(422).json({ error: "Existing registration verification failed", code: "INVALID_REGISTRATION" }); return;
+      }
+      res.json({ registered: true, txHash: existing.registrationTxHash }); return;
+    }
+    const [taken] = await db.select().from(usersTable).where(sql`lower(trim(${usersTable.username})) = ${username}`);
+    if (taken) { res.status(409).json({ error: "Username already taken", code: "USERNAME_TAKEN" }); return; }
+    const code = typeof req.body?.inviteCode === "string" ? req.body.inviteCode.trim().toUpperCase() : "";
+    const [invite] = await db.select().from(inviteCodesTable).where(eq(inviteCodesTable.code, code));
+    if (!invite || isInviteUsed(invite)) {
+      res.status(400).json({ error: invite ? "Invite code already used" : "Invalid invite code", code: invite ? "INVITE_USED" : "INVALID_INVITE" }); return;
+    }
+    res.json(await discoverRegistration(wallet));
+  } catch {
+    res.status(503).json({ error: "Registration preparation unavailable; please retry", code: "REGISTRATION_UNAVAILABLE" });
+  }
+});
+
 router.post("/auth/register", async (req, res): Promise<void> => {
+  if (!req.headers["x-wallet-address"]) {
+    res.status(401).json({ error: "Signed wallet session required" }); return;
+  }
   const parsed = RegisterUserBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
 
-  const { walletAddress, inviteCode, email, name, username, avatarUrl } = parsed.data;
+  const { walletAddress, inviteCode: rawInvite, email, name, avatarUrl, bio } = parsed.data;
+  const username = normalizeRegistrationUsername(parsed.data.username);
+  const inviteCode = rawInvite.trim().toUpperCase();
+  if (!username) {
+    res.status(400).json({ error: "Username must contain 3–32 letters, numbers or underscores", code: "INVALID_USERNAME" }); return;
+  }
+  if (getWalletAddress(req)?.toLowerCase() !== walletAddress.toLowerCase()) {
+    res.status(403).json({ error: "Wallet does not match signed session", code: "WALLET_MISMATCH" }); return;
+  }
+  if (avatarUrl) {
+    // Registration has no trusted upload owner yet. Set avatars after signup.
+    res.status(400).json({ error: "Set your avatar after registration using a new upload" }); return;
+  }
   const registrationTxHash = typeof req.body?.txHash === "string" ? req.body.txHash : null;
   const normalizedWallet = walletAddress.toLowerCase();
+  if (!registrationTxHash || !/^0x[0-9a-fA-F]{64}$/.test(registrationTxHash)) {
+    res.status(400).json({ error: "Confirmed on-chain registration transaction required" }); return;
+  }
+  try {
+    if (!await verifyRegistration(registrationTxHash, normalizedWallet)) {
+      res.status(422).json({ error: "Registration transaction does not match the wallet and Monad registry", code: "INVALID_REGISTRATION" }); return;
+    }
+  } catch {
+    res.status(503).json({ error: "Monad receipt verification unavailable; please retry" }); return;
+  }
 
   // Check for duplicate wallet / username first
   const [existingUser] = await db
@@ -96,20 +127,16 @@ router.post("/auth/register", async (req, res): Promise<void> => {
     .from(usersTable)
     .where(eq(usersTable.walletAddress, normalizedWallet));
   if (existingUser) {
-    res.status(409).json({ error: "User already exists" });
+    if (existingUser.registrationTxHash?.toLowerCase() === registrationTxHash.toLowerCase() &&
+        await hasVerifiedRegistration(existingUser)) {
+      res.status(200).json(formatUser(existingUser)); return;
+    }
+    res.status(409).json({ error: "Existing account requires receipt-verified migration", code: "UNVERIFIED_ACCOUNT" });
     return;
   }
 
-  const [existingUsername] = await db
-    .select()
-    .from(usersTable)
-    .where(eq(usersTable.username, username));
-  if (existingUsername) {
-    res.status(400).json({ error: "Username already taken" });
-    return;
-  }
-
-  // Determine access path: NFT holder OR valid invite code
+  // Existing accounts are recognized by the lookup endpoints; registration is
+  // reserved for a new wallet with a valid, unredeemed code.
   const nftHolder = await hasMonadFeetNft(normalizedWallet);
 
   let invite: typeof inviteCodesTable.$inferSelect | null = null;
@@ -129,46 +156,80 @@ router.post("/auth/register", async (req, res): Promise<void> => {
       res.status(400).json({ error: "Invalid invite code" });
       return;
     }
-    if (found.usedById !== null) {
-      res.status(400).json({ error: "Invite code already used" });
-      return;
-    }
+    // Check consumption under the transaction lock, so concurrent successful
+    // retries can resolve idempotently rather than fail on their own invite.
     invite = found;
   }
 
-  // Create the user
-  const [newUser] = await db
-    .insert(usersTable)
-    .values({
-      walletAddress: normalizedWallet,
-      email,
-      name,
-      username,
-      avatarUrl,
-      registrationTxHash,
-      nftHolder,
-    })
-    .returning();
-
-  // Mark invite as used (invite-code path only)
-  if (invite) {
-    await db
-      .update(inviteCodesTable)
-      .set({ usedById: newUser.id, usedAt: new Date() })
-      .where(eq(inviteCodesTable.id, invite.id));
+  try {
+    const newUser = await db.transaction(async (tx) => {
+      // Serialize normalized handles (including legacy mixed-case rows) without
+      // changing existing account names or requiring a production migration.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${username}, 0))`);
+      const [taken] = await tx.select({ id: usersTable.id }).from(usersTable)
+        .where(sql`lower(trim(${usersTable.username})) = ${username}`);
+      if (taken) throw new Error("Username already taken");
+      // Serialize redemptions of this code. A failed insert rolls back the
+      // redemption, points and referral count together.
+      if (invite) {
+        const [locked] = await tx.select().from(inviteCodesTable)
+          .where(eq(inviteCodesTable.id, invite.id)).for("update");
+        if (!locked || isInviteUsed(locked)) throw new Error("Invite code already used");
+      }
+      const [created] = await tx.insert(usersTable).values({
+        walletAddress: normalizedWallet, email, name, username, avatarUrl, bio,
+        registrationTxHash: registrationTxHash.toLowerCase(), nftHolder,
+      }).returning();
+      await tx.insert(verifiedRegistrationsTable).values({
+        userId: created.id, txHash: registrationTxHash.toLowerCase(),
+      });
+      await tx.insert(streaksTable).values({ userId: created.id, totalPoints: 10 });
+      if (invite) {
+        if (!await consumeInviteCode(tx, invite.id, created.id)) {
+          throw new Error("Invite code already used");
+        }
+        // Serialize referrals for the owner as well, even when distinct invite
+        // codes are redeemed concurrently. A redemption is counted exactly once.
+        if (invite.ownerId !== null) {
+          await tx.select({ id: usersTable.id }).from(usersTable)
+            .where(eq(usersTable.id, invite.ownerId)).for("update");
+          const [referrals] = await tx.select({ count: sql<number>`count(*)::int` })
+            .from(inviteCodesTable)
+            .where(and(eq(inviteCodesTable.ownerId, invite.ownerId), sql`${inviteCodesTable.usedById} IS NOT NULL`));
+          const bonus = referralPoints(referrals.count);
+          await tx.insert(streaksTable).values({ userId: invite.ownerId, totalPoints: bonus })
+            .onConflictDoUpdate({
+              target: streaksTable.userId,
+              set: { totalPoints: sql`${streaksTable.totalPoints} + ${bonus}` },
+            });
+        }
+      } else if (nftHolder) {
+        // Reserved for verified NFT access in the future; not active today.
+        await tx.insert(inviteCodesTable).values({ code: nanoid(10).toUpperCase(), ownerId: created.id });
+        await tx.update(streaksTable).set({ totalPoints: sql`${streaksTable.totalPoints} + 10` })
+          .where(eq(streaksTable.userId, created.id));
+      }
+      return created;
+    });
+    res.status(201).json(formatUser(newUser));
+  } catch (error) {
+    // Another retry may have committed while this request was waiting on locks.
+    const [existing] = await db.select().from(usersTable).where(eq(usersTable.walletAddress, normalizedWallet));
+    if (existing && existing.registrationTxHash?.toLowerCase() === registrationTxHash.toLowerCase() &&
+        await hasVerifiedRegistration(existing)) {
+      res.status(200).json(formatUser(existing)); return;
+    }
+    if (error instanceof Error && error.message === "Username already taken") {
+      res.status(409).json({ error: error.message, code: "USERNAME_TAKEN" }); return;
+    }
+    if (error instanceof Error && error.message === "Invite code already used") {
+      res.status(409).json({ error: error.message, code: "INVITE_USED" }); return;
+    }
+    if (isUniqueViolation(error)) {
+      res.status(409).json({ error: "Wallet or username already registered", code: "REGISTRATION_CONFLICT" }); return;
+    }
+    throw error;
   }
-
-  // Everyone gets 2 invite codes to share
-  const code1 = nanoid(10).toUpperCase();
-  const code2 = nanoid(10).toUpperCase();
-  await db.insert(inviteCodesTable).values([
-    { code: code1, ownerId: newUser.id },
-    { code: code2, ownerId: newUser.id },
-  ]);
-
-  await db.insert(streaksTable).values({ userId: newUser.id });
-
-  res.status(201).json({ ...formatUser({ ...newUser }), nftHolder });
 });
 
 router.get("/users/me", async (req, res): Promise<void> => {
@@ -187,6 +248,10 @@ router.get("/users/me", async (req, res): Promise<void> => {
     res.status(404).json({ error: "User not found" });
     return;
   }
+  if (!await hasVerifiedRegistration(user)) {
+    res.status(403).json({ error: "Verified on-chain registration required. Existing accounts require explicit receipt-verified migration." });
+    return;
+  }
 
   res.json(formatUser({ ...user }));
 });
@@ -198,13 +263,40 @@ router.put("/users/me", async (req, res): Promise<void> => {
     return;
   }
 
-  const { walletAddress, name, username, avatarUrl, bio } = parsed.data;
+  const { walletAddress, name, username: rawUsername, avatarUrl, bio } = parsed.data;
+  const username = rawUsername == null ? rawUsername : normalizeRegistrationUsername(rawUsername);
+  if (rawUsername != null && !username) {
+    res.status(400).json({ error: "Username must contain 3–32 letters, numbers or underscores", code: "INVALID_USERNAME" }); return;
+  }
+  if (avatarUrl) {
+    const [owner] = await db.select().from(usersTable).where(eq(usersTable.walletAddress, walletAddress.toLowerCase()));
+    if (!owner) { res.status(404).json({ error: "User not found" }); return; }
+    // Unchanged legacy avatars are not a new ownership claim.
+    if (avatarUrl !== owner.avatarUrl) {
+      try { await bindNewImage(avatarUrl, owner.id, "public"); }
+      catch (err) { res.status(400).json({ error: (err as Error).message }); return; }
+    }
+  }
 
-  const [user] = await db
-    .update(usersTable)
-    .set({ name, username, avatarUrl, bio })
-    .where(eq(usersTable.walletAddress, walletAddress.toLowerCase()))
-    .returning();
+  let user;
+  try {
+    [user] = await db.transaction(async tx => {
+      if (username) {
+        // Profile edits must participate in the same lock as registration.
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${username}, 0))`);
+        const [taken] = await tx.select().from(usersTable)
+          .where(sql`lower(trim(${usersTable.username})) = ${username} AND ${usersTable.walletAddress} <> ${walletAddress.toLowerCase()}`);
+        if (taken) throw new Error("Username already taken");
+      }
+      return tx.update(usersTable).set({ name, username, avatarUrl, bio })
+        .where(eq(usersTable.walletAddress, walletAddress.toLowerCase())).returning();
+    });
+  } catch (error) {
+    if (isUniqueViolation(error) || (error instanceof Error && error.message === "Username already taken")) {
+      res.status(409).json({ error: "Username already taken", code: "USERNAME_TAKEN" }); return;
+    }
+    throw error;
+  }
 
   if (!user) {
     res.status(404).json({ error: "User not found" });
@@ -256,6 +348,11 @@ router.get("/users/:userId/analytics", async (req, res): Promise<void> => {
   const rawId = Array.isArray(req.params.userId) ? req.params.userId[0] : req.params.userId;
   const userId = parseInt(rawId, 10);
   if (isNaN(userId)) { res.status(400).json({ error: "Invalid user id" }); return; }
+  // Financial analytics and subscriber identities belong only to this owner.
+  // Resolve identity from protectApi's signed session before target queries.
+  if (await viewerId(req) !== userId) {
+    res.status(403).json({ error: "Analytics are available only to their owner" }); return;
+  }
 
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
@@ -409,6 +506,7 @@ router.get("/users/:userId", async (req, res): Promise<void> => {
 
   res.json(formatUser({
     ...user,
+    email: (await viewerId(req)) === user.id ? user.email : null,
     postCount: postCountResult?.count ?? 0,
     totalLikes: likesResult?.count ?? 0,
     streakPoints: streak?.totalPoints ?? 0,

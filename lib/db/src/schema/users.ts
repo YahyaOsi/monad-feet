@@ -25,7 +25,7 @@ export type User = typeof usersTable.$inferSelect;
 export const inviteCodesTable = pgTable("invite_codes", {
   id: serial("id").primaryKey(),
   code: text("code").notNull().unique(),
-  ownerId: integer("owner_id").notNull().references(() => usersTable.id),
+  ownerId: integer("owner_id").references(() => usersTable.id),
   usedById: integer("used_by_id").references(() => usersTable.id),
   usedAt: timestamp("used_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

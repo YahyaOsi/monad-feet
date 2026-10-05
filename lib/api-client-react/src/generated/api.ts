@@ -19,6 +19,8 @@ import type {
 import type {
   Badge,
   Comment,
+  CreateAuthChallenge200,
+  CreateAuthChallengeBody,
   CreateCommentBody,
   CreatePostBody,
   CreatePrivatePostBody,
@@ -26,6 +28,11 @@ import type {
   CreatorAnalytics,
   ErrorResponse,
   FeedSummary,
+  FeetGameAward,
+  FeetGameClaimInput,
+  FeetGameHistory,
+  FeetGameState,
+  GetAuthSession200,
   GetLeaderboardParams,
   HealthStatus,
   InviteCode,
@@ -35,8 +42,11 @@ import type {
   ListPrivatePostsParams,
   Post,
   PostsPage,
+  PrepareRegistrationBody,
+  PrepareRegistrationResponse,
   PrivatePost,
   RegisterUserBody,
+  RegistrationError,
   SearchUsersParams,
   StreakInfo,
   Subscription,
@@ -48,7 +58,11 @@ import type {
   UserWithStats,
   ValidateInviteBody,
   ValidateInviteResponse,
+  VerifyAuthChallenge200,
+  VerifyAuthChallengeBody,
   WalletBalance,
+  XClaimResult,
+  XRewardsStatus,
 } from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
@@ -59,6 +73,542 @@ type AwaitedInput<T> = PromiseLike<T> | T;
 type Awaited<O> = O extends AwaitedInput<infer T> ? T : never;
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
+
+export const getGetGameUrl = () => {
+  return `/api/game`;
+};
+
+export const getGame = async (
+  options?: RequestInit,
+): Promise<FeetGameState> => {
+  return customFetch<FeetGameState>(getGetGameUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetGameQueryKey = () => {
+  return [`/api/game`] as const;
+};
+
+export const getGetGameQueryOptions = <
+  TData = Awaited<ReturnType<typeof getGame>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<Awaited<ReturnType<typeof getGame>>, TError, TData>;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetGameQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getGame>>> = ({
+    signal,
+  }) => getGame({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getGame>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetGameQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getGame>>
+>;
+export type GetGameQueryError = ErrorType<unknown>;
+
+export function useGetGame<
+  TData = Awaited<ReturnType<typeof getGame>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<Awaited<ReturnType<typeof getGame>>, TError, TData>;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetGameQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getListGameClaimsUrl = () => {
+  return `/api/game/claims`;
+};
+
+export const listGameClaims = async (
+  options?: RequestInit,
+): Promise<FeetGameHistory> => {
+  return customFetch<FeetGameHistory>(getListGameClaimsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListGameClaimsQueryKey = () => {
+  return [`/api/game/claims`] as const;
+};
+
+export const getListGameClaimsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listGameClaims>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listGameClaims>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListGameClaimsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listGameClaims>>> = ({
+    signal,
+  }) => listGameClaims({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listGameClaims>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListGameClaimsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listGameClaims>>
+>;
+export type ListGameClaimsQueryError = ErrorType<unknown>;
+
+export function useListGameClaims<
+  TData = Awaited<ReturnType<typeof listGameClaims>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listGameClaims>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListGameClaimsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getClaimGameUrl = () => {
+  return `/api/game/claims`;
+};
+
+export const claimGame = async (
+  feetGameClaimInput: FeetGameClaimInput,
+  options?: RequestInit,
+): Promise<FeetGameAward> => {
+  return customFetch<FeetGameAward>(getClaimGameUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(feetGameClaimInput),
+  });
+};
+
+export const getClaimGameMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof claimGame>>,
+    TError,
+    { data: BodyType<FeetGameClaimInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof claimGame>>,
+  TError,
+  { data: BodyType<FeetGameClaimInput> },
+  TContext
+> => {
+  const mutationKey = ["claimGame"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof claimGame>>,
+    { data: BodyType<FeetGameClaimInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return claimGame(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ClaimGameMutationResult = NonNullable<
+  Awaited<ReturnType<typeof claimGame>>
+>;
+export type ClaimGameMutationBody = BodyType<FeetGameClaimInput>;
+export type ClaimGameMutationError = ErrorType<unknown>;
+
+export const useClaimGame = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof claimGame>>,
+    TError,
+    { data: BodyType<FeetGameClaimInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof claimGame>>,
+  TError,
+  { data: BodyType<FeetGameClaimInput> },
+  TContext
+> => {
+  return useMutation(getClaimGameMutationOptions(options));
+};
+
+/**
+ * @summary Return the wallet authenticated by the HTTP-only session cookie
+ */
+export const getGetAuthSessionUrl = () => {
+  return `/api/auth/session`;
+};
+
+export const getAuthSession = async (
+  options?: RequestInit,
+): Promise<GetAuthSession200> => {
+  return customFetch<GetAuthSession200>(getGetAuthSessionUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetAuthSessionQueryKey = () => {
+  return [`/api/auth/session`] as const;
+};
+
+export const getGetAuthSessionQueryOptions = <
+  TData = Awaited<ReturnType<typeof getAuthSession>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getAuthSession>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetAuthSessionQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getAuthSession>>> = ({
+    signal,
+  }) => getAuthSession({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getAuthSession>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetAuthSessionQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getAuthSession>>
+>;
+export type GetAuthSessionQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Return the wallet authenticated by the HTTP-only session cookie
+ */
+
+export function useGetAuthSession<
+  TData = Awaited<ReturnType<typeof getAuthSession>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getAuthSession>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetAuthSessionQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Requires a same-origin Origin header. The message is bound to the requested wallet, origin, nonce, and chain.
+ * @summary Request a five-minute one-time wallet sign-in message for Monad chain 143
+ */
+export const getCreateAuthChallengeUrl = () => {
+  return `/api/auth/challenge`;
+};
+
+export const createAuthChallenge = async (
+  createAuthChallengeBody: CreateAuthChallengeBody,
+  options?: RequestInit,
+): Promise<CreateAuthChallenge200> => {
+  return customFetch<CreateAuthChallenge200>(getCreateAuthChallengeUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createAuthChallengeBody),
+  });
+};
+
+export const getCreateAuthChallengeMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createAuthChallenge>>,
+    TError,
+    { data: BodyType<CreateAuthChallengeBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createAuthChallenge>>,
+  TError,
+  { data: BodyType<CreateAuthChallengeBody> },
+  TContext
+> => {
+  const mutationKey = ["createAuthChallenge"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createAuthChallenge>>,
+    { data: BodyType<CreateAuthChallengeBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createAuthChallenge(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateAuthChallengeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createAuthChallenge>>
+>;
+export type CreateAuthChallengeMutationBody = BodyType<CreateAuthChallengeBody>;
+export type CreateAuthChallengeMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Request a five-minute one-time wallet sign-in message for Monad chain 143
+ */
+export const useCreateAuthChallenge = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createAuthChallenge>>,
+    TError,
+    { data: BodyType<CreateAuthChallengeBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createAuthChallenge>>,
+  TError,
+  { data: BodyType<CreateAuthChallengeBody> },
+  TContext
+> => {
+  return useMutation(getCreateAuthChallengeMutationOptions(options));
+};
+
+/**
+ * Consumes the challenge exactly once; requires a same-origin Origin header. Supports EOAs and ERC-1271 wallets on Monad.
+ * @summary Verify a wallet signature and create an HTTP-only cookie session
+ */
+export const getVerifyAuthChallengeUrl = () => {
+  return `/api/auth/verify`;
+};
+
+export const verifyAuthChallenge = async (
+  verifyAuthChallengeBody: VerifyAuthChallengeBody,
+  options?: RequestInit,
+): Promise<VerifyAuthChallenge200> => {
+  return customFetch<VerifyAuthChallenge200>(getVerifyAuthChallengeUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(verifyAuthChallengeBody),
+  });
+};
+
+export const getVerifyAuthChallengeMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof verifyAuthChallenge>>,
+    TError,
+    { data: BodyType<VerifyAuthChallengeBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof verifyAuthChallenge>>,
+  TError,
+  { data: BodyType<VerifyAuthChallengeBody> },
+  TContext
+> => {
+  const mutationKey = ["verifyAuthChallenge"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof verifyAuthChallenge>>,
+    { data: BodyType<VerifyAuthChallengeBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return verifyAuthChallenge(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type VerifyAuthChallengeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof verifyAuthChallenge>>
+>;
+export type VerifyAuthChallengeMutationBody = BodyType<VerifyAuthChallengeBody>;
+export type VerifyAuthChallengeMutationError = ErrorType<void>;
+
+/**
+ * @summary Verify a wallet signature and create an HTTP-only cookie session
+ */
+export const useVerifyAuthChallenge = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof verifyAuthChallenge>>,
+    TError,
+    { data: BodyType<VerifyAuthChallengeBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof verifyAuthChallenge>>,
+  TError,
+  { data: BodyType<VerifyAuthChallengeBody> },
+  TContext
+> => {
+  return useMutation(getVerifyAuthChallengeMutationOptions(options));
+};
+
+/**
+ * @summary Revoke the current cookie session
+ */
+export const getLogoutAuthUrl = () => {
+  return `/api/auth/logout`;
+};
+
+export const logoutAuth = async (options?: RequestInit): Promise<void> => {
+  return customFetch<void>(getLogoutAuthUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getLogoutAuthMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof logoutAuth>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof logoutAuth>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["logoutAuth"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof logoutAuth>>,
+    void
+  > = () => {
+    return logoutAuth(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type LogoutAuthMutationResult = NonNullable<
+  Awaited<ReturnType<typeof logoutAuth>>
+>;
+
+export type LogoutAuthMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Revoke the current cookie session
+ */
+export const useLogoutAuth = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof logoutAuth>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof logoutAuth>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getLogoutAuthMutationOptions(options));
+};
 
 /**
  * Returns server health status
@@ -137,7 +687,94 @@ export function useHealthCheck<
 }
 
 /**
- * Register with a valid invite code and wallet address
+ * Requires a signed wallet session. Normalizes username by trimming and lowercasing; accepts 3–32 ASCII letters, digits or underscores. New accounts require an unused app invite. Returns registered false only after a successful chain read. For registered wallets returns the original verified transaction hash, independent of the selected app handle. Already verified app accounts return their existing evidence without consuming another invite. This preflight does not reserve a username or invite; register rechecks atomically.
+ * @summary Validate app admission and recover an existing on-chain registration
+ */
+export const getPrepareRegistrationUrl = () => {
+  return `/api/auth/registration/prepare`;
+};
+
+export const prepareRegistration = async (
+  prepareRegistrationBody: PrepareRegistrationBody,
+  options?: RequestInit,
+): Promise<PrepareRegistrationResponse> => {
+  return customFetch<PrepareRegistrationResponse>(getPrepareRegistrationUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(prepareRegistrationBody),
+  });
+};
+
+export const getPrepareRegistrationMutationOptions = <
+  TError = ErrorType<RegistrationError>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof prepareRegistration>>,
+    TError,
+    { data: BodyType<PrepareRegistrationBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof prepareRegistration>>,
+  TError,
+  { data: BodyType<PrepareRegistrationBody> },
+  TContext
+> => {
+  const mutationKey = ["prepareRegistration"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof prepareRegistration>>,
+    { data: BodyType<PrepareRegistrationBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return prepareRegistration(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PrepareRegistrationMutationResult = NonNullable<
+  Awaited<ReturnType<typeof prepareRegistration>>
+>;
+export type PrepareRegistrationMutationBody = BodyType<PrepareRegistrationBody>;
+export type PrepareRegistrationMutationError = ErrorType<RegistrationError>;
+
+/**
+ * @summary Validate app admission and recover an existing on-chain registration
+ */
+export const usePrepareRegistration = <
+  TError = ErrorType<RegistrationError>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof prepareRegistration>>,
+    TError,
+    { data: BodyType<PrepareRegistrationBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof prepareRegistration>>,
+  TError,
+  { data: BodyType<PrepareRegistrationBody> },
+  TContext
+> => {
+  return useMutation(getPrepareRegistrationMutationOptions(options));
+};
+
+/**
+ * Requires a signed wallet session matching walletAddress. Register using an unused invite code; NFT access is disabled until a verified contract is configured. Invite registrations receive no starter codes. A successful unique referral awards the inviter 1 point for the first referral, increasing by 1 up to 5 points per referral.
  * @summary Register a new user
  */
 export const getRegisterUserUrl = () => {
@@ -1786,6 +2423,167 @@ export function useGetStreak<
 }
 
 /**
+ * @summary Server-side X reward status (UTC days)
+ */
+export const getGetXRewardsUrl = () => {
+  return `/api/rewards/x`;
+};
+
+export const getXRewards = async (
+  options?: RequestInit,
+): Promise<XRewardsStatus> => {
+  return customFetch<XRewardsStatus>(getGetXRewardsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetXRewardsQueryKey = () => {
+  return [`/api/rewards/x`] as const;
+};
+
+export const getGetXRewardsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getXRewards>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getXRewards>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetXRewardsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getXRewards>>> = ({
+    signal,
+  }) => getXRewards({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getXRewards>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetXRewardsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getXRewards>>
+>;
+export type GetXRewardsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Server-side X reward status (UTC days)
+ */
+
+export function useGetXRewards<
+  TData = Awaited<ReturnType<typeof getXRewards>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getXRewards>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetXRewardsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Self-report an X action; no X verification
+ */
+export const getClaimXRewardUrl = (
+  task: "follow" | "like" | "comment" | "notifications" | "post_x",
+) => {
+  return `/api/rewards/x/${task}`;
+};
+
+export const claimXReward = async (
+  task: "follow" | "like" | "comment" | "notifications" | "post_x",
+  options?: RequestInit,
+): Promise<XClaimResult> => {
+  return customFetch<XClaimResult>(getClaimXRewardUrl(task), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getClaimXRewardMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof claimXReward>>,
+    TError,
+    { task: "follow" | "like" | "comment" | "notifications" | "post_x" },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof claimXReward>>,
+  TError,
+  { task: "follow" | "like" | "comment" | "notifications" | "post_x" },
+  TContext
+> => {
+  const mutationKey = ["claimXReward"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof claimXReward>>,
+    { task: "follow" | "like" | "comment" | "notifications" | "post_x" }
+  > = (props) => {
+    const { task } = props ?? {};
+
+    return claimXReward(task, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ClaimXRewardMutationResult = NonNullable<
+  Awaited<ReturnType<typeof claimXReward>>
+>;
+
+export type ClaimXRewardMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Self-report an X action; no X verification
+ */
+export const useClaimXReward = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof claimXReward>>,
+    TError,
+    { task: "follow" | "like" | "comment" | "notifications" | "post_x" },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof claimXReward>>,
+  TError,
+  { task: "follow" | "like" | "comment" | "notifications" | "post_x" },
+  TContext
+> => {
+  return useMutation(getClaimXRewardMutationOptions(options));
+};
+
+/**
  * @summary Daily login checkin for streak and points
  */
 export const getDailyCheckinUrl = () => {
@@ -1793,11 +2591,14 @@ export const getDailyCheckinUrl = () => {
 };
 
 export const dailyCheckin = async (
+  feetGameClaimInput: FeetGameClaimInput,
   options?: RequestInit,
 ): Promise<StreakInfo> => {
   return customFetch<StreakInfo>(getDailyCheckinUrl(), {
     ...options,
     method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(feetGameClaimInput),
   });
 };
 
@@ -1808,14 +2609,14 @@ export const getDailyCheckinMutationOptions = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof dailyCheckin>>,
     TError,
-    void,
+    { data: BodyType<FeetGameClaimInput> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof dailyCheckin>>,
   TError,
-  void,
+  { data: BodyType<FeetGameClaimInput> },
   TContext
 > => {
   const mutationKey = ["dailyCheckin"];
@@ -1829,9 +2630,11 @@ export const getDailyCheckinMutationOptions = <
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof dailyCheckin>>,
-    void
-  > = () => {
-    return dailyCheckin(requestOptions);
+    { data: BodyType<FeetGameClaimInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return dailyCheckin(data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -1840,7 +2643,7 @@ export const getDailyCheckinMutationOptions = <
 export type DailyCheckinMutationResult = NonNullable<
   Awaited<ReturnType<typeof dailyCheckin>>
 >;
-
+export type DailyCheckinMutationBody = BodyType<FeetGameClaimInput>;
 export type DailyCheckinMutationError = ErrorType<unknown>;
 
 /**
@@ -1853,14 +2656,14 @@ export const useDailyCheckin = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof dailyCheckin>>,
     TError,
-    void,
+    { data: BodyType<FeetGameClaimInput> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationResult<
   Awaited<ReturnType<typeof dailyCheckin>>,
   TError,
-  void,
+  { data: BodyType<FeetGameClaimInput> },
   TContext
 > => {
   return useMutation(getDailyCheckinMutationOptions(options));

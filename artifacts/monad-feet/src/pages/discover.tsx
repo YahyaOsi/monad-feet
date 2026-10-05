@@ -33,8 +33,7 @@ export default function Discover() {
   const [searching, setSearching] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: leaderboard } = useGetLeaderboard({}, { query: { queryKey: [] as any } });
+  const { data: leaderboard } = useGetLeaderboard({});
   const { onlineUsers, onlineCount, isConnected, isOnline } = usePresence();
 
   const doSearch = useCallback(async (q: string) => {

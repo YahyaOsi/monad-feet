@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq, and, desc } from "drizzle-orm";
 import { db, commentsTable, postsTable, usersTable, notificationsTable, notificationPreferencesTable } from "@workspace/db";
+import { canReadCreator, viewerId } from "../lib/contentPrivacy";
 
 const router: IRouter = Router();
 
@@ -25,6 +26,11 @@ async function shouldNotify(userId: number, type: string): Promise<boolean> {
 router.get("/posts/:postId/comments", async (req, res): Promise<void> => {
   const postId = parseInt(req.params.postId as string, 10);
   if (isNaN(postId)) { res.status(400).json({ error: "Invalid post id" }); return; }
+  const [post] = await db.select().from(postsTable).where(eq(postsTable.id, postId));
+  if (!post) { res.status(404).json({ error: "Post not found" }); return; }
+  if (post.isPaid && !await canReadCreator(await viewerId(req), post.authorId)) {
+    res.status(403).json({ error: "Verified subscription required" }); return;
+  }
 
   const comments = await db
     .select({
@@ -62,6 +68,9 @@ router.post("/posts/:postId/comments", async (req, res): Promise<void> => {
   const [post] = await db.select().from(postsTable).where(eq(postsTable.id, postId));
   if (!post) { res.status(404).json({ error: "Post not found" }); return; }
 
+  if (post.isPaid && !await canReadCreator(author.id, post.authorId)) {
+    res.status(403).json({ error: "Verified subscription required" }); return;
+  }
   const [comment] = await db
     .insert(commentsTable)
     .values({ postId, authorId: author.id, content })

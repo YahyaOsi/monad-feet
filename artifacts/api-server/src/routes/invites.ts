@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import { db, inviteCodesTable, usersTable } from "@workspace/db";
 import { ValidateInviteCodeBody } from "@workspace/api-zod";
+import { isInviteUsed } from "../lib/inviteCodes";
 
 const router: IRouter = Router();
 
@@ -12,6 +13,7 @@ function getWalletAddress(req: { headers: Record<string, string | string[] | und
 }
 
 router.get("/invites", async (req, res): Promise<void> => {
+  res.setHeader("Cache-Control", "no-store");
   const walletAddress = getWalletAddress(req);
   if (!walletAddress) {
     res.status(400).json({ error: "Missing x-wallet-address header" });
@@ -45,7 +47,7 @@ router.get("/invites", async (req, res): Promise<void> => {
     codes.map((c) => ({
       id: c.id,
       code: c.code,
-      used: c.usedById !== null,
+      used: isInviteUsed(c),
       usedByUsername: c.usedByUsername ?? null,
       createdAt: c.createdAt,
     }))
@@ -53,6 +55,7 @@ router.get("/invites", async (req, res): Promise<void> => {
 });
 
 router.post("/invites/validate", async (req, res): Promise<void> => {
+  res.setHeader("Cache-Control", "no-store");
   const parsed = ValidateInviteCodeBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -62,14 +65,14 @@ router.post("/invites/validate", async (req, res): Promise<void> => {
   const [invite] = await db
     .select()
     .from(inviteCodesTable)
-    .where(eq(inviteCodesTable.code, parsed.data.code.toUpperCase()));
+    .where(eq(inviteCodesTable.code, parsed.data.code.trim().toUpperCase()));
 
   if (!invite) {
     res.json({ valid: false, message: "Invalid invite code" });
     return;
   }
 
-  if (invite.usedById !== null) {
+  if (isInviteUsed(invite)) {
     res.json({ valid: false, message: "Invite code already used" });
     return;
   }

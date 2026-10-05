@@ -73,6 +73,19 @@ function ChainSubBadge({ subscriber, creator, txHash }: {
 
 type CreateStep = "idle" | "uploading" | "saving" | "error";
 
+function PrivatePostImage({ src }: { src: string }) {
+  const [failed, setFailed] = useState(false);
+  return failed ? (
+    <p role="status" className="rounded-xl bg-muted p-6 text-sm text-muted-foreground text-center">
+      Image unavailable. Check your subscription and refresh the page.
+    </p>
+  ) : (
+    <div className="rounded-xl overflow-hidden bg-muted">
+      <img src={src} alt="Private post" className="w-full max-h-96 object-cover" onError={() => setFailed(true)} />
+    </div>
+  );
+}
+
 function CreatePrivatePostDialog({ creatorId, onCreated }: { creatorId: number; onCreated: () => void }) {
   const { user } = useUser();
   const [open, setOpen] = useState(false);
@@ -86,7 +99,9 @@ function CreatePrivatePostDialog({ creatorId, onCreated }: { creatorId: number; 
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !file.type.startsWith("image/")) return;
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { setError("Please select an image file."); return; }
+    setError(null);
     setImageFile(file);
     const reader = new FileReader();
     reader.onload = () => setImagePreview(reader.result as string);
@@ -110,14 +125,18 @@ function CreatePrivatePostDialog({ creatorId, onCreated }: { creatorId: number; 
         headers: { "Content-Type": "application/json", "x-wallet-address": wallet },
         body: JSON.stringify({ name: imageFile.name, size: imageFile.size, contentType: imageFile.type }),
       });
-      if (!urlRes.ok) throw new Error("Failed to get upload URL");
+       if (!urlRes.ok) {
+         const body = await urlRes.json().catch(() => null);
+         throw new Error(body?.error ?? "Failed to get upload URL");
+       }
       const { uploadURL, objectPath } = await urlRes.json() as { uploadURL: string; objectPath: string };
 
-      await fetch(uploadURL, {
+       const uploadRes = await fetch(uploadURL, {
         method: "PUT",
         headers: { "Content-Type": imageFile.type },
         body: imageFile,
       });
+       if (!uploadRes.ok) throw new Error("Image upload failed. Please try again.");
       const imageUrl = `${BASE}/api/storage${objectPath}`;
 
       setStep("saving");
@@ -126,7 +145,10 @@ function CreatePrivatePostDialog({ creatorId, onCreated }: { creatorId: number; 
         headers: { "Content-Type": "application/json", "x-wallet-address": wallet },
         body: JSON.stringify({ content: content.trim() || "", imageUrl, creatorWalletAddress: user.walletAddress }),
       });
-      if (!postRes.ok) throw new Error("Failed to create post");
+       if (!postRes.ok) {
+         const body = await postRes.json().catch(() => null);
+         throw new Error(body?.error ?? "Failed to create post");
+       }
 
       queryClient.invalidateQueries({ queryKey: getListPrivatePostsQueryKey({ creatorId }) });
       onCreated();
@@ -192,7 +214,7 @@ function CreatePrivatePostDialog({ creatorId, onCreated }: { creatorId: number; 
             Only your subscribers will see this post
           </div>
 
-          {error && <p className="text-sm text-destructive">{error}</p>}
+           {error && <p role="alert" data-testid="status-private-post-error" className="text-sm text-destructive">{error}</p>}
 
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setOpen(false)} disabled={isPosting}>Cancel</Button>
@@ -263,9 +285,7 @@ function PrivatePosts({ creatorId, isCreator }: { creatorId: number; isCreator: 
             <CardContent className="px-4 pb-4 pt-2 space-y-3">
               {post.content && <p className="whitespace-pre-wrap text-sm leading-relaxed">{post.content}</p>}
               {post.imageUrl && (
-                <div className="rounded-xl overflow-hidden bg-muted">
-                  <img src={post.imageUrl} alt="Post" className="w-full max-h-96 object-cover" />
-                </div>
+                <PrivatePostImage key={post.imageUrl} src={post.imageUrl} />
               )}
             </CardContent>
           </Card>

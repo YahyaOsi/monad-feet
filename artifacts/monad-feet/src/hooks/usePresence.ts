@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useUser } from "@/context/UserContext";
+import { uniqueMembers } from "@/lib/presenceMembers";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -67,6 +68,8 @@ export type BadgeAlert = {
 // ── Global WS singleton ──────────────────────────────────────────
 let globalWs: WebSocket | null = null;
 let globalConnected = false;
+let globalUserId: number | null = null;
+let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectDelay = 1_000;
 
@@ -74,12 +77,20 @@ type PresenceListener = (users: OnlineUser[]) => void;
 type ActivityListener = (event: ActivityEvent) => void;
 
 let globalUsers: OnlineUser[] = [];
+let presenceGeneration = 0;
 const presenceListeners = new Set<PresenceListener>();
 const activityListeners = new Set<ActivityListener>();
+const connectionListeners = new Set<(connected: boolean) => void>();
+
+function notifyConnection(connected: boolean) {
+  globalConnected = connected;
+  for (const fn of connectionListeners) fn(connected);
+}
 
 function notifyPresence(users: OnlineUser[]) {
-  globalUsers = users;
-  for (const fn of presenceListeners) fn(users);
+  presenceGeneration++;
+  globalUsers = uniqueMembers(users);
+  for (const fn of presenceListeners) fn(globalUsers);
 }
 
 function notifyActivity(event: ActivityEvent) {
@@ -93,7 +104,9 @@ function connectWs(user: {
   username?: string | null;
   avatarUrl?: string | null;
 }) {
-  if (globalWs && globalWs.readyState <= 1) return;
+  if (globalWs && globalWs.readyState <= 1 && globalUserId === user.id) return;
+  disconnectWs();
+  globalUserId = user.id;
 
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const params = new URLSearchParams({
@@ -109,11 +122,13 @@ function connectWs(user: {
   globalWs = ws;
 
   ws.onopen = () => {
-    globalConnected = true;
+    if (globalWs !== ws) return;
+    notifyConnection(true);
     reconnectDelay = 1_000;
   };
 
   ws.onmessage = (event) => {
+    if (globalWs !== ws) return;
     try {
       const data = JSON.parse(String(event.data)) as {
         type: string;
@@ -130,8 +145,12 @@ function connectWs(user: {
   };
 
   ws.onclose = () => {
-    globalConnected = false;
+    // A retired socket must not reset its replacement or create another one.
+    if (globalWs !== ws) return;
+    notifyConnection(false);
+    notifyPresence([]);
     globalWs = null;
+    if (keepAliveTimer) { clearInterval(keepAliveTimer); keepAliveTimer = null; }
     const hasListeners = presenceListeners.size > 0 || activityListeners.size > 0;
     if (hasListeners) {
       reconnectTimer = setTimeout(() => {
@@ -143,20 +162,24 @@ function connectWs(user: {
 
   ws.onerror = () => ws.close();
 
-  const keepAlive = setInterval(() => {
+  keepAliveTimer = setInterval(() => {
     if (ws.readyState === 1) {
       ws.send(JSON.stringify({ type: "ping" }));
     } else {
-      clearInterval(keepAlive);
+      if (keepAliveTimer) { clearInterval(keepAliveTimer); keepAliveTimer = null; }
     }
   }, 30_000);
 }
 
 function disconnectWs() {
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-  if (globalWs) { globalWs.close(); globalWs = null; }
-  globalConnected = false;
-  globalUsers = [];
+  if (keepAliveTimer) { clearInterval(keepAliveTimer); keepAliveTimer = null; }
+  const retired = globalWs;
+  globalWs = null;
+  globalUserId = null;
+  retired?.close();
+  notifyConnection(false);
+  notifyPresence([]);
 }
 
 async function fetchPresenceRest(): Promise<OnlineUser[]> {
@@ -165,7 +188,7 @@ async function fetchPresenceRest(): Promise<OnlineUser[]> {
     const res = await fetch(`${BASE}/api/presence`, { headers: { "x-wallet-address": wallet } });
     if (!res.ok) return [];
     const data = await res.json() as { users?: OnlineUser[] };
-    return data.users ?? [];
+    return uniqueMembers(data.users ?? []);
   } catch { return []; }
 }
 
@@ -177,26 +200,35 @@ export function usePresence() {
   const [wsEvent, setWsEvent] = useState<ActivityEvent | null>(null);
 
   useEffect(() => {
-    if (!user) return;
-    fetchPresenceRest().then((u) => { if (u.length > 0) setOnlineUsers(u); });
-  }, [user?.id]);
-
-  useEffect(() => {
-    if (!user) return;
+    let active = true;
+    if (!user) {
+      setOnlineUsers([]);
+      setIsConnected(false);
+      return;
+    }
     const presenceListener: PresenceListener = (users) => {
       setOnlineUsers(users);
-      setIsConnected(true);
     };
     const activityListener: ActivityListener = (event) => {
       setWsEvent(event);
     };
     presenceListeners.add(presenceListener);
     activityListeners.add(activityListener);
+    connectionListeners.add(setIsConnected);
     connectWs(user);
-    if (globalUsers.length > 0) setOnlineUsers(globalUsers);
+    setOnlineUsers(globalUsers);
+    setIsConnected(globalConnected);
+    const generation = presenceGeneration;
+    fetchPresenceRest().then(users => {
+      // Never let a delayed REST response replace a newer socket snapshot,
+      // including an empty snapshot from a disconnected or replaced socket.
+      if (active && !globalConnected && generation === presenceGeneration) setOnlineUsers(users);
+    });
     return () => {
+      active = false;
       presenceListeners.delete(presenceListener);
       activityListeners.delete(activityListener);
+      connectionListeners.delete(setIsConnected);
       if (presenceListeners.size === 0 && activityListeners.size === 0) disconnectWs();
     };
   }, [user?.id]);

@@ -21,11 +21,21 @@ An exclusive, invite-only Web3 social media platform for the Monad blockchain co
 - **Routing**: wouter
 - **UI**: shadcn/ui + lucide-react
 
-## Reown AppKit Config
-- Project ID: `19c9787ece0fcd04698c96c998167b4a`
-- Network: Monad Mainnet (chainId: 41454, rpc.monad.xyz)
-- Explorer: https://explorer.monad.xyz
-- Login methods: Web3 Wallet, X (Twitter), Email
+## Current beta access and launch status
+- Creator-approved release mode: publicly hosted, invite-only beta with game and subscription payments active. Keep receipt/session/privacy checks and risk disclosures. Do not pause payments without a new reason or request; NFT access still requires a supplied verified collection.
+- Wallet UI uses RainbowKit and Wagmi, with wallet signatures and server-side sessions. Email and social login are disabled.
+- Monad Mainnet chain ID is 143. Current platform address: `0x616929D84ED483a26a568fC97A364e5c5eCBe39D`; treasury: `0x23B4C6DdcA73ba99045E1c0Def939BD41932E773`.
+- NFT access is disabled. The new collection is planned for 10 October 2026, but the date alone must not enable access. Its address and purchase link are not available yet.
+- New users must redeem a valid invite code and start with zero invites. Existing accounts and balances are preserved.
+- The creator confirmed on 2026-09-30 that the four existing development accounts are test accounts, not real users needing registration recovery. Leave them unverified; do not manufacture receipts or delete them without authorization.
+- New members start with 10 points; daily check-ins award 10 points. Lifetime streak milestones: 2 days = 1 invite + 10 points, 5 days = 1 invite + 50 points, 7 days = 2 invites + 100 points. These milestone awards are separate from the daily check-in.
+- Social tasks are explicitly self-reported: four one-time tasks award 5 points each; an X post awards 10 per UTC day and adds one invite if the previous UTC day was also claimed. No extra generic invite points are added to these combined rewards.
+- Points are intended for future $MFEET conversion; no conversion ratio or distribution is implemented.
+- Member access requires signed wallet authentication and server-verified on-chain registration evidence. A client-provided transaction hash alone must not grant access.
+- Paid subscriptions and game payments use the current deployment with runtime-hash and receipt verification. Subscriptions still lack on-chain creator-price enforcement; do not grant private access based only on `isSubscribed`.
+- Current contract source: `contracts/MonadFeetV2.sol`. Executable bytecode equivalence was verified (metadata differs), not independently audited. See `docs/contract-verification.md`. Older architecture/deployment notes below are historical, not the source of truth for this deployment.
+- Daily game `/daily`: Wash Feet 1.43 MON/5 initial points, Massage Feet 14.3 MON/7, Pedicure 143 MON/15. Each action caps at 10 purchases per UTC day with doubling points. Five lifetime purchases earn an invite event; the server issues usable codes once per verified transaction. Purchases do not advance the separate daily check-in streak. Never silently migrate old chain state.
+- See `docs/CHAIN-STATUS.md` for verified chain checks and outstanding launch blockers. Older feature descriptions below describe the original architecture, not a claim that all features are on-chain.
 
 ## Features
 
@@ -127,3 +137,7 @@ lib/
       notifications.ts      — notifications, notification_preferences tables
   object-storage-web/       — Uppy-based upload client library
 ```
+
+## DeltaV weekly updates
+
+After a meaningful shipped feature, milestone, real traction, or launch, remind me to post a short, factual weekly update to DeltaV in my voice. Never post without my explicit approval, and post at most once a week. Use `https://deltav.monad.xyz/api/v1/weekly-updates`, with an optional link to an X post. Keep `DELTAV_API_KEY` in Replit Secrets; never commit it or write its value into project files.

@@ -7,20 +7,89 @@
  */
 import * as zod from "zod";
 
-export const RequestUploadUrlBody = zod.object({
-  name: zod.string(),
-  size: zod.number(),
-  contentType: zod.string(),
+export const GetGameResponse = zod.object({
+  contractAddress: zod.string(),
+  treasuryAddress: zod.string(),
+  chainId: zod.number(),
+  enabled: zod.boolean(),
+  disabledReason: zod.string(),
+  registered: zod.boolean(),
+  utcDay: zod.string(),
+  nextResetAt: zod.coerce.date(),
+  totalPurchases: zod.number(),
+  purchasesUntilInvite: zod.number(),
+  onChainPoints: zod.number(),
+  currentStreak: zod.number(),
+  longestStreak: zod.number(),
+  checkedInToday: zod.boolean(),
+  actions: zod.array(
+    zod.object({
+      id: zod.number(),
+      name: zod.string(),
+      priceMon: zod.string(),
+      basePoints: zod.number(),
+      count: zod.number(),
+      remaining: zod.number(),
+      nextPoints: zod.number(),
+    }),
+  ),
 });
 
-export const RequestUploadUrlResponse = zod.object({
-  uploadURL: zod.string(),
-  objectPath: zod.string(),
-  metadata: zod.object({
-    name: zod.string(),
-    size: zod.number(),
-    contentType: zod.string(),
-  }),
+export const ListGameClaimsResponse = zod.object({
+  claims: zod.array(
+    zod.object({
+      txHash: zod.string(),
+      pointsAwarded: zod.number(),
+      invitesAwarded: zod.number(),
+      createdAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+export const claimGameBodyTxHashRegExp = new RegExp("^0x[0-9a-fA-F]{64}$");
+
+export const ClaimGameBody = zod.object({
+  txHash: zod.string().regex(claimGameBodyTxHashRegExp),
+});
+
+export const ClaimGameResponse = zod.object({
+  alreadyClaimed: zod.boolean(),
+  pointsAwarded: zod.number(),
+  invitesAwarded: zod.number(),
+  inviteCodes: zod.array(zod.string()),
+});
+
+/**
+ * @summary Return the wallet authenticated by the HTTP-only session cookie
+ */
+export const GetAuthSessionResponse = zod.object({
+  walletAddress: zod.string().nullable(),
+});
+
+/**
+ * Requires a same-origin Origin header. The message is bound to the requested wallet, origin, nonce, and chain.
+ * @summary Request a five-minute one-time wallet sign-in message for Monad chain 143
+ */
+export const CreateAuthChallengeBody = zod.object({
+  walletAddress: zod.string(),
+});
+
+export const CreateAuthChallengeResponse = zod.object({
+  message: zod.string(),
+});
+
+/**
+ * Consumes the challenge exactly once; requires a same-origin Origin header. Supports EOAs and ERC-1271 wallets on Monad.
+ * @summary Verify a wallet signature and create an HTTP-only cookie session
+ */
+export const VerifyAuthChallengeBody = zod.object({
+  walletAddress: zod.string(),
+  message: zod.string(),
+  signature: zod.string(),
+});
+
+export const VerifyAuthChallengeResponse = zod.object({
+  walletAddress: zod.string(),
 });
 
 /**
@@ -32,18 +101,45 @@ export const HealthCheckResponse = zod.object({
 });
 
 /**
- * Register with a valid invite code and wallet address
+ * Requires a signed wallet session. Normalizes username by trimming and lowercasing; accepts 3–32 ASCII letters, digits or underscores. New accounts require an unused app invite. Returns registered false only after a successful chain read. For registered wallets returns the original verified transaction hash, independent of the selected app handle. Already verified app accounts return their existing evidence without consuming another invite. This preflight does not reserve a username or invite; register rechecks atomically.
+ * @summary Validate app admission and recover an existing on-chain registration
+ */
+export const PrepareRegistrationBody = zod.object({
+  username: zod.string(),
+  inviteCode: zod.string(),
+});
+
+export const PrepareRegistrationResponse = zod.object({
+  registered: zod.boolean(),
+  txHash: zod.string().nullable(),
+});
+
+/**
+ * Requires a signed wallet session matching walletAddress. Register using an unused invite code; NFT access is disabled until a verified contract is configured. Invite registrations receive no starter codes. A successful unique referral awards the inviter 1 point for the first referral, increasing by 1 up to 5 points per referral.
  * @summary Register a new user
  */
 export const RegisterUserBody = zod.object({
   walletAddress: zod.string(),
-  inviteCode: zod.string().nullish(),
+  inviteCode: zod.string(),
   email: zod.string().nullish(),
   name: zod.string(),
   username: zod.string(),
   avatarUrl: zod.string().nullish(),
   bio: zod.string().nullish(),
   txHash: zod.string().nullish(),
+});
+
+export const RegisterUserResponse = zod.object({
+  id: zod.number(),
+  walletAddress: zod.string(),
+  email: zod.string().nullish(),
+  name: zod.string().nullish(),
+  username: zod.string().nullish(),
+  avatarUrl: zod.string().nullish(),
+  bio: zod.string().nullish(),
+  subscriptionPrice: zod.number().nullish(),
+  registrationTxHash: zod.string().nullish(),
+  createdAt: zod.coerce.date(),
 });
 
 /**
@@ -59,7 +155,6 @@ export const GetMeResponse = zod.object({
   bio: zod.string().nullish(),
   subscriptionPrice: zod.number().nullish(),
   registrationTxHash: zod.string().nullish(),
-  nftHolder: zod.boolean().nullish(),
   createdAt: zod.coerce.date(),
 });
 
@@ -104,7 +199,6 @@ export const GetUserResponse = zod.object({
   bio: zod.string().nullish(),
   subscriptionPrice: zod.number().nullish(),
   registrationTxHash: zod.string().nullish(),
-  nftHolder: zod.boolean().nullish(),
   createdAt: zod.coerce.date(),
   postCount: zod.number(),
   totalLikes: zod.number(),
@@ -167,6 +261,7 @@ export const GetTrendingResponse = zod.object({
 export const ListPostsQueryParams = zod.object({
   cursor: zod.coerce.number().nullish(),
   limit: zod.coerce.number().nullish(),
+  authorId: zod.coerce.number().optional(),
 });
 
 export const ListPostsResponse = zod.object({
@@ -180,11 +275,8 @@ export const ListPostsResponse = zod.object({
       authorName: zod.string().nullish(),
       authorUsername: zod.string().nullish(),
       authorAvatarUrl: zod.string().nullish(),
-      authorNftHolder: zod.boolean().nullish(),
       likeCount: zod.number(),
       likedByMe: zod.boolean(),
-      isPaid: zod.boolean(),
-      isSubscribedToAuthor: zod.boolean(),
       createdAt: zod.coerce.date(),
     }),
   ),
@@ -199,7 +291,7 @@ export const CreatePostBody = zod.object({
   content: zod.string(),
   imageUrl: zod.string().nullish(),
   authorWalletAddress: zod.string(),
-  isPaid: zod.boolean().nullish(),
+  isPaid: zod.boolean().optional(),
 });
 
 /**
@@ -218,11 +310,8 @@ export const GetPostResponse = zod.object({
   authorName: zod.string().nullish(),
   authorUsername: zod.string().nullish(),
   authorAvatarUrl: zod.string().nullish(),
-  authorNftHolder: zod.boolean().nullish(),
   likeCount: zod.number(),
   likedByMe: zod.boolean(),
-  isPaid: zod.boolean(),
-  isSubscribedToAuthor: zod.boolean(),
   createdAt: zod.coerce.date(),
 });
 
@@ -347,7 +436,11 @@ export const GetStreakResponse = zod.object({
   userId: zod.number(),
   currentStreak: zod.number(),
   longestStreak: zod.number(),
-  totalPoints: zod.number(),
+  totalPoints: zod
+    .number()
+    .describe(
+      "Accumulated off-chain points; each UTC daily check-in awards 10 points. Streak milestone points are separate.",
+    ),
   lastCheckin: zod.coerce.date().nullish(),
   checkedInToday: zod.boolean(),
   extraInviteEarned: zod.boolean(),
@@ -355,13 +448,47 @@ export const GetStreakResponse = zod.object({
 });
 
 /**
+ * @summary Server-side X reward status (UTC days)
+ */
+export const GetXRewardsResponse = zod.object({
+  utcDay: zod.string(),
+  lifetime: zod.record(zod.string(), zod.boolean()),
+  postClaimedToday: zod.boolean(),
+  postStreakEligible: zod.boolean(),
+});
+
+/**
+ * @summary Self-report an X action; no X verification
+ */
+export const ClaimXRewardParams = zod.object({
+  task: zod.enum(["follow", "like", "comment", "notifications", "post_x"]),
+});
+
+export const ClaimXRewardResponse = zod.object({
+  claimed: zod.boolean(),
+  points: zod.number(),
+  invites: zod.number(),
+  utcDay: zod.string(),
+});
+
+/**
  * @summary Daily login checkin for streak and points
  */
+export const dailyCheckinBodyTxHashRegExp = new RegExp("^0x[0-9a-fA-F]{64}$");
+
+export const DailyCheckinBody = zod.object({
+  txHash: zod.string().regex(dailyCheckinBodyTxHashRegExp),
+});
+
 export const DailyCheckinResponse = zod.object({
   userId: zod.number(),
   currentStreak: zod.number(),
   longestStreak: zod.number(),
-  totalPoints: zod.number(),
+  totalPoints: zod
+    .number()
+    .describe(
+      "Accumulated off-chain points; each UTC daily check-in awards 10 points. Streak milestone points are separate.",
+    ),
   lastCheckin: zod.coerce.date().nullish(),
   checkedInToday: zod.boolean(),
   extraInviteEarned: zod.boolean(),
@@ -535,13 +662,6 @@ export const GetCreatorAnalyticsResponse = zod.object({
       createdAt: zod.coerce.date(),
     }),
   ),
-  subscriberGrowth: zod.array(
-    zod.object({
-      week: zod.string(),
-      newSubscribers: zod.number(),
-      monEarned: zod.number(),
-    }),
-  ).optional(),
   recentSubscribers: zod.array(
     zod.object({
       subscriberId: zod.number(),

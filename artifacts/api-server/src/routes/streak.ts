@@ -1,8 +1,11 @@
 import { Router, type IRouter } from "express";
-import { eq } from "drizzle-orm";
-import { db, streaksTable, usersTable, inviteCodesTable, badgesTable } from "@workspace/db";
+import { and, eq, sql } from "drizzle-orm";
+import { db, streaksTable, usersTable, badgesTable, chainRewardClaimsTable } from "@workspace/db";
 import { nanoid } from "nanoid";
 import { checkMilestones } from "../milestones";
+import { dailyCheckinPoints, utcDay, previousUtcDay } from "../reward-rules";
+import { REGISTRY } from "../lib/chainConfig";
+import { verifyRewardReceipt, InvalidReceiptError, safeNumber } from "../lib/gameChain";
 
 const router: IRouter = Router();
 
@@ -21,22 +24,11 @@ async function getUserByWallet(wallet: string) {
 }
 
 function isToday(date: Date): boolean {
-  const now = new Date();
-  return (
-    date.getDate() === now.getDate() &&
-    date.getMonth() === now.getMonth() &&
-    date.getFullYear() === now.getFullYear()
-  );
+  return utcDay(date) === utcDay(new Date());
 }
 
 function isYesterday(date: Date): boolean {
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  return (
-    date.getDate() === yesterday.getDate() &&
-    date.getMonth() === yesterday.getMonth() &&
-    date.getFullYear() === yesterday.getFullYear()
-  );
+  return utcDay(date) === previousUtcDay(new Date());
 }
 
 router.get("/streak", async (req, res): Promise<void> => {
@@ -98,78 +90,92 @@ router.post("/streak/checkin", async (req, res): Promise<void> => {
     return;
   }
 
-  // Optional on-chain tx hash from dailyCheckin() call on Monad
-  const txHash = typeof req.body?.txHash === "string" ? req.body.txHash : null;
+  const txHash = typeof req.body?.txHash === "string" ? req.body.txHash.toLowerCase() : "";
+  const [previousClaim] = await db.select().from(chainRewardClaimsTable).where(and(
+    eq(chainRewardClaimsTable.contractAddress, REGISTRY.toLowerCase()), eq(chainRewardClaimsTable.txHash, txHash),
+  ));
+  if (previousClaim && (previousClaim.userId !== user.id || previousClaim.kind !== "checkin")) {
+    res.status(409).json({ error: "Transaction already claimed by another wallet or action" }); return;
+  }
+  let verified;
+  try {
+    verified = previousClaim
+      ? { timestamp: BigInt(Math.floor(previousClaim.blockTimestamp.getTime() / 1000)) }
+      : await verifyRewardReceipt("checkin", txHash, user.walletAddress);
+  }
+  catch (e) {
+    res.status(e instanceof InvalidReceiptError ? 422 : 503).json({ error: e instanceof InvalidReceiptError ? e.message : "Monad check-in verification unavailable; retry this hash, not the payment" }); return;
+  }
 
-  let [streak] = await db
+  const updated = await db.transaction(async (tx) => {
+  await tx.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.id, user.id)).for("update");
+  const [claimed] = await tx.select().from(chainRewardClaimsTable).where(and(
+    eq(chainRewardClaimsTable.contractAddress, REGISTRY.toLowerCase()), eq(chainRewardClaimsTable.txHash, txHash),
+  ));
+  let [streak] = await tx
     .select()
     .from(streaksTable)
-    .where(eq(streaksTable.userId, user.id));
+    .where(eq(streaksTable.userId, user.id)).for("update");
 
   if (!streak) {
-    [streak] = await db
+    [streak] = await tx
       .insert(streaksTable)
       .values({ userId: user.id })
       .returning();
   }
 
-  const now = new Date();
+  if (claimed) {
+    if (claimed.userId !== user.id || claimed.kind !== "checkin") throw new Error("Transaction already claimed");
+    return streak;
+  }
+  const now = new Date(safeNumber(verified.timestamp) * 1000);
   const lastCheckin = streak.lastCheckin ? new Date(streak.lastCheckin) : null;
 
-  if (lastCheckin && isToday(lastCheckin)) {
-    res.json({
-      userId: user.id,
-      currentStreak: streak.currentStreak,
-      longestStreak: streak.longestStreak,
-      totalPoints: streak.totalPoints,
-      lastCheckin: streak.lastCheckin,
-      checkedInToday: true,
-      extraInviteEarned: streak.extraInviteEarned,
-      lastCheckinTxHash: streak.lastCheckinTxHash,
+  // Preserve chronology when receipts are submitted late, and never credit a UTC day twice.
+  if (lastCheckin && utcDay(lastCheckin) >= utcDay(now)) {
+    await tx.insert(chainRewardClaimsTable).values({
+      contractAddress: REGISTRY.toLowerCase(), txHash, userId: user.id, kind: "checkin",
+      pointsAwarded: 0, inviteCodes: [], blockTimestamp: now,
     });
-    return;
+    return streak;
   }
 
-  const isConsecutive = lastCheckin ? isYesterday(lastCheckin) : false;
+  const isConsecutive = lastCheckin ? utcDay(lastCheckin) === previousUtcDay(now) : false;
   const newStreak = isConsecutive ? streak.currentStreak + 1 : 1;
   const newLongest = Math.max(newStreak, streak.longestStreak);
-  const basePoints = newStreak >= 7 ? 20 : newStreak >= 3 ? 10 : 5;
-  const pointsMultiplier = user.nftHolder ? 2 : 1;
-  const pointsEarned = basePoints * pointsMultiplier;
-  const newPoints = streak.totalPoints + pointsEarned;
-
-  await db
+  const pointsEarned = dailyCheckinPoints(newStreak, user.nftHolder);
+  // App check-in bonuses remain separate from the contract's 5/10/20 chain points.
+  await tx.insert(chainRewardClaimsTable).values({
+    contractAddress: REGISTRY.toLowerCase(), txHash, userId: user.id, kind: "checkin",
+    pointsAwarded: pointsEarned, inviteCodes: [], blockTimestamp: now,
+  });
+  const [saved] = await tx
     .update(streaksTable)
     .set({
       currentStreak: newStreak,
       longestStreak: newLongest,
-      totalPoints: newPoints,
+      totalPoints: sql`${streaksTable.totalPoints} + ${pointsEarned}`,
       lastCheckin: now,
       ...(txHash ? { lastCheckinTxHash: txHash } : {}),
     })
-    .where(eq(streaksTable.userId, user.id));
+    .where(eq(streaksTable.userId, user.id)).returning();
+  return saved;
+  });
 
-  const [updated] = await db
-    .select()
-    .from(streaksTable)
-    .where(eq(streaksTable.userId, user.id));
-
-  // Award bonus invite for 5-day like streak (handled in posts route)
-  // but also check here for invite generation if needed
+  await checkMilestones(user.id);
+  const [finalStreak] = await db.select().from(streaksTable).where(eq(streaksTable.userId, user.id));
 
   res.json({
     userId: user.id,
     currentStreak: updated.currentStreak,
     longestStreak: updated.longestStreak,
-    totalPoints: updated.totalPoints,
+    totalPoints: finalStreak.totalPoints,
     lastCheckin: updated.lastCheckin,
-    checkedInToday: true,
+    checkedInToday: updated.lastCheckin ? isToday(updated.lastCheckin) : false,
     extraInviteEarned: updated.extraInviteEarned,
     lastCheckinTxHash: updated.lastCheckinTxHash,
   });
 
-  // Fire-and-forget: check if the user crossed any streak milestones
-  void checkMilestones(user.id);
 });
 
 router.get("/badges", async (req, res): Promise<void> => {

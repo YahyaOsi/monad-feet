@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { useLocation } from "wouter";
+import { useState, useEffect, useRef } from "react";
+import { useLocation, useSearch } from "wouter";
 import { formatDistanceToNow } from "date-fns";
 import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -7,60 +7,21 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
+} from "@/components/ui/alert-dialog";
+import {
   MessageCircle, Send, Lock, ChevronLeft, Settings2,
   Shield, Loader2, Star, AlertCircle, SquarePen, Search, X,
-  BellOff, Bell, ShieldX, ShieldCheck,
+  BellOff, Bell, ShieldX, ShieldCheck, Trash2,
 } from "lucide-react";
 import { useUser } from "@/context/UserContext";
 import { usePresence } from "@/hooks/usePresence";
+import { useSubscriptionPayment } from "@/lib/useSubscriptionPayment";
+import { useDmInbox } from "@/hooks/useDmInbox";
+import { dmRequest, dmErrorMessage, parseDmUserId, type Conversation, type Message, type SubGateError } from "@/lib/dmState";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-
-function getWallet() { return localStorage.getItem("mf_wallet_address") ?? ""; }
-function authHeaders() { return { "x-wallet-address": getWallet(), "Content-Type": "application/json" }; }
-
-type Conversation = {
-  userId: number;
-  name: string | null;
-  username: string | null;
-  avatarUrl: string | null;
-  dmRequiresSubscription: boolean;
-  isMuted: boolean;
-  isBlocked: boolean;
-  lastMessage: { content: string; sentByMe: boolean; at: string };
-  unreadCount: number;
-};
-
-type Message = {
-  id: number;
-  content: string;
-  sentByMe: boolean;
-  readAt: string | null;
-  createdAt: string;
-};
-
-type OtherUser = {
-  id: number;
-  name: string | null;
-  username: string | null;
-  avatarUrl: string | null;
-  dmRequiresSubscription: boolean;
-  subscriptionPrice: number | null;
-  isMuted: boolean;
-  isBlocked: boolean;
-};
-
-type ThreadData = {
-  otherUser: OtherUser;
-  messages: Message[];
-};
-
-type SubGateError = {
-  creatorId: number;
-  message: string;
-  creatorName: string | null;
-  subscriptionPrice: number | null;
-};
 
 type UserResult = {
   id: number;
@@ -76,53 +37,72 @@ function ConvItem({
   conv,
   isActive,
   onClick,
+  onDelete,
+  deleteDisabled,
 }: {
   conv: Conversation;
   isActive: boolean;
   onClick: () => void;
+  onDelete: () => void;
+  deleteDisabled: boolean;
 }) {
   return (
-    <button
-      onClick={onClick}
-      className={`w-full flex items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-muted/60 ${
-        isActive ? "bg-primary/8 border-r-2 border-primary" : ""
-      }`}
-    >
-      <div className="relative flex-shrink-0">
-        <Avatar className="h-10 w-10">
-          <AvatarImage src={conv.avatarUrl ?? ""} />
-          <AvatarFallback className="text-xs font-semibold bg-primary/10 text-primary">
-            {conv.name?.slice(0, 2).toUpperCase() ?? "??"}
-          </AvatarFallback>
-        </Avatar>
-        {conv.isMuted && (
-          <div className="absolute -top-0.5 -right-0.5 h-4 w-4 bg-muted-foreground/50 rounded-full flex items-center justify-center border border-background">
-            <BellOff className="h-2 w-2 text-white" />
-          </div>
-        )}
-        {!conv.isMuted && conv.dmRequiresSubscription && (
-          <div className="absolute -bottom-0.5 -right-0.5 h-4 w-4 bg-amber-500 rounded-full flex items-center justify-center border border-background">
-            <Lock className="h-2 w-2 text-white" />
-          </div>
-        )}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-semibold truncate">{conv.name ?? conv.username ?? "Unknown"}</span>
-          <span className="text-[10px] text-muted-foreground flex-shrink-0 ml-2">
-            {formatDistanceToNow(new Date(conv.lastMessage.at), { addSuffix: false })}
-          </span>
+    <div className="flex items-center">
+      <button
+        onClick={onClick}
+        data-testid={`button-conversation-${conv.userId}`}
+        className={`flex-1 min-w-0 flex items-center gap-3 pl-4 pr-2 py-3.5 text-left transition-colors hover:bg-muted/60 ${
+          isActive ? "bg-primary/8 border-r-2 border-primary" : ""
+        }`}
+      >
+        <div className="relative flex-shrink-0">
+          <Avatar className="h-10 w-10">
+            <AvatarImage src={conv.avatarUrl ?? ""} />
+            <AvatarFallback className="text-xs font-semibold bg-primary/10 text-primary">
+              {conv.name?.slice(0, 2).toUpperCase() ?? "??"}
+            </AvatarFallback>
+          </Avatar>
+          {conv.isMuted && (
+            <div className="absolute -top-0.5 -right-0.5 h-4 w-4 bg-muted-foreground/50 rounded-full flex items-center justify-center border border-background">
+              <BellOff className="h-2 w-2 text-white" />
+            </div>
+          )}
+          {!conv.isMuted && conv.dmRequiresSubscription && (
+            <div className="absolute -bottom-0.5 -right-0.5 h-4 w-4 bg-amber-500 rounded-full flex items-center justify-center border border-background">
+              <Lock className="h-2 w-2 text-white" />
+            </div>
+          )}
         </div>
-        <p className="text-xs text-muted-foreground truncate">
-          {conv.lastMessage.sentByMe ? "You: " : ""}{conv.lastMessage.content}
-        </p>
-      </div>
-      {conv.unreadCount > 0 && (
-        <span className="flex-shrink-0 h-5 w-5 bg-primary text-primary-foreground text-[10px] font-bold rounded-full flex items-center justify-center">
-          {conv.unreadCount > 9 ? "9+" : conv.unreadCount}
-        </span>
-      )}
-    </button>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold truncate">{conv.name ?? conv.username ?? "Unknown"}</span>
+            <span className="text-[10px] text-muted-foreground flex-shrink-0 ml-2">
+              {formatDistanceToNow(new Date(conv.lastMessage.at), { addSuffix: false })}
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground truncate">
+            {conv.lastMessage.sentByMe ? "You: " : ""}{conv.lastMessage.content}
+          </p>
+        </div>
+        {conv.unreadCount > 0 && (
+          <span className="flex-shrink-0 h-5 w-5 bg-primary text-primary-foreground text-[10px] font-bold rounded-full flex items-center justify-center">
+            {conv.unreadCount > 9 ? "9+" : conv.unreadCount}
+          </span>
+        )}
+      </button>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8 mr-2 flex-shrink-0 text-muted-foreground hover:text-destructive"
+        onClick={onDelete}
+        disabled={deleteDisabled}
+        aria-label={`Delete conversation with ${conv.name ?? conv.username ?? "this user"} for you`}
+        title="Delete conversation for you"
+        data-testid={`button-delete-conversation-${conv.userId}`}
+      >
+        <Trash2 className="h-4 w-4" />
+      </Button>
+    </div>
   );
 }
 
@@ -138,6 +118,7 @@ function UserResultItem({
   return (
     <button
       onClick={onClick}
+      data-testid={`button-dm-search-user-${user.id}`}
       className="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/60"
     >
       <Avatar className="h-9 w-9 flex-shrink-0">
@@ -148,7 +129,7 @@ function UserResultItem({
       </Avatar>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold truncate">{user.name ?? user.username ?? "Unknown"}</p>
-        <p className="text-xs text-muted-foreground truncate">@{user.username ?? "—"}</p>
+        <p className="text-xs text-muted-foreground truncate">@{user.username ?? "-"}</p>
       </div>
     </button>
   );
@@ -158,7 +139,7 @@ function UserResultItem({
 
 function MsgBubble({ msg }: { msg: Message }) {
   return (
-    <div className={`flex ${msg.sentByMe ? "justify-end" : "justify-start"} mb-2`}>
+    <div data-testid={`message-${msg.id}`} className={`flex ${msg.sentByMe ? "justify-end" : "justify-start"} mb-2`}>
       <div
         className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
           msg.sentByMe
@@ -182,19 +163,16 @@ function MsgBubble({ msg }: { msg: Message }) {
 
 function SubGate({ err, onSubscribe }: { err: SubGateError; onSubscribe: () => void }) {
   const [loading, setLoading] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const paySubscription = useSubscriptionPayment();
 
   const handleSubscribe = async () => {
     setLoading(true);
-    const wallet = getWallet();
+    setPaymentError(null);
     try {
-      await fetch(`${BASE}/api/subscriptions`, {
-        method: "POST",
-        headers: authHeaders(),
-        body: JSON.stringify({ subscriberWalletAddress: wallet, creatorId: err.creatorId }),
-      });
-      onSubscribe();
-    } catch {
-      // retry
+      if (await paySubscription(err.creatorId)) onSubscribe();
+    } catch (error) {
+      setPaymentError((error as Error).message);
     } finally {
       setLoading(false);
     }
@@ -214,9 +192,21 @@ function SubGate({ err, onSubscribe }: { err: SubGateError; onSubscribe: () => v
           </p>
         )}
       </div>
-      <Button onClick={() => void handleSubscribe()} disabled={loading} className="gap-2">
+      {paymentError && <p role="alert" className="text-sm text-destructive">{paymentError}</p>}
+      <Button onClick={() => void handleSubscribe()} disabled={loading} className="gap-2" data-testid="button-subscribe-dm">
         {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Star className="h-4 w-4" />}
         Subscribe to Unlock DMs
+      </Button>
+    </div>
+  );
+}
+
+function LoadError({ message, onRetry, testId }: { message: string; onRetry: () => void; testId: string }) {
+  return (
+    <div role="alert" data-testid={testId} className="p-4 text-sm border-b bg-destructive/5">
+      <p className="text-destructive">{message}</p>
+      <Button variant="outline" size="sm" className="mt-2" onClick={onRetry} data-testid={`${testId}-retry`}>
+        Retry
       </Button>
     </div>
   );
@@ -226,30 +216,39 @@ function SubGate({ err, onSubscribe }: { err: SubGateError; onSubscribe: () => v
 
 export default function MessagesPage() {
   const { user } = useUser();
+  // A wallet/account change must discard all user-scoped data and drafts and
+  // unmount the old request owners before the new inbox can be displayed.
+  if (!user) return null;
+  return <MessagesInbox key={`${user.id}:${user.walletAddress.toLowerCase()}`} />;
+}
+
+function MessagesInbox() {
+  const { user } = useUser();
   const [, navigate] = useLocation();
-  const { wsEvent } = usePresence();
-
-  // Support direct links like /messages?userId=5 (from profile page)
-  const urlUserId = (() => {
-    try {
-      const params = new URLSearchParams(window.location.search);
-      const id = parseInt(params.get("userId") ?? "", 10);
-      return isNaN(id) ? null : id;
-    } catch { return null; }
-  })();
-
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [activeUserId, setActiveUserId] = useState<number | null>(urlUserId);
-  const [thread, setThread] = useState<ThreadData | null>(null);
-  const [subGate, setSubGate] = useState<SubGateError | null>(null);
-  const [loadingThread, setLoadingThread] = useState(false);
-  const [loadingConvs, setLoadingConvs] = useState(true);
-  const [input, setInput] = useState("");
-  const [sending, setSending] = useState(false);
+  const search = useSearch();
+  const urlUserId = parseDmUserId(search);
+  const { wsEvent, isConnected } = usePresence();
+  const wallet = user?.walletAddress ?? "";
+  const authHeaders = () => ({ "x-wallet-address": wallet, "Content-Type": "application/json" });
+  const {
+    conversations, setConversations, activeUserId, setActiveUserId, thread, setThread,
+    subGate, loadingThread, loadingConvs, conversationsError, threadError,
+    input, setInput, sending, sendMessage, sendError, loadConversations, loadThread,
+    requestDelete, deleteTarget, setDeleteTarget, deleting, deleteError, deleteConversation,
+  } = useDmInbox(wallet, urlUserId, isConnected, wsEvent);
   const [showSettings, setShowSettings] = useState(false);
   const [dmPaid, setDmPaid] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
-  const [mobileView, setMobileView] = useState<"list" | "thread">("list");
+  const [actionError, setActionError] = useState<string | null>(null);
+  const currentThread = useRef(activeUserId);
+  currentThread.current = activeUserId;
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+  useEffect(() => { if (urlUserId) setActiveUserId(urlUserId); }, [urlUserId, setActiveUserId]);
+  useEffect(() => { setActionError(null); }, [activeUserId]);
 
   // Mute / block actions
   const [muteLoading, setMuteLoading] = useState(false);
@@ -259,17 +258,22 @@ export default function MessagesPage() {
     if (!thread || muteLoading) return;
     const { id, isMuted } = thread.otherUser;
     setMuteLoading(true);
+    setActionError(null);
     try {
       const method = isMuted ? "DELETE" : "POST";
-      await fetch(`${BASE}/api/dm/mute/${id}`, { method, headers: authHeaders() });
+      await dmRequest(`${BASE}/api/dm/mute/${id}`, { method, headers: authHeaders() });
+      if (!mounted.current) return;
       setThread((prev) =>
-        prev ? { ...prev, otherUser: { ...prev.otherUser, isMuted: !isMuted } } : prev,
+        prev?.otherUser.id === id ? { ...prev, otherUser: { ...prev.otherUser, isMuted: !isMuted } } : prev,
       );
       setConversations((prev) =>
         prev.map((c) => c.userId === id ? { ...c, isMuted: !isMuted } : c),
       );
-    } catch { /* ignore */ } finally {
-      setMuteLoading(false);
+      window.dispatchEvent(new Event("dm-unread-changed"));
+    } catch (error) {
+      if (mounted.current && currentThread.current === id) setActionError(dmErrorMessage(error));
+    } finally {
+      if (mounted.current) setMuteLoading(false);
     }
   };
 
@@ -277,17 +281,21 @@ export default function MessagesPage() {
     if (!thread || blockLoading) return;
     const { id, isBlocked } = thread.otherUser;
     setBlockLoading(true);
+    setActionError(null);
     try {
       const method = isBlocked ? "DELETE" : "POST";
-      await fetch(`${BASE}/api/users/block/${id}`, { method, headers: authHeaders() });
+      await dmRequest(`${BASE}/api/users/block/${id}`, { method, headers: authHeaders() });
+      if (!mounted.current) return;
       setThread((prev) =>
-        prev ? { ...prev, otherUser: { ...prev.otherUser, isBlocked: !isBlocked } } : prev,
+        prev?.otherUser.id === id ? { ...prev, otherUser: { ...prev.otherUser, isBlocked: !isBlocked } } : prev,
       );
       setConversations((prev) =>
         prev.map((c) => c.userId === id ? { ...c, isBlocked: !isBlocked } : c),
       );
-    } catch { /* ignore */ } finally {
-      setBlockLoading(false);
+    } catch (error) {
+      if (mounted.current && currentThread.current === id) setActionError(dmErrorMessage(error));
+    } finally {
+      if (mounted.current) setBlockLoading(false);
     }
   };
 
@@ -296,117 +304,72 @@ export default function MessagesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<UserResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [searchRetry, setSearchRetry] = useState(0);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Load conversations
-  const loadConversations = useCallback(async () => {
-    try {
-      const res = await fetch(`${BASE}/api/dm/conversations`, { headers: { "x-wallet-address": getWallet() } });
-      if (res.ok) {
-        const data = await res.json() as Conversation[];
-        setConversations(data);
-      }
-    } catch { /* ignore */ } finally {
-      setLoadingConvs(false);
-    }
-  }, []);
-
-  useEffect(() => { void loadConversations(); }, [loadConversations]);
-
   // Sync dmPaid from user profile
   useEffect(() => {
     if (!user) return;
+    const controller = new AbortController();
     const fetchUser = async () => {
       try {
-        const res = await fetch(`${BASE}/api/users/${user.id}`, { headers: { "x-wallet-address": getWallet() } });
-        if (res.ok) {
-          const u = await res.json() as { dmRequiresSubscription?: boolean };
-          setDmPaid(u.dmRequiresSubscription ?? false);
-        }
-      } catch { /* ignore */ }
+        const u = await dmRequest<{ dmRequiresSubscription?: boolean }>(`${BASE}/api/users/${user.id}`, {
+          headers: { "x-wallet-address": wallet }, signal: controller.signal,
+        });
+        if (!controller.signal.aborted) setDmPaid(u.dmRequiresSubscription ?? false);
+      } catch (error) {
+        if (!controller.signal.aborted) setActionError(`Unable to load DM settings: ${dmErrorMessage(error)}`);
+      }
     };
     void fetchUser();
-  }, [user]);
-
-  // Load thread when activeUserId changes
-  useEffect(() => {
-    if (!activeUserId) { setThread(null); setSubGate(null); return; }
-    setLoadingThread(true);
-    setSubGate(null);
-    fetch(`${BASE}/api/dm/${activeUserId}`, { headers: { "x-wallet-address": getWallet() } })
-      .then(async (res) => {
-        if (res.status === 403) {
-          const err = await res.json() as SubGateError;
-          setSubGate(err);
-          setThread(null);
-        } else if (res.ok) {
-          const data = await res.json() as ThreadData;
-          setThread(data);
-          setSubGate(null);
-        }
-      })
-      .catch(() => { })
-      .finally(() => setLoadingThread(false));
-  }, [activeUserId]);
+    return () => controller.abort();
+  }, [user?.id, wallet]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [thread?.messages.length]);
 
-  // Handle real-time new DM events
-  useEffect(() => {
-    if (!wsEvent) return;
-    const ev = wsEvent as { type?: string; senderId?: number };
-    if (ev.type === "new_dm") {
-      void loadConversations();
-      if (ev.senderId === activeUserId) {
-        fetch(`${BASE}/api/dm/${activeUserId}`, { headers: { "x-wallet-address": getWallet() } })
-          .then((r) => r.ok ? r.json() as Promise<ThreadData> : Promise.reject())
-          .then((data) => setThread(data))
-          .catch(() => { });
-      }
-    }
-  }, [wsEvent, activeUserId, loadConversations]);
-
   // Debounced user search for compose mode
   useEffect(() => {
-    if (!composing) { setSearchResults([]); return; }
-    if (!searchQuery.trim()) { setSearchResults([]); return; }
-
+    setSearchError(null);
+    setSearchResults([]);
+    if (!composing || !searchQuery.trim()) { setSearchLoading(false); return; }
+    const controller = new AbortController();
+    setSearchLoading(true);
     const timer = setTimeout(async () => {
-      setSearchLoading(true);
       try {
-        const res = await fetch(
+        const data = await dmRequest<{ users: UserResult[] }>(
           `${BASE}/api/search?q=${encodeURIComponent(searchQuery)}&type=users`,
-          { headers: { "x-wallet-address": getWallet() } },
+          { headers: { "x-wallet-address": wallet }, signal: controller.signal },
         );
-        if (res.ok) {
-          const data = await res.json() as { users: UserResult[] };
-          // Filter out the current user
+        if (!controller.signal.aborted) {
+          if (!Array.isArray(data.users)) throw new Error("The server returned invalid search results.");
           setSearchResults(data.users.filter((u) => u.id !== user?.id));
         }
-      } catch { /* ignore */ } finally {
-        setSearchLoading(false);
+      } catch (error) {
+        if (!controller.signal.aborted) setSearchError(dmErrorMessage(error));
+      } finally {
+        if (!controller.signal.aborted) setSearchLoading(false);
       }
     }, 300);
 
-    return () => clearTimeout(timer);
-  }, [searchQuery, composing, user?.id]);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [searchQuery, composing, user?.id, wallet, searchRetry]);
 
   // Focus search input when compose mode opens
   useEffect(() => {
-    if (composing) {
-      setTimeout(() => searchInputRef.current?.focus(), 50);
-    }
+    if (!composing) return;
+    const timer = setTimeout(() => searchInputRef.current?.focus(), 50);
+    return () => clearTimeout(timer);
   }, [composing]);
 
   const openThread = (userId: number) => {
     setActiveUserId(userId);
-    setMobileView("thread");
     // Exit compose mode
     setComposing(false);
     setSearchQuery("");
@@ -425,45 +388,20 @@ export default function MessagesPage() {
     setSearchResults([]);
   };
 
-  const sendMessage = async () => {
-    if (!input.trim() || !activeUserId || sending) return;
-    setSending(true);
-    const content = input.trim();
-    setInput("");
-    try {
-      const res = await fetch(`${BASE}/api/dm/${activeUserId}`, {
-        method: "POST",
-        headers: authHeaders(),
-        body: JSON.stringify({ content }),
-      });
-      if (res.status === 403) {
-        const err = await res.json() as SubGateError;
-        setSubGate(err);
-        return;
-      }
-      if (res.ok) {
-        const msg = await res.json() as Message;
-        setThread((prev) =>
-          prev ? { ...prev, messages: [...prev.messages, msg] } : prev,
-        );
-        void loadConversations();
-      }
-    } catch { /* ignore */ } finally {
-      setSending(false);
-    }
-  };
-
   const saveSettings = async (val: boolean) => {
     setSavingSettings(true);
+    setActionError(null);
     try {
-      await fetch(`${BASE}/api/dm/settings`, {
+      await dmRequest(`${BASE}/api/dm/settings`, {
         method: "PUT",
         headers: authHeaders(),
         body: JSON.stringify({ dmRequiresSubscription: val }),
       });
-      setDmPaid(val);
-    } catch { /* ignore */ } finally {
-      setSavingSettings(false);
+      if (mounted.current) setDmPaid(val);
+    } catch (error) {
+      if (mounted.current) setActionError(`Unable to save DM settings: ${dmErrorMessage(error)}`);
+    } finally {
+      if (mounted.current) setSavingSettings(false);
     }
   };
 
@@ -485,11 +423,14 @@ export default function MessagesPage() {
           size="sm"
           className="gap-2 text-muted-foreground"
           onClick={() => setShowSettings((s) => !s)}
+          data-testid="button-dm-settings"
         >
           <Settings2 className="h-4 w-4" />
           <span className="hidden sm:inline">DM Settings</span>
         </Button>
       </div>
+
+      {actionError && <p role="alert" data-testid="status-dm-action-error" className="text-sm text-destructive">{actionError}</p>}
 
       {/* Settings panel */}
       {showSettings && (
@@ -519,6 +460,7 @@ export default function MessagesPage() {
               {savingSettings && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
               <Switch
                 checked={dmPaid}
+                data-testid="switch-paid-dms"
                 onCheckedChange={(val) => void saveSettings(val)}
                 disabled={savingSettings}
               />
@@ -553,6 +495,7 @@ export default function MessagesPage() {
                     <Search className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                     <Input
                       ref={searchInputRef}
+                      data-testid="input-dm-search"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       placeholder="Search members…"
@@ -563,6 +506,7 @@ export default function MessagesPage() {
                     onClick={cancelCompose}
                     className="p-1 text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
                     aria-label="Cancel"
+                    data-testid="button-cancel-dm-search"
                   >
                     <X className="h-4 w-4" />
                   </button>
@@ -579,6 +523,7 @@ export default function MessagesPage() {
                       className="p-1 text-muted-foreground hover:text-foreground transition-colors"
                       aria-label="New conversation"
                       title="New conversation"
+                      data-testid="button-new-conversation"
                     >
                       <SquarePen className="h-4 w-4" />
                     </button>
@@ -589,12 +534,21 @@ export default function MessagesPage() {
 
             {/* List body */}
             <div className="flex-1 overflow-y-auto">
+              {!composing && conversationsError && (
+                <LoadError
+                  message={`Unable to refresh conversations: ${conversationsError}`}
+                  onRetry={() => void loadConversations()}
+                  testId="status-conversations-error"
+                />
+              )}
               {composing ? (
                 /* Search results */
                 searchLoading ? (
                   <div className="flex items-center justify-center h-24">
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                   </div>
+                ) : searchError ? (
+                  <LoadError message={`Unable to search members: ${searchError}`} onRetry={() => setSearchRetry((n) => n + 1)} testId="status-dm-search-error" />
                 ) : searchQuery.trim() === "" ? (
                   <div className="flex flex-col items-center justify-center h-full gap-2 p-6 text-center">
                     <Search className="h-8 w-8 text-muted-foreground/30" />
@@ -624,7 +578,7 @@ export default function MessagesPage() {
                   <div className="flex items-center justify-center h-24">
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                   </div>
-                ) : conversations.length === 0 ? (
+                ) : conversations.length === 0 && conversationsError ? null : conversations.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full gap-3 p-6 text-center">
                     <MessageCircle className="h-10 w-10 text-muted-foreground/30" />
                     <p className="text-sm text-muted-foreground">No conversations yet</p>
@@ -639,6 +593,8 @@ export default function MessagesPage() {
                       conv={conv}
                       isActive={activeUserId === conv.userId}
                       onClick={() => openThread(conv.userId)}
+                      onDelete={() => requestDelete({ userId: conv.userId, name: conv.name ?? conv.username })}
+                      deleteDisabled={deleting || sending}
                     />
                   ))
                 )
@@ -649,7 +605,7 @@ export default function MessagesPage() {
           {/* ── Thread panel ──────────────────────────────────── */}
           <div className={`
             flex flex-col flex-1 min-w-0
-            ${activeUserId ? "flex" : "hidden md:flex"}
+            ${activeUserId && !composing ? "flex" : "hidden md:flex"}
           `}>
             {!activeUserId ? (
               <div className="flex-1 flex flex-col items-center justify-center gap-4 text-muted-foreground p-6">
@@ -662,34 +618,47 @@ export default function MessagesPage() {
                 </div>
               </div>
             ) : loadingThread ? (
-              <div className="flex-1 flex items-center justify-center">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              <div className="flex-1 flex flex-col">
+                <Button variant="ghost" className="md:hidden self-start m-2" onClick={() => setActiveUserId(null)} data-testid="button-back-loading-thread">
+                  <ChevronLeft className="h-5 w-5" /> Conversations
+                </Button>
+                <div className="flex-1 flex items-center justify-center">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
               </div>
             ) : subGate ? (
               <>
                 <div className="px-4 py-3 border-b flex items-center gap-3 bg-background">
                   <button
                     className="md:hidden p-1 text-muted-foreground hover:text-foreground"
-                    onClick={() => { setActiveUserId(null); setMobileView("list"); }}
+                    onClick={() => setActiveUserId(null)}
+                    aria-label="Back to conversations"
+                    data-testid="button-back-subscription-gate"
                   >
                     <ChevronLeft className="h-5 w-5" />
                   </button>
                 </div>
                 <SubGate
                   err={subGate}
-                  onSubscribe={() => {
-                    setSubGate(null);
-                    setActiveUserId((id) => id);
-                  }}
+                  onSubscribe={() => void loadThread()}
                 />
               </>
+            ) : threadError && !thread ? (
+              <div className="flex-1">
+                <Button variant="ghost" className="md:hidden m-2" onClick={() => setActiveUserId(null)} data-testid="button-back-thread-error">
+                  <ChevronLeft className="h-5 w-5" /> Conversations
+                </Button>
+                <LoadError message={`Unable to load this conversation: ${threadError}`} onRetry={() => void loadThread()} testId="status-thread-load-error" />
+              </div>
             ) : thread ? (
               <>
                 {/* Thread header */}
                 <div className="px-4 py-3 border-b flex items-center gap-3 bg-background flex-shrink-0">
                   <button
                     className="md:hidden p-1 text-muted-foreground hover:text-foreground"
-                    onClick={() => { setActiveUserId(null); setMobileView("list"); }}
+                    onClick={() => setActiveUserId(null)}
+                    aria-label="Back to conversations"
+                    data-testid="button-back-thread"
                   >
                     <ChevronLeft className="h-5 w-5" />
                   </button>
@@ -710,7 +679,7 @@ export default function MessagesPage() {
                         </span>
                       )}
                     </div>
-                    <span className="text-xs text-muted-foreground">@{thread.otherUser.username ?? "—"}</span>
+                    <span className="text-xs text-muted-foreground">@{thread.otherUser.username ?? "-"}</span>
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0">
                     <Button
@@ -718,6 +687,7 @@ export default function MessagesPage() {
                       size="sm"
                       className="text-xs text-muted-foreground"
                       onClick={() => navigate(`/profile/${thread.otherUser.id}`)}
+                      data-testid="button-dm-profile"
                     >
                       Profile
                     </Button>
@@ -728,6 +698,8 @@ export default function MessagesPage() {
                       onClick={() => void toggleMute()}
                       disabled={muteLoading}
                       title={thread.otherUser.isMuted ? "Unmute notifications" : "Mute notifications"}
+                      aria-label={thread.otherUser.isMuted ? "Unmute notifications" : "Mute notifications"}
+                      data-testid="button-toggle-dm-mute"
                     >
                       {muteLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : thread.otherUser.isMuted ? <BellOff className="h-4 w-4" /> : <Bell className="h-4 w-4" />}
                     </Button>
@@ -738,18 +710,37 @@ export default function MessagesPage() {
                       onClick={() => void toggleBlock()}
                       disabled={blockLoading}
                       title={thread.otherUser.isBlocked ? "Unblock user" : "Block user"}
+                      aria-label={thread.otherUser.isBlocked ? "Unblock user" : "Block user"}
+                      data-testid="button-toggle-dm-block"
                     >
                       {blockLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : thread.otherUser.isBlocked ? <ShieldCheck className="h-4 w-4" /> : <ShieldX className="h-4 w-4" />}
                     </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                      onClick={() => requestDelete({ userId: thread.otherUser.id, name: thread.otherUser.name ?? thread.otherUser.username })}
+                      disabled={deleting || sending}
+                      aria-label="Delete conversation for you"
+                      title="Delete conversation for you"
+                      data-testid="button-delete-active-conversation"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                 </div>
+
+                {threadError && (
+                  <LoadError message={`Unable to refresh this conversation: ${threadError}`} onRetry={() => void loadThread()} testId="status-thread-refresh-error" />
+                )}
+                {sendError && <p role="alert" data-testid="status-dm-send-error" className="px-4 py-2 text-sm text-destructive">Message not sent: {sendError} Your draft has been kept. Try sending again.</p>}
 
                 {/* Messages */}
                 <div className="flex-1 overflow-y-auto px-4 py-4">
                   {thread.messages.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground">
                       <MessageCircle className="h-8 w-8 opacity-20" />
-                      <p className="text-sm">No messages yet — say hi!</p>
+                      <p className="text-sm">No messages yet, say hi!</p>
                     </div>
                   ) : (
                     thread.messages.map((msg) => <MsgBubble key={msg.id} msg={msg} />)
@@ -771,6 +762,7 @@ export default function MessagesPage() {
                         className="flex-shrink-0 text-xs border-destructive/40 text-destructive hover:bg-destructive/10"
                         onClick={() => void toggleBlock()}
                         disabled={blockLoading}
+                        data-testid="button-unblock-dm-user"
                       >
                         {blockLoading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
                         Unblock
@@ -783,14 +775,17 @@ export default function MessagesPage() {
                       <textarea
                         ref={inputRef}
                         value={input}
+                        data-testid="input-dm-message"
                         onChange={(e) => setInput(e.target.value)}
                         onKeyDown={(e) => {
-                          if (e.key === "Enter" && !e.shiftKey) {
+                          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                             e.preventDefault();
                             void sendMessage();
                           }
                         }}
                         placeholder="Type a message… (Enter to send)"
+                        aria-label="Message"
+                        maxLength={2000}
                         rows={1}
                         className="flex-1 resize-none rounded-xl border bg-muted/50 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/50 transition-all max-h-32"
                         style={{ overflow: "auto" }}
@@ -798,7 +793,9 @@ export default function MessagesPage() {
                       <Button
                         size="sm"
                         onClick={() => void sendMessage()}
-                        disabled={!input.trim() || sending}
+                        disabled={!input.trim() || sending || deleting}
+                        aria-label="Send message"
+                        data-testid="button-send-dm"
                         className="h-10 w-10 p-0 rounded-xl flex-shrink-0"
                       >
                         {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
@@ -808,7 +805,7 @@ export default function MessagesPage() {
                 )}
               </>
             ) : (
-              /* Thread selected but empty state — fresh conversation */
+              /* Thread selected but empty state, fresh conversation */
               <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground p-6">
                 <MessageCircle className="h-10 w-10 opacity-20" />
                 <p className="text-sm">Start the conversation</p>
@@ -817,6 +814,36 @@ export default function MessagesPage() {
           </div>
         </div>
       </div>
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open && !deleting) setDeleteTarget(null); }}>
+        <AlertDialogContent data-testid="dialog-delete-conversation">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete conversation for you?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This hides your conversation with {deleteTarget?.name ?? "this user"} and its history from your inbox.
+              It does not delete their copy or unsend any messages. If either of you sends a new message,
+              the conversation will reappear.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {deleteError && <p role="alert" data-testid="status-delete-conversation-error" className="text-sm text-destructive">Unable to delete conversation: {deleteError}</p>}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting} data-testid="button-cancel-delete-conversation">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleting || sending}
+              data-testid="button-confirm-delete-conversation"
+              onClick={(event) => {
+                event.preventDefault();
+                void deleteConversation().then((deletedId) => {
+                  if (mounted.current && deletedId !== null && deletedId === urlUserId) navigate("/messages", { replace: true });
+                });
+              }}
+            >
+              {deleting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {deleting ? "Deleting…" : "Delete for me"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

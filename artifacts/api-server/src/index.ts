@@ -3,6 +3,8 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { setupPresence } from "./presence";
 import { scheduleWeeklyDigest } from "./weekly-digest";
+import { pool } from "@workspace/db";
+import { bootstrapInvite } from "./lib/bootstrapInvite";
 
 const rawPort = process.env["PORT"];
 
@@ -28,8 +30,20 @@ scheduleWeeklyDigest().catch((e) =>
   logger.error({ e }, "Failed to schedule weekly digest"),
 );
 
-server.listen(port, () => {
-  logger.info({ port }, "Server listening");
+async function start() {
+  if (process.env.NODE_ENV === "production") {
+    if (await bootstrapInvite(pool)) {
+      logger.info("Initial team invitation created. Retrieve privately from the production database.");
+    }
+  }
+  server.listen(port, () => {
+    logger.info({ port }, "Server listening");
+  });
+}
+
+void start().catch((error) => {
+  logger.error({ error }, "Startup failed; check production database schema");
+  process.exit(1);
 });
 
 server.on("error", (err) => {

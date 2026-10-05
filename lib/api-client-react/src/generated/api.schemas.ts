@@ -5,6 +5,89 @@
  * Monad Feet API specification
  * OpenAPI spec version: 0.1.0
  */
+export interface PrepareRegistrationBody {
+  username: string;
+  inviteCode: string;
+}
+
+export interface PrepareRegistrationResponse {
+  registered: boolean;
+  txHash: string | null;
+}
+
+export interface RegistrationError {
+  error: string;
+  /** INVALID_USERNAME, USERNAME_TAKEN, INVALID_INVITE, INVITE_USED, AUTH_REQUIRED, WALLET_MISMATCH, INVALID_REGISTRATION, UNVERIFIED_ACCOUNT, REGISTRATION_UNAVAILABLE, RATE_LIMITED, or SAME_ORIGIN_REQUIRED */
+  code: string;
+}
+
+export interface FeetGameClaimInput {
+  /** @pattern ^0x[0-9a-fA-F]{64}$ */
+  txHash: string;
+}
+
+export interface FeetGameAward {
+  alreadyClaimed: boolean;
+  pointsAwarded: number;
+  invitesAwarded: number;
+  inviteCodes: string[];
+}
+
+export type FeetGameHistoryClaimsItem = {
+  txHash: string;
+  pointsAwarded: number;
+  invitesAwarded: number;
+  createdAt: string;
+};
+
+export interface FeetGameHistory {
+  claims: FeetGameHistoryClaimsItem[];
+}
+
+export type FeetGameStateActionsItem = {
+  id: number;
+  name: string;
+  priceMon: string;
+  basePoints: number;
+  count: number;
+  remaining: number;
+  nextPoints: number;
+};
+
+export interface FeetGameState {
+  contractAddress: string;
+  treasuryAddress: string;
+  chainId: number;
+  enabled: boolean;
+  disabledReason: string;
+  registered: boolean;
+  utcDay: string;
+  nextResetAt: string;
+  totalPurchases: number;
+  purchasesUntilInvite: number;
+  onChainPoints: number;
+  currentStreak: number;
+  longestStreak: number;
+  checkedInToday: boolean;
+  actions: FeetGameStateActionsItem[];
+}
+
+export type XRewardsStatusLifetime = { [key: string]: boolean };
+
+export interface XRewardsStatus {
+  utcDay: string;
+  lifetime: XRewardsStatusLifetime;
+  postClaimedToday: boolean;
+  postStreakEligible: boolean;
+}
+
+export interface XClaimResult {
+  claimed: boolean;
+  points: number;
+  invites: number;
+  utcDay: string;
+}
+
 export interface HealthStatus {
   status: string;
 }
@@ -30,8 +113,6 @@ export interface User {
   subscriptionPrice?: number | null;
   /** @nullable */
   registrationTxHash?: string | null;
-  /** @nullable */
-  nftHolder?: boolean | null;
   createdAt: string;
 }
 
@@ -52,8 +133,6 @@ export interface UserWithStats {
   subscriptionPrice?: number | null;
   /** @nullable */
   registrationTxHash?: string | null;
-  /** @nullable */
-  nftHolder?: boolean | null;
   createdAt: string;
   postCount: number;
   totalLikes: number;
@@ -63,8 +142,7 @@ export interface UserWithStats {
 
 export interface RegisterUserBody {
   walletAddress: string;
-  /** @nullable */
-  inviteCode?: string | null;
+  inviteCode: string;
   /** @nullable */
   email?: string | null;
   name: string;
@@ -121,8 +199,6 @@ export interface Post {
   authorUsername?: string | null;
   /** @nullable */
   authorAvatarUrl?: string | null;
-  /** @nullable */
-  authorNftHolder?: boolean | null;
   likeCount: number;
   likedByMe: boolean;
   createdAt: string;
@@ -140,6 +216,7 @@ export interface CreatePostBody {
   /** @nullable */
   imageUrl?: string | null;
   authorWalletAddress: string;
+  isPaid?: boolean;
 }
 
 export interface LikeResponse {
@@ -209,6 +286,7 @@ export interface StreakInfo {
   userId: number;
   currentStreak: number;
   longestStreak: number;
+  /** Accumulated off-chain points; each UTC daily check-in awards 10 points. Streak milestone points are separate. */
   totalPoints: number;
   /** @nullable */
   lastCheckin?: string | null;
@@ -335,6 +413,29 @@ export interface CreatorAnalytics {
   recentSubscribers: CreatorAnalyticsRecentSubscribersItem[];
 }
 
+export type GetAuthSession200 = {
+  /** @nullable */
+  walletAddress: string | null;
+};
+
+export type CreateAuthChallengeBody = {
+  walletAddress: string;
+};
+
+export type CreateAuthChallenge200 = {
+  message: string;
+};
+
+export type VerifyAuthChallengeBody = {
+  walletAddress: string;
+  message: string;
+  signature: string;
+};
+
+export type VerifyAuthChallenge200 = {
+  walletAddress: string;
+};
+
 export type ListPostsParams = {
   /**
    * @nullable
@@ -344,6 +445,7 @@ export type ListPostsParams = {
    * @nullable
    */
   limit?: number | null;
+  authorId?: number;
 };
 
 export type ListPrivatePostsParams = {

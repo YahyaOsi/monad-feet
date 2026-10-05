@@ -5,7 +5,6 @@ import {
   ObjectAclPolicy,
   ObjectPermission,
   canAccessObject,
-  getObjectAclPolicy,
   setObjectAclPolicy,
 } from "./objectAcl";
 
@@ -87,17 +86,16 @@ export class ObjectStorageService {
     return null;
   }
 
-  async downloadObject(file: File, cacheTtlSec: number = 3600): Promise<Response> {
+  async downloadObject(file: File): Promise<Response> {
     const [metadata] = await file.getMetadata();
-    const aclPolicy = await getObjectAclPolicy(file);
-    const isPublic = aclPolicy?.visibility === "public";
 
     const nodeStream = file.createReadStream();
     const webStream = Readable.toWeb(nodeStream) as ReadableStream;
 
     const headers: Record<string, string> = {
       "Content-Type": (metadata.contentType as string) || "application/octet-stream",
-      "Cache-Control": `${isPublic ? "public" : "private"}, max-age=${cacheTtlSec}`,
+      "Cache-Control": "private, no-store",
+      "Vary": "Cookie",
     };
     if (metadata.size) {
       headers["Content-Length"] = String(metadata.size);
@@ -262,6 +260,9 @@ async function signObjectURL({
     );
   }
 
-  const { signed_url: signedURL } = await response.json();
-  return signedURL;
+  const data: unknown = await response.json();
+  if (!data || typeof data !== "object" || !("signed_url" in data) || typeof data.signed_url !== "string") {
+    throw new Error("Object storage signing response did not contain a signed URL");
+  }
+  return data.signed_url;
 }

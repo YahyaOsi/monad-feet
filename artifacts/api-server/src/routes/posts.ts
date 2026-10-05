@@ -22,6 +22,7 @@ import {
 import { nanoid } from "nanoid";
 import { broadcastActivity, checkAndNotifyTrending } from "../presence";
 import { checkMilestones } from "../milestones";
+import { bindNewImage, verifiedCreatorIds, preservePrivateBinding } from "../lib/contentPrivacy";
 
 const router: IRouter = Router();
 
@@ -48,25 +49,24 @@ async function shouldNotify(userId: number, type: string): Promise<boolean> {
 
 /** Returns the set of authorIds that currentUserId is actively subscribed to */
 async function getSubscribedAuthorIds(currentUserId: number): Promise<Set<number>> {
-  const subs = await db
-    .select({ creatorId: subscriptionsTable.creatorId })
-    .from(subscriptionsTable)
-    .where(
-      and(
-        eq(subscriptionsTable.subscriberId, currentUserId),
-        sql`${subscriptionsTable.expiresAt} > now()`,
-      ),
-    );
-  return new Set(subs.map((s) => s.creatorId));
+  return verifiedCreatorIds(currentUserId);
 }
 
 router.get("/posts", async (req, res): Promise<void> => {
   const query = ListPostsQueryParams.safeParse(req.query);
-  const limit = query.success ? (query.data.limit ?? 20) : 20;
-  const cursor = query.success ? query.data.cursor : null;
+  if (!query.success) { res.status(400).json({ error: query.error.message }); return; }
+  if (query.data.authorId !== undefined &&
+      (!Number.isSafeInteger(query.data.authorId) || query.data.authorId < 1 || query.data.authorId > 2_147_483_647)) {
+    res.status(400).json({ error: "Invalid author id" }); return;
+  }
+  const limit = query.data.limit ?? 20;
+  const cursor = query.data.cursor ?? null;
+  const authorFilter = query.data.authorId === undefined
+    ? undefined
+    : eq(postsTable.authorId, query.data.authorId);
   const walletAddress = getWalletAddress(req);
   const currentUser = walletAddress ? await getUserByWallet(walletAddress) : null;
-  const whereClause = cursor ? lt(postsTable.id, cursor) : undefined;
+  const whereClause = and(authorFilter, cursor ? lt(postsTable.id, cursor) : undefined);
 
   const posts = await db
     .select({
@@ -89,7 +89,7 @@ router.get("/posts", async (req, res): Promise<void> => {
     .orderBy(desc(postsTable.id))
     .limit(limit);
 
-  const total = await db.select({ count: sql<number>`count(*)::int` }).from(postsTable);
+  const total = await db.select({ count: sql<number>`count(*)::int` }).from(postsTable).where(authorFilter);
   const postIds = posts.map((p) => p.id);
   let likedByMe: number[] = [];
   let subscribedAuthorIds = new Set<number>();
@@ -129,6 +129,8 @@ router.post("/posts", async (req, res): Promise<void> => {
 
   const author = await getUserByWallet(authorWalletAddress);
   if (!author) { res.status(404).json({ error: "Author not found" }); return; }
+  try { await bindNewImage(imageUrl, author.id, isPaid ? "private" : "public"); }
+  catch (err) { res.status(400).json({ error: (err as Error).message }); return; }
 
   const [post] = await db
     .insert(postsTable)
@@ -155,7 +157,8 @@ router.post("/posts", async (req, res): Promise<void> => {
   res.status(201).json(payload);
 
   // Broadcast new post to all connected clients
-  broadcastActivity({ type: "post_created", post: payload, actorId: author.id });
+  broadcastActivity({ type: "post_created", post: { ...payload, authorAvatarUrl: null,
+    ...(post.isPaid ? { content: "", imageUrl: null, isSubscribedToAuthor: false } : {}) }, actorId: author.id });
 
   // Fire-and-forget: check if author crossed any post-count milestones
   void checkMilestones(author.id);
@@ -221,6 +224,7 @@ router.delete("/posts/:postId", async (req, res): Promise<void> => {
   if (!post) { res.status(404).json({ error: "Post not found" }); return; }
   if (post.authorId !== currentUser.id) { res.status(403).json({ error: "Forbidden" }); return; }
 
+  if (post.isPaid && post.imageUrl) await preservePrivateBinding(post.imageUrl, post.authorId);
   await db.delete(postLikesTable).where(eq(postLikesTable.postId, post.id));
   await db.delete(postsTable).where(eq(postsTable.id, post.id));
   res.sendStatus(204);
@@ -269,7 +273,8 @@ router.post("/posts/:postId/like", async (req, res): Promise<void> => {
   // Like streak
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const [streak] = await db.select().from(streaksTable).where(eq(streaksTable.userId, currentUser.id));
+  if (!existing) await db.transaction(async (tx) => {
+  const [streak] = await tx.select().from(streaksTable).where(eq(streaksTable.userId, currentUser.id)).for("update");
   if (streak) {
     const lastLike = streak.lastLikeDate ? new Date(streak.lastLikeDate) : null;
     if (lastLike) lastLike.setHours(0, 0, 0, 0);
@@ -282,10 +287,13 @@ router.post("/posts/:postId/like", async (req, res): Promise<void> => {
       let extraInviteEarned = streak.extraInviteEarned;
       if (newLikeDays >= 5 && !extraInviteEarned) {
         const bonusCode = nanoid(10).toUpperCase();
-        await db.insert(inviteCodesTable).values({ code: bonusCode, ownerId: currentUser.id });
+        await tx.insert(inviteCodesTable).values({ code: bonusCode, ownerId: currentUser.id });
+        await tx.update(streaksTable).set({
+          totalPoints: sql`${streaksTable.totalPoints} + 10`,
+        }).where(eq(streaksTable.userId, currentUser.id));
         extraInviteEarned = true;
         if (await shouldNotify(currentUser.id, "system")) {
-          await db.insert(notificationsTable).values({
+          await tx.insert(notificationsTable).values({
             userId: currentUser.id,
             type: "system",
             title: "Bonus invite code unlocked!",
@@ -294,12 +302,13 @@ router.post("/posts/:postId/like", async (req, res): Promise<void> => {
           });
         }
       }
-      await db
+      await tx
         .update(streaksTable)
         .set({ consecutiveLikeDays: newLikeDays, lastLikeDate: new Date(), extraInviteEarned })
         .where(eq(streaksTable.userId, currentUser.id));
     }
   }
+  });
 
   const [countRow] = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -310,7 +319,7 @@ router.post("/posts/:postId/like", async (req, res): Promise<void> => {
   res.json({ likeCount: newLikeCount, likedByMe: true });
 
   broadcastActivity({ type: "post_liked", postId: params.data.postId, likeCount: newLikeCount, actorId: currentUser.id });
-  void checkAndNotifyTrending(params.data.postId, post.authorId, post.content);
+  void checkAndNotifyTrending(params.data.postId, post.authorId, post.isPaid ? "Exclusive post" : post.content);
   void checkMilestones(post.authorId);
 });
 

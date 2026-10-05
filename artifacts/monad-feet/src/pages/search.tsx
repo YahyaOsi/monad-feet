@@ -38,6 +38,8 @@ type PostResult = {
   authorUsername: string | null;
   authorAvatarUrl: string | null;
   likeCount: number;
+  isPaid?: boolean;
+  isSubscribedToAuthor?: boolean;
 };
 
 type SearchResults = {
@@ -106,7 +108,7 @@ function UserCard({ user, query }: { user: UserResult; query: string }) {
               </span>
             )}
           </div>
-          <span className="text-xs text-muted-foreground">@{highlight(user.username ?? "—")}</span>
+          <span className="text-xs text-muted-foreground">@{highlight(user.username ?? "-")}</span>
           {user.bio && (
             <p className="text-xs text-muted-foreground mt-0.5 truncate">{user.bio}</p>
           )}
@@ -137,7 +139,8 @@ function UserCard({ user, query }: { user: UserResult; query: string }) {
 // ── Post card ────────────────────────────────────────────────────
 
 function PostCard({ post, query }: { post: PostResult; query: string }) {
-  const snippet = post.content?.slice(0, 200) ?? "";
+  const locked = post.isPaid && !post.isSubscribedToAuthor;
+  const snippet = locked ? "" : post.content?.slice(0, 200) ?? "";
   const idx = snippet.toLowerCase().indexOf(query.toLowerCase());
 
   const highlightedContent = () => {
@@ -154,7 +157,7 @@ function PostCard({ post, query }: { post: PostResult; query: string }) {
   return (
     <Link href={`/post/${post.id}`}>
       <div className="flex gap-3 p-4 hover:bg-muted/50 transition-colors rounded-lg cursor-pointer">
-        {post.imageUrl && (
+        {!locked && post.imageUrl && (
           <img
             src={post.imageUrl}
             alt=""
@@ -178,7 +181,7 @@ function PostCard({ post, query }: { post: PostResult; query: string }) {
               </span>
             )}
           </div>
-          <p className="text-sm leading-snug line-clamp-2">{highlightedContent()}</p>
+          <p className="text-sm leading-snug line-clamp-2">{locked ? "Exclusive post · Subscribe to unlock" : highlightedContent()}</p>
           <div className="flex items-center gap-3 mt-1.5">
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               <Heart className="h-3 w-3 text-red-400" /> {post.likeCount}

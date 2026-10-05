@@ -3,6 +3,9 @@ import type { Server as HttpServer, IncomingMessage } from "http";
 import { logger } from "./lib/logger";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
+import { usersTable } from "@workspace/db";
+import { expectedOrigin, hasVerifiedRegistration, sessionWallet } from "./lib/walletAuth";
 
 export type PresenceUser = {
   userId: number;
@@ -39,15 +42,28 @@ export type ActivityEvent =
 
 interface ExtWS extends WebSocket {
   __isAlive?: boolean;
+  __cookie?: string;
 }
 
 const clients = new Map<ExtWS, PresenceUser>();
+
+export function closeWalletSockets(wallet: string): void {
+  for (const [ws, user] of clients) if (user.walletAddress === wallet) ws.close(1008, "Session ended");
+}
 
 // In-memory snapshot of which post IDs are currently in the top 3
 let currentTop3 = new Set<number>();
 
 export function getOnlineUsers(): PresenceUser[] {
-  return Array.from(clients.values());
+  // Presence broadcasts have no per-recipient media entitlement. Clients load
+  // authorized avatars through the protected profile endpoint instead.
+  const members = new Map<number, PresenceUser>();
+  for (const [ws, user] of clients) {
+    if (ws.readyState === 1 && !members.has(user.userId)) {
+      members.set(user.userId, { ...user, avatarUrl: null });
+    }
+  }
+  return Array.from(members.values());
 }
 
 function broadcastAll(msg: string) {
@@ -77,7 +93,8 @@ export function broadcastActivity(event: ActivityEvent): void {
 
 /** Send an activity event to a single user (by userId) only. */
 export function notifyUser(userId: number, event: ActivityEvent): void {
-  broadcastToUser(userId, JSON.stringify({ type: "activity", event }));
+  broadcastToUser(userId, JSON.stringify({ type: "activity", event }, (key, value) =>
+    /avatarUrl$/i.test(key) ? null : value));
 }
 
 /**
@@ -132,7 +149,7 @@ export async function checkAndNotifyTrending(
 export function setupPresence(server: HttpServer): void {
   const wss = new WebSocketServer({ noServer: true });
 
-  server.on("upgrade", (request: IncomingMessage, socket, head) => {
+  server.on("upgrade", async (request: IncomingMessage, socket, head) => {
     const rawUrl = request.url ?? "";
     let pathname: string;
     try {
@@ -147,29 +164,35 @@ export function setupPresence(server: HttpServer): void {
       return;
     }
 
+    // Browser cookies are sent on WebSocket handshakes. Require the same
+    // origin and resolve identity only from the server-side session.
+    if (!expectedOrigin(request) || !request.headers.origin) { socket.destroy(); return; }
+    let wallet: string | null;
+    let user: typeof usersTable.$inferSelect | undefined;
+    try {
+      wallet = await sessionWallet(request.headers.cookie);
+      if (wallet) [user] = await db.select().from(usersTable).where(eq(usersTable.walletAddress, wallet));
+    }
+    catch { socket.destroy(); return; }
+    if (!wallet || !user || !await hasVerifiedRegistration(user).catch(() => false)) {
+      socket.destroy(); return;
+    }
+    const url = new URL(request.url ?? "", `http://${request.headers.host}`);
+    const requestedWallet = url.searchParams.get("wallet");
+    const requestedId = url.searchParams.get("userId");
+    if ((requestedWallet && requestedWallet.toLowerCase() !== wallet) ||
+        (requestedId && requestedId !== String(user.id))) { socket.destroy(); return; }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     wss.handleUpgrade(request, socket as any, head, (ws) => {
-      wss.emit("connection", ws, request);
+      wss.emit("connection", ws, user, request.headers.cookie);
     });
   });
 
-  wss.on("connection", (ws: ExtWS, request: IncomingMessage) => {
-    const rawUrl = request.url ?? "";
-    let url: URL;
-    try {
-      url = new URL(rawUrl, `http://${request.headers.host ?? "localhost"}`);
-    } catch {
-      ws.close();
-      return;
-    }
-
-    const walletAddress = url.searchParams.get("wallet") ?? "";
-    const userId = parseInt(url.searchParams.get("userId") ?? "0", 10);
-    const name = url.searchParams.get("name") || null;
-    const username = url.searchParams.get("username") || null;
-    const avatarUrl = url.searchParams.get("avatarUrl") || null;
+  wss.on("connection", (ws: ExtWS, user: typeof usersTable.$inferSelect, cookie: string | undefined) => {
+    const { id: userId, walletAddress, name, username, avatarUrl } = user;
 
     ws.__isAlive = true;
+    ws.__cookie = cookie;
     clients.set(ws, {
       userId,
       walletAddress,
@@ -211,9 +234,18 @@ export function setupPresence(server: HttpServer): void {
   });
 
   // Heartbeat — evict dead connections every 45s
-  const heartbeat = setInterval(() => {
+  const heartbeat = setInterval(async () => {
     for (const [ws] of clients) {
-      if (!ws.__isAlive) {
+      let stillAuthorized = false;
+      try {
+        const connection = clients.get(ws);
+        if (connection && await sessionWallet(ws.__cookie) === connection.walletAddress) {
+          const [user] = await db.select().from(usersTable).where(eq(usersTable.id, connection.userId));
+          stillAuthorized = !!user && await hasVerifiedRegistration(user);
+        }
+      }
+      catch { /* fail closed */ }
+      if (!ws.__isAlive || !stillAuthorized) {
         const user = clients.get(ws);
         logger.info({ userId: user?.userId }, "Presence: heartbeat evict");
         clients.delete(ws);
@@ -227,6 +259,7 @@ export function setupPresence(server: HttpServer): void {
   }, 45_000);
 
   wss.on("close", () => clearInterval(heartbeat));
+  server.once("close", () => wss.close());
 
   logger.info("Presence WebSocket server initialized on /api/ws");
 }

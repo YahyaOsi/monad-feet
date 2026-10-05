@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
+import authRouter from "./auth";
 import usersRouter from "./users";
 import invitesRouter from "./invites";
 import postsRouter from "./posts";
@@ -15,10 +16,13 @@ import leaderboardRouter from "./leaderboard";
 import searchRouter from "./search";
 import dmRouter from "./dm";
 import blocksRouter from "./blocks";
+import rewardsRouter from "./rewards";
+import gameRouter from "./game";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
+router.use(authRouter);
 router.use(usersRouter);
 router.use(invitesRouter);
 router.use(postsRouter);
@@ -34,5 +38,7 @@ router.use(leaderboardRouter);
 router.use(searchRouter);
 router.use(dmRouter);
 router.use(blocksRouter);
+router.use(rewardsRouter);
+router.use(gameRouter);
 
 export default router;

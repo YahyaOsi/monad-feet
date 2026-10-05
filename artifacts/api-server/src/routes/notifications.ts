@@ -1,11 +1,12 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import {
   db,
   usersTable,
   notificationsTable,
   notificationPreferencesTable,
 } from "@workspace/db";
+import { buildNotificationQueries } from "../lib/notificationQueries";
 
 const router: IRouter = Router();
 
@@ -32,8 +33,13 @@ async function ensurePrefs(userId: number) {
   const [created] = await db
     .insert(notificationPreferencesTable)
     .values({ userId })
+    .onConflictDoNothing({ target: notificationPreferencesTable.userId })
     .returning();
-  return created;
+  if (created) return created;
+  const [concurrent] = await db.select().from(notificationPreferencesTable)
+    .where(eq(notificationPreferencesTable.userId, userId));
+  if (!concurrent) throw new Error("Notification preferences could not be loaded.");
+  return concurrent;
 }
 
 router.get("/notifications", async (req, res): Promise<void> => {
@@ -44,39 +50,12 @@ router.get("/notifications", async (req, res): Promise<void> => {
 
   const prefs = await ensurePrefs(user.id);
 
-  const allNotifs = await db
-    .select({
-      id: notificationsTable.id,
-      userId: notificationsTable.userId,
-      type: notificationsTable.type,
-      title: notificationsTable.title,
-      body: notificationsTable.body,
-      actorId: notificationsTable.actorId,
-      resourceId: notificationsTable.resourceId,
-      resourceType: notificationsTable.resourceType,
-      read: notificationsTable.read,
-      createdAt: notificationsTable.createdAt,
-      actorName: usersTable.name,
-      actorUsername: usersTable.username,
-      actorAvatarUrl: usersTable.avatarUrl,
-    })
-    .from(notificationsTable)
-    .leftJoin(usersTable, eq(usersTable.id, notificationsTable.actorId))
-    .where(eq(notificationsTable.userId, user.id))
-    .orderBy(desc(notificationsTable.createdAt))
-    .limit(50);
-
-  const filtered = allNotifs.filter((n) => {
-    if (n.type === "like" && !prefs.likesEnabled) return false;
-    if (n.type === "subscription" && !prefs.subscriptionsEnabled) return false;
-    if (n.type === "badge" && !prefs.badgesEnabled) return false;
-    if (n.type === "system" && !prefs.systemEnabled) return false;
-    return true;
-  });
+  const queries = buildNotificationQueries(db, user.id, prefs);
+  const [notifications, [unread]] = await Promise.all([queries.list, queries.unread]);
 
   res.json({
-    notifications: filtered,
-    unreadCount: filtered.filter((n) => !n.read).length,
+    notifications,
+    unreadCount: unread.count,
     preferences: {
       likesEnabled: prefs.likesEnabled,
       subscriptionsEnabled: prefs.subscriptionsEnabled,
@@ -92,13 +71,18 @@ router.post("/notifications/:notifId/read", async (req, res): Promise<void> => {
   const user = await getUserByWallet(walletAddress);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
 
-  const notifId = parseInt(req.params.notifId as string, 10);
-  if (isNaN(notifId)) { res.status(400).json({ error: "Invalid notification id" }); return; }
+  const rawId = Array.isArray(req.params.notifId) ? req.params.notifId[0] : req.params.notifId;
+  const notifId = Number(rawId);
+  if (!/^\d+$/.test(rawId) || !Number.isSafeInteger(notifId) || notifId <= 0) {
+    res.status(400).json({ error: "Invalid notification id" }); return;
+  }
 
-  await db
+  const [updated] = await db
     .update(notificationsTable)
     .set({ read: true })
-    .where(and(eq(notificationsTable.id, notifId), eq(notificationsTable.userId, user.id)));
+    .where(and(eq(notificationsTable.id, notifId), eq(notificationsTable.userId, user.id)))
+    .returning({ id: notificationsTable.id });
+  if (!updated) { res.status(404).json({ error: "Notification not found" }); return; }
 
   res.json({ success: true });
 });
@@ -152,6 +136,9 @@ router.put("/notifications/preferences", async (req, res): Promise<void> => {
   if (typeof subscriptionsEnabled === "boolean") updates.subscriptionsEnabled = subscriptionsEnabled;
   if (typeof badgesEnabled === "boolean") updates.badgesEnabled = badgesEnabled;
   if (typeof systemEnabled === "boolean") updates.systemEnabled = systemEnabled;
+  if (Object.keys(updates).length === 0) {
+    res.status(400).json({ error: "Provide at least one notification preference." }); return;
+  }
 
   const [updated] = await db
     .update(notificationPreferencesTable)

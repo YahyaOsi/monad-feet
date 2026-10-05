@@ -1,4 +1,5 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useUser } from "@/context/UserContext";
 import { useListPosts, useGetFeedSummary, useCreatePost } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -13,7 +14,8 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { getListPostsQueryKey, getGetFeedSummaryQueryKey } from "@workspace/api-client-react";
 import { useContractActions } from "@/lib/useContractActions";
-import { useActivityFeed, type LivePost } from "@/hooks/usePresence";
+import { useActivityFeed } from "@/hooks/usePresence";
+import { trackProductEvent } from "@/lib/analytics";
 import type { Post } from "@workspace/api-client-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -25,7 +27,10 @@ async function requestUploadUrl(file: File): Promise<{ uploadURL: string; object
     headers: { "Content-Type": "application/json", "x-wallet-address": wallet },
     body: JSON.stringify({ name: file.name, size: file.size, contentType: file.type }),
   });
-  if (!res.ok) throw new Error("Failed to get upload URL");
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error ?? "Failed to get upload URL");
+  }
   return res.json();
 }
 
@@ -41,22 +46,6 @@ async function anchorPostOnDB(postId: number, txHash: string): Promise<void> {
     headers: { "Content-Type": "application/json", "x-wallet-address": wallet },
     body: JSON.stringify({ txHash }),
   });
-}
-
-function livePostToPost(p: LivePost): Post {
-  return {
-    id: p.id,
-    content: p.content ?? "",
-    imageUrl: p.imageUrl ?? null,
-    authorId: p.authorId,
-    authorName: p.authorName ?? null,
-    authorUsername: p.authorUsername ?? null,
-    authorAvatarUrl: p.authorAvatarUrl ?? null,
-    onChainTxHash: p.onChainTxHash ?? null,
-    likeCount: p.likeCount,
-    likedByMe: p.likedByMe,
-    createdAt: typeof p.createdAt === "string" ? p.createdAt : p.createdAt.toISOString(),
-  };
 }
 
 type PostStep = "idle" | "uploading" | "saving" | "signing" | "done" | "error";
@@ -81,25 +70,20 @@ export default function Feed() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const feedTopRef = useRef<HTMLDivElement>(null);
 
-  // Live prepended posts from WS (flushed by clicking banner)
-  const [livePosts, setLivePosts] = useState<Post[]>([]);
-
-  // Activity feed hook — live like updates, pending new posts, anchor updates
+  // Activity feed hook, live like updates, pending new posts, anchor updates
   const { pendingCount, flushPending, likeUpdates, anchorUpdates } = useActivityFeed(user?.id);
 
   const handleFlushPending = useCallback(() => {
-    const flushed = flushPending();
-    setLivePosts((prev) => [...flushed.map(livePostToPost), ...prev]);
+    // Re-fetch the viewer-specific server projection; websocket payloads cannot
+    // establish authorization to display a paid post's content or image.
+    flushPending();
+    queryClient.invalidateQueries({ queryKey: getListPostsQueryKey() });
     feedTopRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [flushPending]);
+  }, [flushPending, queryClient]);
 
-  // Merge live posts + server posts, deduplicate
   const serverPosts = feedPage?.posts ?? [];
-  const liveIds = new Set(livePosts.map((p) => p.id));
-  const mergedPosts = [...livePosts, ...serverPosts.filter((p) => !liveIds.has(p.id))];
-
   // Apply live like-count and anchor overrides
-  const enrichedPosts: Post[] = mergedPosts.map((p) => ({
+  const enrichedPosts: Post[] = serverPosts.map((p) => ({
     ...p,
     likeCount: likeUpdates.has(p.id) ? (likeUpdates.get(p.id) ?? p.likeCount) : p.likeCount,
     onChainTxHash: anchorUpdates.has(p.id) ? (anchorUpdates.get(p.id) ?? p.onChainTxHash) : p.onChainTxHash,
@@ -139,6 +123,7 @@ export default function Feed() {
       const post = await createPost.mutateAsync({
         data: { content: content.trim() || "", imageUrl, authorWalletAddress: user.walletAddress, isPaid: isExclusive },
       });
+      if (!isExclusive) trackProductEvent("public_post_created");
 
       if (contractDeployed && post?.id) {
         setPostStep("signing");
@@ -206,7 +191,7 @@ export default function Feed() {
               </div>
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Total Posts</p>
-                <p className="text-2xl font-bold">{summary.totalPosts + livePosts.length}</p>
+                <p className="text-2xl font-bold">{summary.totalPosts}</p>
               </div>
             </CardContent>
           </Card>
@@ -269,7 +254,7 @@ export default function Feed() {
           className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-primary text-primary-foreground font-semibold text-sm shadow-lg hover:bg-primary/90 transition-all animate-in slide-in-from-top-2 duration-300"
         >
           <ArrowUp className="h-4 w-4" />
-          {pendingCount} new {pendingCount === 1 ? "post" : "posts"} — tap to load
+          {pendingCount} new {pendingCount === 1 ? "post" : "posts"}, tap to load
         </button>
       )}
 
@@ -295,14 +280,18 @@ export default function Feed() {
 
       {/* Compose dialog */}
       <Dialog open={isComposeOpen} onOpenChange={handleOpenChange}>
-        <DialogTrigger asChild>
+        {createPortal(<div className="fixed z-40 right-4 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] md:bottom-8 md:right-8">
+          <DialogTrigger asChild>
           <Button
             size="icon"
-            className="fixed bottom-20 md:bottom-8 right-4 md:right-8 h-14 w-14 rounded-full shadow-lg hover:shadow-xl transition-all"
+             className="h-14 w-14 rounded-full shadow-lg shadow-primary/30 hover:scale-105 active:scale-95 transition-transform"
+             aria-label="Create a post"
+             title="Create a post"
           >
             <Plus className="h-6 w-6" />
           </Button>
-        </DialogTrigger>
+          </DialogTrigger>
+        </div>, document.body)}
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Create a Post</DialogTitle>
@@ -330,7 +319,7 @@ export default function Feed() {
                   </div>
                   <div className="text-center">
                     <p className="font-semibold text-sm">Add an image</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">Required — click to browse</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Required, click to browse</p>
                   </div>
                 </button>
               )}
@@ -361,8 +350,8 @@ export default function Feed() {
                 <p className="font-semibold leading-tight">{isExclusive ? "Exclusive post" : "Make exclusive"}</p>
                 <p className="text-xs font-normal mt-0.5 opacity-75">
                   {isExclusive
-                    ? "Only your subscribers can see this — others see it blurred"
-                    : "All followers see this — toggle to restrict to subscribers only"}
+                    ? "Only verified subscribers can see this post; others see a locked preview"
+                    : "All followers see this, toggle to restrict to subscribers only"}
                 </p>
               </div>
               <div className={`h-5 w-9 rounded-full transition-all flex-shrink-0 ${isExclusive ? "bg-amber-500" : "bg-muted-foreground/30"}`}>
@@ -373,18 +362,18 @@ export default function Feed() {
             {contractDeployed && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-lg px-3 py-2">
                 <Link2 className="h-3.5 w-3.5 text-primary flex-shrink-0" />
-                This post will be anchored on <strong>Monad Mainnet</strong> — your wallet will prompt for a signature.
+                This post will be anchored on <strong>Monad</strong>, your wallet will prompt for a signature.
               </div>
             )}
 
             {postStep === "signing" && (
               <div className="flex items-center gap-2 text-xs text-violet-700 bg-violet-50 rounded-lg px-3 py-2">
                 <Loader2 className="h-3.5 w-3.5 animate-spin flex-shrink-0" />
-                Check your wallet — sign the transaction to anchor this post on Monad…
+                Check your wallet, sign the transaction to anchor this post on Monad…
               </div>
             )}
 
-            {uploadError && <p className="text-sm text-destructive">{uploadError}</p>}
+            {uploadError && <p role="alert" data-testid="status-post-error" className="text-sm text-destructive">{uploadError}</p>}
 
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={isPosting}>Cancel</Button>

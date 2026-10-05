@@ -76,13 +76,12 @@
     "zod": "catalog:"
   },
   "dependencies": {
-    "@reown/appkit": "^1.8.19",
-    "@reown/appkit-adapter-wagmi": "^1.8.19",
+    "@rainbow-me/rainbowkit": "^2.2.11",
     "@uppy/aws-s3": "^5.1.0",
     "@uppy/core": "^5.2.0",
     "@uppy/dashboard": "^5.1.1",
     "@uppy/react": "^5.2.0",
     "viem": "^2.48.7",
-    "wagmi": "^3.6.9"
+    "wagmi": "^2.19.5"
   }
 }

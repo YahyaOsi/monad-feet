@@ -1,5 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useUpload } from "@workspace/object-storage-web";
 import { useUser } from "@/context/UserContext";
+import { AnalyticsPrivacySettings } from "@/components/AnalyticsPreferences";
 import { useUpdateMe, useUpdateSubscriptionPrice } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,7 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAccount } from "wagmi";
 import { useOnChainUser } from "@/lib/useOnChain";
 import { CONTRACT_DEPLOYED } from "@/lib/contract";
-import { CheckCircle2, AlertCircle, ExternalLink, Link2, Copy, ShieldX, ShieldCheck, Loader2 } from "lucide-react";
+import { Camera, CheckCircle2, AlertCircle, ExternalLink, Link2, Copy, ShieldX, ShieldCheck, Loader2 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 export default function Settings() {
@@ -56,6 +58,35 @@ export default function Settings() {
   };
 
   const updateMe = useUpdateMe();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const { uploadFile, isUploading, progress } = useUpload({ basePath: `${BASE}/api/storage` });
+
+  const handleAvatarFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !user) return;
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Please choose an image file", variant: "destructive" });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: "Image is too large", description: "Max size is 5 MB.", variant: "destructive" });
+      return;
+    }
+    const res = await uploadFile(file);
+    if (!res) {
+      toast({ title: "Upload failed", description: "Please try again.", variant: "destructive" });
+      return;
+    }
+    const url = `${BASE}/api/storage${res.objectPath}`;
+    setAvatarUrl(url);
+    try {
+      await updateMe.mutateAsync({ data: { walletAddress: user.walletAddress, name, bio, avatarUrl: url } });
+      toast({ title: "Profile picture updated" });
+    } catch {
+      toast({ title: "Could not save picture", variant: "destructive" });
+    }
+  };
   const updatePrice = useUpdateSubscriptionPrice();
   const { data: onChainUser, isLoading: chainLoading } = useOnChainUser(address);
 
@@ -105,11 +136,13 @@ export default function Settings() {
   const onChainPoints = onChainUser?.[5] ? Number(onChainUser[5]) : 0;
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-6 max-w-2xl mx-auto pb-24 md:pb-8">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
-        <p className="text-muted-foreground">Manage your account and creator settings</p>
+        <p className="text-muted-foreground">Your profile, wallet and creator price.</p>
       </div>
+
+      <AnalyticsPrivacySettings />
 
       {/* On-chain Status */}
       <Card className={`border ${onChainRegistered ? "border-green-200 bg-green-50/30" : "border-muted"}`}>
@@ -117,14 +150,14 @@ export default function Settings() {
           <CardTitle className="text-base flex items-center gap-2">
             <Link2 className="h-4 w-4 text-violet-600" /> On-Chain Status
           </CardTitle>
-          <CardDescription>Your verified status on Monad Mainnet</CardDescription>
+          <CardDescription>Your status on Monad</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Contract status */}
           {!CONTRACT_DEPLOYED ? (
             <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
               <AlertCircle className="h-4 w-4 flex-shrink-0" />
-              Contract not yet deployed — actions saving to database only.
+              On-chain features are not live yet.
             </div>
           ) : chainLoading ? (
             <div className="text-sm text-muted-foreground">Checking chain status...</div>
@@ -132,7 +165,7 @@ export default function Settings() {
             <div className="space-y-3">
               <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 rounded-lg px-3 py-2">
                 <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
-                Registered on Monad Mainnet as <strong>@{onChainUsername}</strong>
+                Registered on Monad as <strong>@{onChainUsername}</strong>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-muted rounded-lg p-3 text-center">
@@ -203,16 +236,47 @@ export default function Settings() {
       {/* Profile */}
       <Card>
         <CardHeader>
-          <CardTitle>Profile Settings</CardTitle>
+          <CardTitle>Profile</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label>Display Name</Label>
+            <Label>Name</Label>
             <Input value={name} onChange={(e) => setName(e.target.value)} />
           </div>
-          <div className="space-y-2">
-            <Label>Avatar URL</Label>
-            <Input value={avatarUrl} onChange={(e) => setAvatarUrl(e.target.value)} placeholder="https://..." />
+          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              disabled={isUploading}
+              className="group relative h-24 w-24 shrink-0 rounded-full overflow-hidden ring-2 ring-border hover:ring-primary transition-colors self-center sm:self-auto"
+              aria-label="Upload a new profile picture"
+              data-testid="button-upload-avatar"
+            >
+              <Avatar className="h-24 w-24">
+                <AvatarImage src={avatarUrl} alt="Profile picture" className="object-cover" />
+                <AvatarFallback className="text-xl font-semibold bg-primary/15 text-primary">
+                  {name.slice(0, 2).toUpperCase() || "MF"}
+                </AvatarFallback>
+              </Avatar>
+              <span className="absolute inset-0 flex items-center justify-center bg-foreground/50 text-background opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">
+                {isUploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Camera className="h-5 w-5" />}
+              </span>
+            </button>
+            <div className="space-y-1.5 text-center sm:text-left">
+              <Label>Profile picture</Label>
+              <p className="text-xs text-muted-foreground">JPG, PNG, WEBP or GIF. Up to 5 MB.</p>
+              <Button type="button" size="sm" variant="outline" onClick={() => fileRef.current?.click()} disabled={isUploading} className="gap-1.5">
+                {isUploading ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Uploading {progress}%</> : <><Camera className="h-3.5 w-3.5" /> Choose image</>}
+              </Button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                className="sr-only"
+                onChange={handleAvatarFile}
+                data-testid="input-avatar-file"
+              />
+            </div>
           </div>
           <div className="space-y-2">
             <Label>Bio</Label>
@@ -227,9 +291,9 @@ export default function Settings() {
       {/* Creator */}
       <Card>
         <CardHeader>
-          <CardTitle>Creator Settings</CardTitle>
+          <CardTitle>Creator</CardTitle>
           <CardDescription>
-            Set a monthly price in MON. Subscribers pay on-chain — you receive 88% directly to your wallet.
+            Earn $MON through subscriptions. Set a monthly price and you keep 88%.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -244,7 +308,7 @@ export default function Settings() {
               placeholder="0.0"
             />
             <p className="text-xs text-muted-foreground">
-              Set to 0 to disable. When set, subscribers pay this amount on-chain via the smart contract.
+              Set to 0 to turn subscriptions off.
             </p>
           </div>
           {subPrice && Number(subPrice) > 0 && (
@@ -287,7 +351,7 @@ export default function Settings() {
                   </Avatar>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{u.name ?? u.username ?? "Unknown"}</p>
-                    <p className="text-xs text-muted-foreground truncate">@{u.username ?? "—"}</p>
+                    <p className="text-xs text-muted-foreground truncate">@{u.username ?? "-"}</p>
                   </div>
                   <Button
                     size="sm"

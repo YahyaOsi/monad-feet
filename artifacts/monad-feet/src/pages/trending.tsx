@@ -26,9 +26,9 @@ function getVelocityLabel(velocity: number, recentLikes: number) {
 }
 
 function RankBadge({ rank }: { rank: number }) {
-  if (rank === 1) return <span className="text-2xl leading-none" title="#1">🥇</span>;
-  if (rank === 2) return <span className="text-2xl leading-none" title="#2">🥈</span>;
-  if (rank === 3) return <span className="text-2xl leading-none" title="#3">🥉</span>;
+  if (rank === 1) return <span className="text-2xl leading-none" title="#1">1st</span>;
+  if (rank === 2) return <span className="text-2xl leading-none" title="#2">2nd</span>;
+  if (rank === 3) return <span className="text-2xl leading-none" title="#3">3rd</span>;
   return (
     <span className="text-sm font-bold text-muted-foreground w-6 text-center tabular-nums">
       #{rank}
@@ -71,7 +71,7 @@ export default function Trending() {
   const { user } = useUser();
   const queryClient = useQueryClient();
   const { data, isLoading, dataUpdatedAt } = useGetTrending({
-    query: { refetchInterval: REFETCH_INTERVAL, queryKey: [] as any },
+    query: { refetchInterval: REFETCH_INTERVAL, queryKey: getGetTrendingQueryKey() },
   });
 
   // Live like-count overrides from WebSocket
@@ -150,7 +150,7 @@ export default function Trending() {
             Trending
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Ranked by like velocity — updates live as posts get liked
+            Ranked by like velocity, updates live as posts get liked
           </p>
         </div>
         <div className="flex flex-col items-end gap-1">
@@ -233,16 +233,16 @@ export default function Trending() {
                       </div>
 
                       {/* Image thumbnail */}
-                      {post.imageUrl && (
+                      {!(post as TrendingPost & { isPaid?: boolean; isSubscribedToAuthor?: boolean }).isPaid || (post as TrendingPost & { isSubscribedToAuthor?: boolean }).isSubscribedToAuthor ? post.imageUrl && (
                         <div className="flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden bg-muted">
                           <img
                             src={post.imageUrl.startsWith("http") ? post.imageUrl : `${BASE}${post.imageUrl.startsWith("/") ? "" : "/"}${post.imageUrl}`}
                             alt=""
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                            onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
                           />
                         </div>
-                      )}
+                      ) : null}
 
                       {/* Content */}
                       <div className="flex-1 min-w-0 space-y-2">
@@ -266,7 +266,9 @@ export default function Trending() {
                         </div>
 
                         {/* Caption */}
-                        {post.content && (
+                        {(post as TrendingPost & { isPaid?: boolean; isSubscribedToAuthor?: boolean }).isPaid && !(post as TrendingPost & { isSubscribedToAuthor?: boolean }).isSubscribedToAuthor ? (
+                          <p className="text-sm text-muted-foreground">Exclusive post · Subscribe to unlock</p>
+                        ) : post.content && (
                           <p className="text-sm text-muted-foreground line-clamp-1">{post.content}</p>
                         )}
 

@@ -1,4 +1,4 @@
-import { pgTable, serial, timestamp, integer, boolean, text } from "drizzle-orm/pg-core";
+import { pgTable, serial, timestamp, integer, boolean, text, numeric, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
@@ -8,7 +8,7 @@ export const streaksTable = pgTable("streaks", {
   userId: integer("user_id").notNull().references(() => usersTable.id).unique(),
   currentStreak: integer("current_streak").notNull().default(0),
   longestStreak: integer("longest_streak").notNull().default(0),
-  totalPoints: integer("total_points").notNull().default(0),
+  totalPoints: numeric("total_points", { precision: 14, scale: 1, mode: "number" }).notNull().default(0),
   lastCheckin: timestamp("last_checkin", { withTimezone: true }),
   extraInviteEarned: boolean("extra_invite_earned").notNull().default(false),
   consecutiveLikeDays: integer("consecutive_like_days").notNull().default(0),
@@ -35,3 +35,14 @@ export const badgesTable = pgTable("badges", {
 export const insertBadgeSchema = createInsertSchema(badgesTable).omit({ id: true, earnedAt: true });
 export type InsertBadge = z.infer<typeof insertBadgeSchema>;
 export type Badge = typeof badgesTable.$inferSelect;
+
+/** "once" for lifetime tasks, YYYY-MM-DD UTC for daily tasks. */
+export const rewardClaimsTable = pgTable("reward_claims", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => usersTable.id),
+  task: text("task").notNull(),
+  dayKey: text("day_key").notNull(),
+  points: integer("points").notNull(),
+  invites: integer("invites").notNull().default(0),
+  claimedAt: timestamp("claimed_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("reward_claim_user_task_day").on(table.userId, table.task, table.dayKey)]);

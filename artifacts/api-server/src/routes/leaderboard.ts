@@ -39,10 +39,10 @@ router.get("/leaderboard", async (req, res): Promise<void> => {
   // Note: we use column aliases defined in the SELECT
   const orderExpr = (() => {
     switch (sortBy) {
-      case "subscribers": return sql`"subscriberCount" DESC, "totalPoints" DESC`;
-      case "engagement":  return sql`"engagementScore" DESC, "totalPoints" DESC`;
-      case "likes":       return sql`"likeCount" DESC, "totalPoints" DESC`;
-      default:            return sql`"totalPoints" DESC, "engagementScore" DESC`;
+      case "subscribers": return sql`"subscriberCount" DESC, "totalPoints" DESC, u.id ASC`;
+      case "engagement":  return sql`"engagementScore" DESC, "totalPoints" DESC, u.id ASC`;
+      case "likes":       return sql`"likeCount" DESC, "totalPoints" DESC, u.id ASC`;
+      default:            return sql`"totalPoints" DESC, "engagementScore" DESC, u.id ASC`;
     }
   })();
 
@@ -53,7 +53,7 @@ router.get("/leaderboard", async (req, res): Promise<void> => {
       u.username,
       u.avatar_url                                            AS "avatarUrl",
       u.registration_tx_hash                                  AS "registrationTxHash",
-      COALESCE(st.total_points, 0)::int                       AS "totalPoints",
+      COALESCE(st.total_points, 0)::float                     AS "totalPoints",
       COALESCE(st.current_streak, 0)::int                     AS "currentStreak",
       COALESCE(st.longest_streak, 0)::int                     AS "longestStreak",
       COUNT(DISTINCT p.id)::int                               AS "postCount",
@@ -64,6 +64,10 @@ router.get("/leaderboard", async (req, res): Promise<void> => {
         WHERE s.creator_id = u.id
           AND s.expires_at > NOW()
       )                                                       AS "subscriberCount",
+      (
+        SELECT COUNT(*)::int FROM subscriptions s
+        WHERE s.subscriber_id = u.id AND s.expires_at > NOW()
+      )                                                       AS "subscriptionCount",
       (COUNT(DISTINCT pl.id) + COUNT(DISTINCT p.id) * 2)::int AS "engagementScore"
     FROM users u
     LEFT JOIN streaks st ON st.user_id = u.id
@@ -73,7 +77,7 @@ router.get("/leaderboard", async (req, res): Promise<void> => {
       u.id, u.name, u.username, u.avatar_url, u.registration_tx_hash,
       st.total_points, st.current_streak, st.longest_streak
     ORDER BY ${orderExpr}
-    LIMIT 25
+    LIMIT 50
   `);
 
   const raw = result as unknown as { rows?: Record<string, unknown>[] };
@@ -94,10 +98,12 @@ router.get("/leaderboard", async (req, res): Promise<void> => {
     postCount:          (row.postCount         as number) ?? 0,
     likeCount:          (row.likeCount         as number) ?? 0,
     subscriberCount:    (row.subscriberCount   as number) ?? 0,
+    subscriptionCount:  (row.subscriptionCount as number) ?? 0,
     engagementScore:    (row.engagementScore   as number) ?? 0,
   }));
 
-  res.json({ entries, sortBy, period, generatedAt: new Date().toISOString() });
+  // Match the shared API contract used by Discover and the leaderboard page.
+  res.json(entries);
 });
 
 // ── GET /leaderboard/me ─────────────────────────────────────────
@@ -110,6 +116,9 @@ router.get("/leaderboard/me", async (req, res): Promise<void> => {
 
   const currentUser = await getUserByWallet(walletAddress);
   if (!currentUser) { res.status(404).json({ error: "User not found" }); return; }
+  const weekly = req.query.period === "weekly";
+  const periodFilter = weekly ? sql`AND p.created_at > NOW() - INTERVAL '7 days'` : sql``;
+  const likePeriodFilter = weekly ? sql`AND pl.created_at > NOW() - INTERVAL '7 days'` : sql``;
 
   const result = await db.execute(sql`
     WITH ranked AS (
@@ -118,15 +127,21 @@ router.get("/leaderboard/me", async (req, res): Promise<void> => {
         u.name,
         u.username,
         u.avatar_url                                        AS "avatarUrl",
-        COALESCE(st.total_points, 0)::int                   AS "totalPoints",
+        COALESCE(st.total_points, 0)::float                 AS "totalPoints",
         COALESCE(st.current_streak, 0)::int                 AS "currentStreak",
         (
           SELECT COUNT(*)::int
           FROM subscriptions s
           WHERE s.creator_id = u.id AND s.expires_at > NOW()
         )                                                   AS "subscriberCount",
-        RANK() OVER (
-          ORDER BY COALESCE(st.total_points, 0) DESC
+        ROW_NUMBER() OVER (
+          ORDER BY COALESCE(st.total_points, 0) DESC,
+            (
+              (SELECT COUNT(*) FROM posts p WHERE p.author_id = u.id ${periodFilter}) * 2
+              + (SELECT COUNT(*) FROM post_likes pl JOIN posts p ON p.id = pl.post_id
+                 WHERE p.author_id = u.id ${periodFilter} ${likePeriodFilter})
+            ) DESC,
+            u.id ASC
         )::int                                              AS rank,
         COUNT(*) OVER ()::int                               AS "totalUsers"
       FROM users u

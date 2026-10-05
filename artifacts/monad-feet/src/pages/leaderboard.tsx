@@ -8,20 +8,7 @@ import { CONTRACT_DEPLOYED } from "@/lib/contract";
 import { useUser } from "@/context/UserContext";
 import { useActivityFeed } from "@/hooks/usePresence";
 import { Button } from "@/components/ui/button";
-
-interface LeaderEntry {
-  rank: number;
-  userId: number;
-  name?: string | null;
-  username?: string | null;
-  avatarUrl?: string | null;
-  totalPoints: number;
-  currentStreak: number;
-  subscriberCount: number;
-  registrationTxHash?: string | null;
-}
-
-type Period = "alltime" | "weekly";
+import { loadLeaderboard, type LeaderEntry, type LeaderboardPeriod as Period } from "@/lib/leaderboard";
 
 interface MyRank {
   rank: number;
@@ -36,10 +23,10 @@ interface MyRank {
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-async function fetchMyRank(): Promise<MyRank | null> {
+async function fetchMyRank(period: Period): Promise<MyRank | null> {
   const wallet = localStorage.getItem("mf_wallet_address") ?? "";
   if (!wallet) return null;
-  const res = await fetch(`${BASE}/api/leaderboard/me`, {
+  const res = await fetch(`${BASE}/api/leaderboard/me?period=${period}`, {
     headers: { "x-wallet-address": wallet },
   });
   if (!res.ok) return null;
@@ -47,30 +34,27 @@ async function fetchMyRank(): Promise<MyRank | null> {
 }
 
 async function fetchLeaderboard(period: Period): Promise<LeaderEntry[]> {
-  const res = await fetch(`${BASE}/api/leaderboard?sortBy=points&period=${period}`);
-  if (!res.ok) return [];
-  const data = await res.json() as { entries?: LeaderEntry[] };
-  return (data.entries ?? []).slice(0, 25);
+  return loadLeaderboard(BASE, period);
 }
 
 // ── My Rank Card ─────────────────────────────────────────────────
 
 function rankLabel(rank: number): { emoji: string; label: string; color: string; bg: string; border: string } {
-  if (rank === 1) return { emoji: "🥇", label: "1st Place",   color: "text-yellow-700", bg: "bg-yellow-50",  border: "border-yellow-300" };
-  if (rank === 2) return { emoji: "🥈", label: "2nd Place",   color: "text-slate-600",  bg: "bg-slate-50",   border: "border-slate-300" };
-  if (rank === 3) return { emoji: "🥉", label: "3rd Place",   color: "text-amber-700",  bg: "bg-amber-50",   border: "border-amber-300" };
+  if (rank === 1) return { emoji: "1st", label: "1st Place",   color: "text-yellow-700", bg: "bg-yellow-50",  border: "border-yellow-300" };
+  if (rank === 2) return { emoji: "2nd", label: "2nd Place",   color: "text-slate-600",  bg: "bg-slate-50",   border: "border-slate-300" };
+  if (rank === 3) return { emoji: "3rd", label: "3rd Place",   color: "text-amber-700",  bg: "bg-amber-50",   border: "border-amber-300" };
   if (rank <= 10) return { emoji: "🏆", label: "Top 10",      color: "text-violet-700", bg: "bg-violet-50",  border: "border-violet-300" };
   if (rank <= 25) return { emoji: "⭐", label: "Top 25",      color: "text-primary",    bg: "bg-primary/5",  border: "border-primary/30" };
-  if (rank <= 50) return { emoji: "🔥", label: "Top 50",      color: "text-orange-700", bg: "bg-orange-50",  border: "border-orange-300" };
+  if (rank <= 50) return { emoji: "Top", label: "Top 50",      color: "text-orange-700", bg: "bg-orange-50",  border: "border-orange-300" };
   return                 { emoji: "📈", label: `Rank #${rank}`, color: "text-foreground", bg: "bg-muted/40",  border: "border-border" };
 }
 
 function rankMessage(rank: number, totalUsers: number): string {
   const pct = Math.round((rank / totalUsers) * 100);
-  if (rank === 1) return "You're #1 — keep that streak alive!";
-  if (rank <= 3)  return `Incredible — you're in the top 3 out of ${totalUsers.toLocaleString()} members!`;
+  if (rank === 1) return "You're #1, keep that streak alive!";
+  if (rank <= 3)  return `Incredible, you're in the top 3 out of ${totalUsers.toLocaleString()} members!`;
   if (rank <= 10) return `You're in the elite top 10. Keep posting and checking in!`;
-  if (rank <= 25) return `Top 25 out of ${totalUsers.toLocaleString()} — just ${rank - 1} spots from the top!`;
+  if (rank <= 25) return `Top 25 out of ${totalUsers.toLocaleString()}, just ${rank - 1} spots from the top!`;
   return `You're in the top ${pct}% of all ${totalUsers.toLocaleString()} members. Keep earning points!`;
 }
 
@@ -148,7 +132,7 @@ function MyRankCard({ myRank, period }: { myRank: MyRank; period: Period }) {
 
         {period === "weekly" && (
           <p className="text-[10px] text-muted-foreground mt-2 text-center">
-            * Your personal rank is always all-time regardless of the period filter
+            * Points are all-time; activity in the selected period breaks ties.
           </p>
         )}
       </CardContent>
@@ -182,18 +166,18 @@ function getRankStyle(rank: number): { row: string; badge: string } {
 }
 
 function rankEmoji(rank: number) {
-  if (rank === 1) return "🥇";
-  if (rank === 2) return "🥈";
-  if (rank === 3) return "🥉";
+  if (rank === 1) return "1st";
+  if (rank === 2) return "2nd";
+  if (rank === 3) return "3rd";
   return null;
 }
 
 // ── Podium ────────────────────────────────────────────────────────
 
 const PODIUM_CONFIG = [
-  { pos: 2, height: "h-20", ring: "ring-slate-400",  label: "2nd", emoji: "🥈", textColor: "text-slate-500",  bg: "bg-slate-50  border-slate-200" },
-  { pos: 1, height: "h-28", ring: "ring-yellow-400", label: "1st", emoji: "🥇", textColor: "text-yellow-600", bg: "bg-yellow-50 border-yellow-300" },
-  { pos: 3, height: "h-16", ring: "ring-amber-500",  label: "3rd", emoji: "🥉", textColor: "text-amber-700",  bg: "bg-amber-50  border-amber-300" },
+  { pos: 2, height: "h-20", ring: "ring-slate-400",  label: "2nd", emoji: "2nd", textColor: "text-slate-500",  bg: "bg-slate-50  border-slate-200" },
+  { pos: 1, height: "h-28", ring: "ring-yellow-400", label: "1st", emoji: "1st", textColor: "text-yellow-600", bg: "bg-yellow-50 border-yellow-300" },
+  { pos: 3, height: "h-16", ring: "ring-amber-500",  label: "3rd", emoji: "3rd", textColor: "text-amber-700",  bg: "bg-amber-50  border-amber-300" },
 ];
 
 function PodiumSlot({
@@ -345,6 +329,7 @@ function Board({ period, currentUserId }: { period: Period; currentUserId: numbe
   const [entries, setEntries] = useState<LeaderEntry[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [stale, setStale] = useState(false);
+  const [error, setError] = useState("");
   const { pendingCount } = useActivityFeed(currentUserId);
   const refreshingRef = useRef(false);
 
@@ -353,11 +338,12 @@ function Board({ period, currentUserId }: { period: Period; currentUserId: numbe
     refreshingRef.current = true;
     setLoading(true);
     setStale(false);
+    setError("");
     try {
       const data = await fetchLeaderboard(period);
       setEntries(data);
-    } catch {
-      setEntries([]);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not load rankings.");
     } finally {
       setLoading(false);
       refreshingRef.current = false;
@@ -399,11 +385,18 @@ function Board({ period, currentUserId }: { period: Period; currentUserId: numbe
     );
   }
 
+  if (error) {
+    return <div role="alert" className="text-center py-12 space-y-3">
+      <p className="text-destructive">{error}</p>
+      <Button variant="outline" onClick={() => void load()}>Try again</Button>
+    </div>;
+  }
+
   if (!entries || entries.length === 0) {
     return (
       <div className="text-center py-16 text-muted-foreground">
         <Trophy className="h-10 w-10 mx-auto mb-3 opacity-30" />
-        <p>No rankings yet — be the first to participate!</p>
+        <p>No rankings yet, be the first to participate!</p>
       </div>
     );
   }
@@ -423,7 +416,7 @@ function Board({ period, currentUserId }: { period: Period; currentUserId: numbe
           className="w-full flex items-center justify-center gap-2 text-xs font-medium text-primary bg-primary/5 border border-primary/20 rounded-lg py-2 px-4 hover:bg-primary/10 transition-colors"
         >
           <RotateCcw className="h-3.5 w-3.5" />
-          Rankings updated — tap to refresh
+          Rankings updated, tap to refresh
         </button>
       )}
 
@@ -518,13 +511,19 @@ export default function Leaderboard() {
   const [rankLoading, setRankLoading] = useState(false);
 
   useEffect(() => {
-    if (!user) return;
+    let active = true;
+    if (!user) {
+      setMyRank(null);
+      setRankLoading(false);
+      return;
+    }
     setRankLoading(true);
-    fetchMyRank()
-      .then((r) => setMyRank(r))
-      .catch(() => setMyRank(null))
-      .finally(() => setRankLoading(false));
-  }, [user?.id]);
+    fetchMyRank(period)
+      .then((r) => { if (active) setMyRank(r); })
+      .catch(() => { if (active) setMyRank(null); })
+      .finally(() => { if (active) setRankLoading(false); });
+    return () => { active = false; };
+  }, [user?.id, period]);
 
   return (
     <div className="space-y-6">
@@ -549,7 +548,7 @@ export default function Leaderboard() {
         )}
       </div>
 
-      {/* My Rank Card — only for logged-in users */}
+      {/* My Rank Card, only for logged-in users */}
       {user && (
         rankLoading ? (
           <Card className="border-2 border-border animate-pulse">
@@ -592,7 +591,8 @@ export default function Leaderboard() {
         </Button>
       </div>
 
-      <Board period={period} currentUserId={user?.id} />
+      {period === "weekly" && <p className="text-xs text-muted-foreground">Posts and likes cover the last 7 days. Points show each member's total earned points.</p>}
+      <Board key={`${period}:${user?.id ?? "guest"}`} period={period} currentUserId={user?.id} />
     </div>
   );
 }

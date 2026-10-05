@@ -1,29 +1,25 @@
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Redirect } from "wouter";
 import { useValidateInviteCode, useRegisterUser } from "@workspace/api-client-react";
 import { useUser } from "@/context/UserContext";
-import { useAccount, useReadContract } from "wagmi";
+import { useAccount, usePublicClient } from "wagmi";
+import { customFetch } from "../../../../lib/api-client-react/src/custom-fetch";
+import { MONAD_FEET_CONTRACT_ADDRESS, MONAD_MAINNET_CHAIN_ID } from "@/lib/contract";
+import { isRegistrationHash, recoverRegistration, registrationError, registrationKey, type RegistrationPreparation } from "@/lib/registrationRecovery";
 import { useContractActions } from "@/lib/useContractActions";
+import { postLoginPath } from "@/lib/shareNavigation";
+import { trackProductEvent } from "@/lib/analytics";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Link2, CheckCircle2, Gem } from "lucide-react";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { Loader2, Link2, CheckCircle2 } from "lucide-react";
 
-const NFT_CONTRACT = "0x656b1011a20b826f7c4ce1a07e5f350a52a3711d" as const;
-const ERC721_BALANCE_ABI = [
-  {
-    name: "balanceOf",
-    type: "function" as const,
-    stateMutability: "view" as const,
-    inputs: [{ name: "owner", type: "address" as const }],
-    outputs: [{ name: "", type: "uint256" as const }],
-  },
-] as const;
 
 type Step = 1 | 2;
-type TxState = "idle" | "signing" | "confirmed" | "skipped";
+type TxState = "idle" | "signing" | "confirmed";
 
 export default function Onboarding() {
   const [step, setStep] = useState<Step>(1);
@@ -32,120 +28,155 @@ export default function Onboarding() {
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
   const [bio, setBio] = useState("");
-  const [avatarUrl, setAvatarUrl] = useState("");
   const [regError, setRegError] = useState("");
   const [txState, setTxState] = useState<TxState>("idle");
+  const [recoveryHash, setRecoveryHash] = useState("");
+  const [pending, setPending] = useState(false);
+  const busy = useRef(false);
+  const generation = useRef(0);
 
   const { isConnected, address } = useAccount();
-  const { user, isLoading } = useUser();
+  const { user, isLoading, session } = useUser();
+  const publicClient = usePublicClient({ chainId: MONAD_MAINNET_CHAIN_ID });
+  const identity = isConnected ? address?.toLowerCase() : undefined;
+  const currentIdentity = useRef(identity);
+  currentIdentity.current = identity;
   const validateInvite = useValidateInviteCode();
   const register = useRegisterUser();
   const { contractDeployed, registerOnChain } = useContractActions();
 
-  // Check if wallet holds the Monad Feet NFT
-  const { data: nftBalance, isLoading: nftLoading } = useReadContract({
-    address: NFT_CONTRACT,
-    abi: ERC721_BALANCE_ABI,
-    functionName: "balanceOf",
-    args: address ? [address] : undefined,
-    chainId: 143,
-    query: { enabled: !!address },
-  });
-  const hasNft = nftBalance !== undefined && nftBalance > 0n;
-
-  // Auto-advance past the invite step if NFT detected
+  const recoveryKey = registrationKey(identity ?? "", MONAD_FEET_CONTRACT_ADDRESS, MONAD_MAINNET_CHAIN_ID);
   useEffect(() => {
-    if (hasNft && step === 1) setStep(2);
-  }, [hasNft]);
+    generation.current++;
+    busy.current = false;
+    setPending(false);
+    setRegError("");
+    setInviteError("");
+    setRecoveryHash("");
+    setInviteCode("");
+    setUsername("");
+    setName("");
+    setBio("");
+    setStep(1);
+    setTxState("idle");
+    try {
+      const saved = JSON.parse(localStorage.getItem(recoveryKey) || "null");
+      // Legacy wallet-only keys are deliberately not trusted across deployments.
+      if (identity && saved && isRegistrationHash(saved.hash)) {
+        setRecoveryHash(saved.hash);
+        setInviteCode(typeof saved.inviteCode === "string" ? saved.inviteCode : "");
+        setUsername(typeof saved.username === "string" ? saved.username : "");
+        setName(typeof saved.name === "string" ? saved.name : "");
+        setBio(typeof saved.bio === "string" ? saved.bio : "");
+        setStep(2);
+      }
+    } catch { /* Server preflight can rediscover confirmed registrations. */ }
+    return () => { generation.current++; };
+  }, [recoveryKey, identity]);
 
-  if (isLoading) return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+  if (isLoading) return <div className="min-h-[100dvh] flex items-center justify-center text-muted-foreground" role="status">Loading...</div>;
   if (!isConnected) return <Redirect to="/" />;
-  if (user) return <Redirect to="/feed" />;
+  if (user) return <Redirect to={postLoginPath(window.location.search) ?? "/feed"} />;
 
   const handleValidate = async () => {
-    if (!inviteCode.trim()) return;
+    if (!inviteCode.trim() || busy.current) return;
+    busy.current = true;
+    setPending(true);
+    const id = generation.current;
+    const isCurrent = () => id === generation.current && identity === currentIdentity.current;
     setInviteError("");
     try {
-      const res = await validateInvite.mutateAsync({ data: { code: inviteCode } });
+      const res = await validateInvite.mutateAsync({ data: { code: inviteCode.trim() } });
+      if (!isCurrent()) return;
       if (res.valid) {
         setStep(2);
       } else {
         setInviteError(res.message ?? "Invalid invite code");
       }
     } catch (e: unknown) {
-      const err = e as { response?: { data?: { error?: string } } };
-      setInviteError(err.response?.data?.error ?? "Invalid invite code");
+      if (isCurrent()) setInviteError(registrationError(e));
+    } finally {
+      if (isCurrent()) { busy.current = false; setPending(false); }
     }
   };
 
   const handleRegister = async () => {
-    if (!name.trim() || !username.trim() || !address) return;
-    setRegError("");
-
-    let txHash: string | null = null;
-
-    // Step 1: Sign the on-chain registerUser() transaction on Monad Mainnet
-    if (contractDeployed) {
-      setTxState("signing");
+    if (busy.current || !name.trim() || !/^[a-z0-9_]{3,32}$/.test(username.trim()) ||
+        !address || !inviteCode.trim() || session.phase !== "verified") return;
+    busy.current = true;
+    setPending(true);
+    const id = generation.current;
+    const isCurrent = () => id === generation.current && identity === currentIdentity.current;
+    const assertCurrent = () => { if (!isCurrent()) throw new Error("Wallet changed"); };
+    const profile = { inviteCode: inviteCode.trim(), username: username.trim(), name: name.trim(), bio: bio.trim() };
+    const save = (hash: string | null) => {
+      // A late wallet result belongs to the initiating wallet, not the current one.
       try {
-        txHash = await registerOnChain(username.trim(), inviteCode);
-        setTxState("confirmed");
-      } catch {
-        // User declined or tx failed — continue with DB-only registration
-        setTxState("skipped");
-      }
-    }
-
-    // Step 2: Save to DB (with optional on-chain proof)
+        if (hash) localStorage.setItem(recoveryKey, JSON.stringify({ ...profile, hash }));
+        else localStorage.removeItem(recoveryKey);
+      } catch { /* Keep in-memory proof if browser storage is unavailable. */ }
+      if (isCurrent()) setRecoveryHash(hash ?? "");
+    };
+    setRegError("");
+    setTxState("signing");
     try {
+      const txHash = await recoverRegistration({
+        prepare: () => {
+          assertCurrent();
+          return customFetch<RegistrationPreparation>("/api/auth/registration/prepare", {
+            method: "POST", credentials: "include", responseType: "json",
+            headers: { "x-wallet-address": address },
+            body: JSON.stringify({ username: profile.username, inviteCode: profile.inviteCode }),
+          });
+        },
+        savedHash: recoveryHash || null,
+        receipt: async (hash) => {
+          if (!publicClient) throw new Error("Network unavailable");
+          return (await publicClient.waitForTransactionReceipt({ hash })).status;
+        },
+        save,
+        send: (onSubmitted) => registerOnChain(profile.username, profile.inviteCode, onSubmitted, assertCurrent),
+        assertCurrent,
+      });
+      assertCurrent();
+      setTxState("confirmed");
       await register.mutateAsync({
         data: {
           walletAddress: address,
-          inviteCode: inviteCode || undefined,
-          name: name.trim(),
-          username: username.trim(),
-          bio: bio.trim() || undefined,
-          avatarUrl: avatarUrl.trim() || undefined,
-          txHash: txHash ?? undefined,
+          ...profile,
+          bio: profile.bio || undefined,
+          txHash,
         },
       });
-      window.location.href = "/feed";
+      assertCurrent();
+      trackProductEvent("signup_completed");
+      try { localStorage.removeItem(recoveryKey); } catch { /* Profile is already saved. */ }
+      const returnTo = postLoginPath(window.location.search);
+      window.location.assign(`${import.meta.env.BASE_URL.replace(/\/$/, "")}${returnTo ?? "/feed"}`);
     } catch (e: unknown) {
-      const err = e as { response?: { data?: { error?: string } } };
-      setRegError(err.response?.data?.error ?? "Registration failed. Please try again.");
-      setTxState("idle");
+      if (isCurrent()) { setRegError(registrationError(e)); setTxState("idle"); }
+    } finally {
+      if (isCurrent()) { busy.current = false; setPending(false); }
     }
   };
 
-  const isRegistering = register.isPending || txState === "signing";
+  const isRegistering = pending;
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md shadow-xl border-border/50">
+    <div className="min-h-[100dvh] flex flex-col items-center justify-center bg-background p-4 gap-4">
+      <div className="w-full max-w-md flex justify-end"><ThemeToggle /></div>
+      <Card className="w-full max-w-md shadow-xl shadow-primary/5 border-border rounded-2xl">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl font-bold">Welcome to Monad Feet</CardTitle>
           <CardDescription>
-            {step === 1
-              ? nftLoading
-                ? "Checking your wallet for NFT access..."
-                : "Enter your invite code or hold the Monad Feet NFT to join."
-              : hasNft
-              ? "NFT access granted — set up your profile to join."
-              : "Set up your profile to join."}
+            {step === 1 ? "Enter the invite code you got from the team." : "Set up your profile."}
           </CardDescription>
         </CardHeader>
         <CardContent>
+          <fieldset disabled={pending} className="min-w-0">
           {step === 1 ? (
             <div className="space-y-4">
-              {/* NFT check loading state */}
-              {nftLoading && (
-                <div className="flex items-center justify-center gap-3 rounded-lg border border-violet-200 bg-violet-50 px-4 py-4">
-                  <Loader2 className="h-4 w-4 text-violet-600 animate-spin flex-shrink-0" />
-                  <p className="text-sm text-violet-700">Checking for Monad Feet NFT in your wallet...</p>
-                </div>
-              )}
-              {!nftLoading && (
-                <>
+              <>
                   <div className="space-y-2">
                     <Label htmlFor="invite">Invite Code</Label>
                     <Input
@@ -168,34 +199,14 @@ export default function Onboarding() {
                     ) : "Verify Code"}
                   </Button>
                   <p className="text-center text-xs text-muted-foreground">
-                    — or hold the{" "}
-                    <a
-                      href="https://monvision.io/address/0x656b1011a20b826f7c4ce1a07e5f350a52a3711d"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-violet-600 hover:underline"
-                    >
-                      Monad Feet NFT
-                    </a>
-                    {" "}to join without a code —
+                    No code yet? Invite codes come from the Monad Feet team. NFT access is planned for 10 October 2026.
                   </p>
                 </>
-              )}
             </div>
           ) : (
             <div className="space-y-4">
-              {/* NFT access badge */}
-              {hasNft && (
-                <div className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
-                  <Gem className="h-4 w-4 text-emerald-600 flex-shrink-0" />
-                  <div>
-                    <p className="text-xs font-semibold text-emerald-700">Monad Feet NFT detected</p>
-                    <p className="text-xs text-emerald-600">No invite code needed — your NFT grants you access.</p>
-                  </div>
-                </div>
-              )}
               <div className="space-y-2">
-                <Label htmlFor="name">Display Name</Label>
+                <Label htmlFor="name">Name</Label>
                 <Input
                   id="name"
                   value={name}
@@ -211,85 +222,80 @@ export default function Onboarding() {
                     id="username"
                     className="pl-8"
                     value={username}
-                    onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
+                    maxLength={32}
+                    minLength={3}
+                    onChange={(e) => { setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "")); setRegError(""); }}
                     placeholder="satoshi"
                   />
                 </div>
+                <p className="text-xs text-muted-foreground">3–32 letters, numbers or underscores.</p>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="avatar">Avatar URL (optional)</Label>
-                <Input
-                  id="avatar"
-                  value={avatarUrl}
-                  onChange={(e) => setAvatarUrl(e.target.value)}
-                  placeholder="https://..."
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="bio">Bio (optional)</Label>
+                <Label htmlFor="bio">Bio <span className="text-muted-foreground font-normal">(optional)</span></Label>
                 <Textarea
                   id="bio"
                   value={bio}
                   onChange={(e) => setBio(e.target.value)}
-                  placeholder="Building the future of finance..."
+                  placeholder="A line about you"
                   className="resize-none"
                 />
               </div>
 
               {/* On-chain status indicator */}
               {contractDeployed && (
-                <div className="rounded-lg border border-violet-200 bg-violet-50 px-4 py-3 flex items-start gap-3">
+                <div className="rounded-lg border border-violet-200 bg-violet-50 dark:border-violet-800 dark:bg-violet-950/40 px-4 py-3 flex items-start gap-3">
                   {txState === "idle" && (
                     <>
                       <Link2 className="h-4 w-4 text-violet-600 mt-0.5 flex-shrink-0" />
-                      <p className="text-xs text-violet-700">
-                        Joining will require <strong>two steps</strong>: sign a transaction on{" "}
-                        <strong>Monad Mainnet</strong>, then create your profile.
+                      <p className="text-xs text-violet-700 dark:text-violet-300">
+                        Joining takes two steps: sign a transaction, then create your profile.
                       </p>
                     </>
                   )}
                   {txState === "signing" && (
                     <>
                       <Loader2 className="h-4 w-4 text-violet-600 mt-0.5 flex-shrink-0 animate-spin" />
-                      <p className="text-xs text-violet-700">
-                        Sign the transaction in your wallet to register on Monad...
+                      <p className="text-xs text-violet-700 dark:text-violet-300">
+                        Checking registration. Confirm in your wallet if asked...
                       </p>
                     </>
                   )}
                   {txState === "confirmed" && (
                     <>
                       <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
-                      <p className="text-xs text-green-700">
-                        Transaction confirmed! Creating your profile...
-                      </p>
-                    </>
-                  )}
-                  {txState === "skipped" && (
-                    <>
-                      <Link2 className="h-4 w-4 text-orange-500 mt-0.5 flex-shrink-0" />
-                      <p className="text-xs text-orange-700">
-                        On-chain tx skipped — registering off-chain only.
+                      <p className="text-xs text-green-700 dark:text-green-300">
+                        Verifying registration and creating your profile...
                       </p>
                     </>
                   )}
                 </div>
               )}
 
-              {regError && <p className="text-sm text-destructive">{regError}</p>}
+              {regError && <p role="alert" className="text-sm text-destructive">{regError}</p>}
 
               <Button
                 className="w-full"
                 onClick={handleRegister}
-                disabled={!name.trim() || !username.trim() || isRegistering}
+                disabled={!name.trim() || !/^[a-z0-9_]{3,32}$/.test(username.trim()) || !inviteCode.trim() || isRegistering || session.phase !== "verified"}
               >
                 {isRegistering ? (
                   <><Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    {txState === "signing" ? "Sign on Monad..." : "Joining..."}
+                    Joining...
                   </>
-                ) : contractDeployed ? "Sign & Join Monad Feet" : "Join Monad Feet"}
+                ) : recoveryHash.trim() ? "Continue joining" : "Sign and join"}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-full"
+                disabled={isRegistering}
+                onClick={() => { setRegError(""); setInviteError(""); setStep(1); }}
+              >
+                Change invite code
               </Button>
             </div>
           )}
+          </fieldset>
         </CardContent>
       </Card>
     </div>

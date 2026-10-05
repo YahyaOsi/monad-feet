@@ -1,17 +1,20 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Link, useLocation } from "wouter";
 import { ToastAction } from "@/components/ui/toast";
 import { useUser } from "@/context/UserContext";
 import { useAccount } from "wagmi";
 import {
-  Home, Lock, Wallet, Trophy, User as UserIcon,
-  Settings, LogOut, Bell, Link2, X, Compass, Flame, Search, MessageCircle,
-  ChevronDown, ChevronUp
+  Settings, LogOut, Link2, X, ChevronDown, ChevronUp, Menu
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { CONTRACT_DEPLOYED } from "@/lib/contract";
 import { usePresence, useTrendingAlert, useBadgeAlert, useSubscriptionAlert } from "@/hooks/usePresence";
 import { useToast } from "@/hooks/use-toast";
+import { useNotifications } from "@/hooks/useNotifications";
+import { getAppNavigation, navBadgeLabel, type AppNavItem } from "@/lib/navigation";
+import { useShareLoginPrompt } from "@/hooks/useShareLoginPrompt";
+import { safeShareReturnPath } from "@/lib/shareNavigation";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -19,59 +22,70 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [location, navigate] = useLocation();
   const { user, logout } = useUser();
   const { isConnected: walletConnected } = useAccount();
-  const [unreadCount, setUnreadCount] = useState(0);
   const [dmUnreadCount, setDmUnreadCount] = useState(0);
   const [mutedIds, setMutedIds] = useState<Set<number>>(new Set());
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const { onlineCount, wsEvent } = usePresence();
+  const { unreadCount } = useNotifications({ live: true, activityEvent: wsEvent });
   const { alert: trendingAlert, dismiss: dismissTrending } = useTrendingAlert();
   const { alert: badgeAlert, dismiss: dismissBadge } = useBadgeAlert();
   const { alert: subAlert, dismiss: dismissSub } = useSubscriptionAlert();
   const { toast } = useToast();
+  const { promptLogin, dialog: loginDialog } = useShareLoginPrompt();
 
   const onMessagesPage = location === "/messages" || location.startsWith("/messages/");
+  const currentUserId = useRef(user?.id);
+  const dmRequestNumber = useRef(0);
+  currentUserId.current = user?.id;
 
-  const fetchDmUnread = () => {
-    const wallet = localStorage.getItem("mf_wallet_address") ?? "";
-    if (!wallet) return;
-    fetch(`${BASE}/api/dm/conversations`, { headers: { "x-wallet-address": wallet } })
+  const fetchDmUnread = useCallback(() => {
+    if (!user) return;
+    const requestedUserId = user.id;
+    const requestNumber = ++dmRequestNumber.current;
+    fetch(`${BASE}/api/dm/conversations`, {
+      credentials: "include",
+      headers: { "x-wallet-address": user.walletAddress },
+    })
       .then((r) => r.ok ? r.json() : Promise.reject())
       .then((convs: { unreadCount: number }[]) => {
+        if (currentUserId.current !== requestedUserId || requestNumber !== dmRequestNumber.current) return;
         const total = convs.reduce((sum, c) => sum + (c.unreadCount ?? 0), 0);
         setDmUnreadCount(total);
       })
       .catch(() => {});
-  };
+  }, [user?.id, user?.walletAddress]);
 
-  const fetchMutedIds = () => {
-    const wallet = localStorage.getItem("mf_wallet_address") ?? "";
-    if (!wallet) return;
-    fetch(`${BASE}/api/dm/muted`, { headers: { "x-wallet-address": wallet } })
+  const fetchMutedIds = useCallback(() => {
+    if (!user) return;
+    const requestedUserId = user.id;
+    fetch(`${BASE}/api/dm/muted`, {
+      credentials: "include",
+      headers: { "x-wallet-address": user.walletAddress },
+    })
       .then((r) => r.ok ? r.json() : Promise.reject())
-      .then((ids: number[]) => setMutedIds(new Set(ids)))
+      .then((ids: number[]) => {
+        if (currentUserId.current === requestedUserId) setMutedIds(new Set(ids));
+      })
       .catch(() => {});
-  };
+  }, [user?.id, user?.walletAddress]);
 
   useEffect(() => {
+    setDmUnreadCount(0);
+    setMutedIds(new Set());
     if (!user) return;
-    const fetchCount = () => {
-      const wallet = localStorage.getItem("mf_wallet_address") ?? "";
-      fetch(`${BASE}/api/notifications`, { headers: { "x-wallet-address": wallet } })
-        .then((r) => r.json())
-        .then((d) => setUnreadCount((d as { unreadCount?: number }).unreadCount ?? 0))
-        .catch(() => {});
-    };
-    fetchCount();
     fetchDmUnread();
     fetchMutedIds();
-    const interval = setInterval(() => { fetchCount(); fetchDmUnread(); fetchMutedIds(); }, 60_000);
+    const interval = setInterval(() => { fetchDmUnread(); fetchMutedIds(); }, 60_000);
     return () => clearInterval(interval);
-  }, [user]);
+  }, [user?.id, fetchDmUnread, fetchMutedIds]);
 
   useEffect(() => {
-    if (onMessagesPage) setDmUnreadCount(0);
-  }, [onMessagesPage]);
+    // The messages page emits this only after a successful thread-read/delete.
+    // Merely opening the conversation list does not read any message.
+    window.addEventListener("dm-unread-changed", fetchDmUnread);
+    return () => window.removeEventListener("dm-unread-changed", fetchDmUnread);
+  }, [fetchDmUnread]);
 
   useEffect(() => {
     if (!wsEvent) return;
@@ -81,12 +95,12 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       senderName?: string | null;
       preview?: string | null;
     };
-    if (ev.type === "new_dm" && !onMessagesPage) {
+    if (ev.type === "new_dm") {
       const isMuted = ev.senderId !== undefined && mutedIds.has(ev.senderId);
       fetchDmUnread();
-      if (!isMuted) {
+      if (ev.senderId !== user?.id && !isMuted && !onMessagesPage) {
         toast({
-          title: ev.senderName ? `💬 ${ev.senderName}` : "💬 New message",
+          title: ev.senderName ? `${ev.senderName}` : "New message",
           description: ev.preview ?? "Sent you a message",
           duration: 6_000,
           action: (
@@ -100,16 +114,15 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         });
       }
     }
-  }, [wsEvent, onMessagesPage, mutedIds]);
+  }, [wsEvent, onMessagesPage, mutedIds, fetchDmUnread, user?.id]);
 
   useEffect(() => {
     if (!trendingAlert) return;
-    const rankEmoji = trendingAlert.rank === 1 ? "🥇" : trendingAlert.rank === 2 ? "🥈" : "🥉";
     const caption = trendingAlert.postContent
       ? `"${trendingAlert.postContent.slice(0, 48)}${trendingAlert.postContent.length > 48 ? "…" : ""}"`
       : "Your post";
     toast({
-      title: `${rankEmoji} You're #${trendingAlert.rank} on Trending!`,
+      title: `You're #${trendingAlert.rank} on Trending`,
       description: `${caption} just entered the top 3.`,
       duration: 8_000,
     });
@@ -119,7 +132,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!badgeAlert) return;
     toast({
-      title: `${badgeAlert.badge.emoji} Badge earned: ${badgeAlert.badge.label}`,
+      title: `Badge earned: ${badgeAlert.badge.label}`,
       description: badgeAlert.badge.description,
       duration: 8_000,
     });
@@ -131,10 +144,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     const name = subAlert.subscriberName ?? subAlert.subscriberUsername ?? "Someone";
     const handle = subAlert.subscriberUsername ? `@${subAlert.subscriberUsername}` : null;
     toast({
-      title: subAlert.isRenewal ? `🔄 Subscription renewed!` : `💜 New subscriber!`,
+      title: subAlert.isRenewal ? "Subscription renewed" : "New subscriber",
       description: subAlert.isRenewal
-        ? `${handle ?? name} renewed their subscription to your exclusive content.`
-        : `${handle ?? name} just subscribed to your exclusive content.`,
+        ? `${handle ?? name} renewed their subscription.`
+        : `${handle ?? name} subscribed to you.`,
       duration: 8_000,
       action: subAlert.subscriberUsername ? (
         <ToastAction
@@ -148,45 +161,38 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     dismissSub();
   }, [subAlert?.subscriberId, subAlert?.seenAt]);
 
-  const primaryNav = [
-    { label: "Home", href: "/feed", icon: Home },
-    { label: "Search", href: "/search", icon: Search },
-    {
-      label: "Messages",
-      href: "/messages",
-      icon: MessageCircle,
-      badge: dmUnreadCount,
-      badgeVariant: "red" as const,
-    },
-    { label: "Profile", href: `/profile/${user?.id ?? ""}`, icon: UserIcon },
-  ];
-
-  const secondaryNav = [
-    { label: "Trending", href: "/trending", icon: Flame },
-    {
-      label: "Discover",
-      href: "/discover",
-      icon: Compass,
-      badge: onlineCount > 0 ? onlineCount : 0,
-      badgeVariant: "green" as const,
-    },
-    { label: "Exclusive", href: "/private", icon: Lock },
-    { label: "Wallet", href: "/wallet", icon: Wallet },
-    { label: "Leaderboard", href: "/leaderboard", icon: Trophy },
-    {
-      label: "Notifications",
-      href: "/notifications",
-      icon: Bell,
-      badge: unreadCount,
-      badgeVariant: "red" as const,
-    },
-    { label: "On-Chain", href: "/chain", icon: Link2 },
-  ];
+  const { primaryNav, secondaryNav } = getAppNavigation({
+    userId: user?.id, unreadCount, dmUnreadCount, onlineCount,
+  });
 
   const isSecondaryActive = secondaryNav.some(
     (item) => location === item.href || location.startsWith(item.href + "/")
   );
 
+  const isPublicSharePage = /^\/(?:post|profile)\/\d+$/.test(location);
+  if (isPublicSharePage && !user) {
+    const returnTo = safeShareReturnPath(location);
+    const guestHomeHref = returnTo ? `/?returnTo=${encodeURIComponent(returnTo)}` : "/";
+    return (
+      <div className="min-h-[100dvh] bg-background text-foreground">
+        <header className="flex items-center justify-between gap-4 border-b border-border px-4 py-4 sm:px-8">
+          <Link href={guestHomeHref} className="font-bold tracking-tight text-lg text-primary" data-testid="link-guest-home">
+            Monad Feet
+          </Link>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <ThemeToggle />
+            <Button size="sm" onClick={promptLogin} data-testid="button-guest-sign-in">
+              Sign in
+            </Button>
+          </div>
+        </header>
+        <main className="w-full max-w-4xl mx-auto px-4 py-6 sm:px-8 sm:py-10">
+          {children}
+        </main>
+        {loginDialog}
+      </div>
+    );
+  }
   if (!walletConnected || !user) return <>{children}</>;
 
   const showBanner = !CONTRACT_DEPLOYED && !bannerDismissed;
@@ -194,7 +200,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   function NavItem({
     item,
   }: {
-    item: { label: string; href: string; icon: React.ComponentType<{ className?: string }>; badge?: number; badgeVariant?: "red" | "green" };
+    item: AppNavItem;
   }) {
     const isActive = location === item.href || location.startsWith(item.href + "/");
     const Icon = item.icon;
@@ -203,6 +209,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     return (
       <Link
         href={item.href}
+        aria-label={badgeCount > 0 ? `${item.label}, ${badgeCount} unread` : item.label}
+        aria-current={isActive ? "page" : undefined}
+        data-testid={`link-desktop-${item.label.toLowerCase()}`}
         className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${
           isActive
             ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium"
@@ -213,11 +222,12 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           <Icon className="h-5 w-5" />
           {badgeCount > 0 && (
             <span
-              className={`absolute -top-1.5 -right-1.5 h-4 w-4 text-white text-[10px] font-bold rounded-full flex items-center justify-center ${
+              data-testid={`badge-desktop-${item.label.toLowerCase()}`}
+              className={`absolute -top-1.5 -right-1.5 h-4 min-w-4 px-1 text-white text-[10px] font-bold rounded-full flex items-center justify-center ${
                 isGreenBadge ? "bg-green-500" : "bg-destructive"
               }`}
             >
-              {badgeCount > 9 ? "9+" : badgeCount}
+              {navBadgeLabel(item)}
             </span>
           )}
         </div>
@@ -241,7 +251,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex min-h-screen w-full bg-background text-foreground">
+    <div className="flex min-h-[100dvh] w-full bg-background text-foreground">
       {/* Sidebar */}
       <aside className="w-64 border-r border-sidebar-border bg-sidebar hidden md:flex flex-col justify-between fixed top-0 bottom-0 left-0 h-screen">
         <div className="flex flex-col flex-1 overflow-y-auto">
@@ -259,7 +269,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 </span>
               )}
             </div>
-            <p className="text-sm text-sidebar-foreground/70">Exclusive Web3 Club</p>
+            <p className="text-sm text-sidebar-foreground/70">Invite-only community</p>
             {onlineCount > 0 && (
               <p className="text-xs text-green-600 font-medium mt-1 flex items-center gap-1">
                 <span className="relative flex h-1.5 w-1.5">
@@ -289,7 +299,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               }`}
             >
               <span className="flex-1 text-left">More</span>
-              {(unreadCount > 0 || dmUnreadCount > 0) && !moreOpen && (
+              {dmUnreadCount > 0 && !moreOpen && (
                 <span className="h-4 w-4 text-white text-[10px] font-bold rounded-full flex items-center justify-center bg-destructive">
                   !
                 </span>
@@ -310,8 +320,12 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
 
-        {/* Sidebar footer — Settings + Sign Out */}
+        {/* Sidebar footer, Settings + Sign Out */}
         <div className="p-4 border-t border-sidebar-border space-y-1">
+          <div className="flex items-center justify-between px-3 pb-2">
+            <span className="text-xs font-medium text-sidebar-foreground/60">Theme</span>
+            <ThemeToggle />
+          </div>
           <Link
             href="/settings"
             className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors text-sm ${
@@ -341,43 +355,42 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             <div className="flex items-center gap-2 text-xs text-amber-800">
               <Link2 className="h-3.5 w-3.5 flex-shrink-0 text-amber-600" />
               <span>
-                <strong>Deploy mode:</strong> Smart contract not deployed — actions save to database only.
-                Deploy <code className="bg-amber-100 px-1 rounded">contracts/MonadFeet.sol</code> and set{" "}
-                <code className="bg-amber-100 px-1 rounded">VITE_CONTRACT_ADDRESS</code> to go fully on-chain.
-                <Link href="/chain" className="ml-2 underline hover:text-amber-900">
-                  View instructions →
-                </Link>
+                On-chain features are not live yet. Your activity is saved in the app for now.
               </span>
             </div>
-            <button onClick={() => setBannerDismissed(true)} className="flex-shrink-0 text-amber-500 hover:text-amber-700">
+            <button onClick={() => setBannerDismissed(true)} aria-label="Dismiss notice" className="flex-shrink-0 text-amber-500 hover:text-amber-700">
               <X className="h-4 w-4" />
             </button>
           </div>
         )}
-        <div className="p-4 md:p-8 max-w-4xl mx-auto">{children}</div>
+        <div className="p-4 pb-28 md:p-8 max-w-4xl mx-auto">{children}</div>
       </main>
 
-      {/* Mobile bottom nav — primary only */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 border-t bg-background border-border flex justify-around p-2 z-50">
+      {/* Mobile bottom nav, primary only */}
+      <nav aria-label="Main" className="md:hidden fixed bottom-0 left-0 right-0 border-t bg-background/90 backdrop-blur-lg border-border flex justify-around p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] z-50">
         {[...primaryNav].map((item) => {
           const isActive = location === item.href || location.startsWith(item.href + "/");
           const Icon = item.icon;
           const badgeCount = item.badge ?? 0;
-          const isGreenBadge = item.badgeVariant === "green";
+          const isGreenBadge = (item.badgeVariant as string | undefined) === "green";
           return (
             <Link
               key={item.href}
               href={item.href}
+              aria-label={badgeCount > 0 ? `${item.label}, ${badgeCount} unread` : item.label}
+              aria-current={isActive ? "page" : undefined}
+              data-testid={`link-mobile-${item.label.toLowerCase()}`}
               className={`p-2 rounded-md relative ${isActive ? "text-primary" : "text-muted-foreground"}`}
             >
               <Icon className="h-6 w-6" />
               {badgeCount > 0 && (
                 <span
-                  className={`absolute top-1 right-1 h-3.5 w-3.5 text-white text-[9px] font-bold rounded-full flex items-center justify-center ${
+                  data-testid={`badge-mobile-${item.label.toLowerCase()}`}
+                  className={`absolute top-1 right-1 h-3.5 min-w-3.5 px-1 text-white text-[9px] font-bold rounded-full flex items-center justify-center ${
                     isGreenBadge ? "bg-green-500" : "bg-destructive"
                   }`}
                 >
-                  {badgeCount > 9 ? "9+" : badgeCount}
+                  {navBadgeLabel(item)}
                 </span>
               )}
             </Link>
@@ -386,11 +399,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         {/* More button for mobile */}
         <button
           onClick={() => setMoreOpen((o) => !o)}
+          aria-label="More pages"
+          aria-expanded={moreOpen}
           className={`p-2 rounded-md relative ${isSecondaryActive ? "text-primary" : "text-muted-foreground"}`}
         >
-          <Settings className="h-6 w-6" />
+          <Menu className="h-6 w-6" />
         </button>
-      </div>
+      </nav>
 
       {/* Mobile "More" drawer */}
       {moreOpen && (
@@ -402,21 +417,41 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             className="absolute bottom-16 left-0 right-0 bg-background border-t border-border rounded-t-2xl p-4 grid grid-cols-4 gap-2"
             onClick={(e) => e.stopPropagation()}
           >
+            <div className="col-span-4 flex items-center justify-between px-1 pb-2">
+              <span className="text-xs font-medium text-muted-foreground">Theme</span>
+              <ThemeToggle />
+            </div>
             {[...secondaryNav, { label: "Settings", href: "/settings", icon: Settings }].map((item) => {
               const isActive = location === item.href || location.startsWith(item.href + "/");
               const Icon = item.icon;
+              const badgeCount = "badge" in item ? item.badge ?? 0 : 0;
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   onClick={() => setMoreOpen(false)}
+                  aria-label={badgeCount > 0 ? `${item.label}, ${badgeCount} unread` : item.label}
+                  aria-current={isActive ? "page" : undefined}
+                  data-testid={`link-mobile-more-${item.label.toLowerCase()}`}
                   className={`flex flex-col items-center gap-1 p-3 rounded-xl text-xs font-medium transition-colors ${
                     isActive
                       ? "bg-primary/10 text-primary"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground"
                   }`}
                 >
-                  <Icon className="h-5 w-5" />
+                  <span className="relative">
+                    <Icon className="h-5 w-5" />
+                    {badgeCount > 0 && (
+                      <span
+                        data-testid={`badge-mobile-more-${item.label.toLowerCase()}`}
+                        className={`absolute -top-1.5 -right-2 h-4 min-w-4 px-1 text-white text-[10px] font-bold rounded-full flex items-center justify-center ${
+                          "badgeVariant" in item && item.badgeVariant === "green" ? "bg-green-500" : "bg-destructive"
+                        }`}
+                      >
+                        {navBadgeLabel(item)}
+                      </span>
+                    )}
+                  </span>
                   {item.label}
                 </Link>
               );

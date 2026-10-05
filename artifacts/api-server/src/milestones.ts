@@ -18,20 +18,11 @@ import {
   notificationPreferencesTable,
   inviteCodesTable,
 } from "@workspace/db";
-import { notifyUser } from "./presence";
 import { logger } from "./lib/logger";
+import { notifyUser } from "./presence";
 import { nanoid } from "nanoid";
 
 // ── Invite code award helper ─────────────────────────────────────
-
-async function awardInviteCodes(userId: number, count: number): Promise<void> {
-  const codes = Array.from({ length: count }, () => ({
-    code: nanoid(8).toUpperCase(),
-    ownerId: userId,
-  }));
-  await db.insert(inviteCodesTable).values(codes);
-  logger.info({ userId, count }, "Invite codes awarded");
-}
 
 // ── Milestone definitions ────────────────────────────────────────
 
@@ -49,6 +40,7 @@ const POST_MILESTONES: MilestoneDef[] = [
   { count: 10, type: "posts_10",   label: "Content Creator", description: "Published 10 posts",          emoji: "📸" },
   { count: 25, type: "posts_25",   label: "Prolific Poster", description: "Published 25 posts",          emoji: "🚀" },
   { count: 50, type: "posts_50",   label: "Monad Legend",    description: "Published 50 posts",          emoji: "🏆" },
+  { count: 150, type: "posts_150", label: "Century Creator", description: "Published 150 posts", emoji: "🌟" },
 ];
 
 const LIKES_MILESTONES: MilestoneDef[] = [
@@ -63,6 +55,8 @@ const STREAK_MILESTONES: MilestoneDef[] = [
   { count: 7,  type: "streak_7",  label: "Week Warrior",    description: "7-day check-in streak",      emoji: "🎯" },
   { count: 14, type: "streak_14", label: "Fortnight Force", description: "14-day check-in streak",     emoji: "💪" },
   { count: 30, type: "streak_30", label: "Monthly Master",  description: "30-day check-in streak",     emoji: "👑" },
+  { count: 90, type: "streak_90", label: "Seasoned Regular", description: "90-day check-in streak", emoji: "💎" },
+  { count: 180, type: "streak_180", label: "Half-Year Legend", description: "180-day check-in streak", emoji: "🏅" },
 ];
 
 const SUBSCRIBER_MILESTONES: MilestoneDef[] = [
@@ -79,14 +73,16 @@ type InviteAwardDef = {
   count: number;
   type: string; // unique badge-type marker
   codes: number;
+  points: number;
   reason: string;
 };
 
 const INVITE_AWARDS: InviteAwardDef[] = [
-  { stat: "streak", count: 7,  type: "icm_streak_7",  codes: 1, reason: "7-day check-in streak" },
-  { stat: "streak", count: 30, type: "icm_streak_30", codes: 3, reason: "30-day check-in streak" },
-  { stat: "posts",  count: 10, type: "icm_posts_10",  codes: 1, reason: "publishing 10 posts" },
-  { stat: "posts",  count: 25, type: "icm_posts_25",  codes: 1, reason: "publishing 25 posts" },
+  { stat: "streak", count: 2, type: "icm_streak_2", codes: 1, points: 10, reason: "2-day check-in streak" },
+  { stat: "streak", count: 5, type: "icm_streak_5", codes: 1, points: 50, reason: "5-day check-in streak" },
+  { stat: "streak", count: 7, type: "icm_streak_7_v2", codes: 2, points: 100, reason: "7-day check-in streak" },
+  { stat: "posts", count: 5, type: "icm_posts_5", codes: 1, points: 10, reason: "publishing 5 posts" },
+  { stat: "posts", count: 10, type: "icm_posts_10_v2", codes: 1, points: 10, reason: "publishing 10 posts" },
 ];
 
 // ── Stat fetch ───────────────────────────────────────────────────
@@ -130,12 +126,16 @@ async function fetchStats(userId: number): Promise<UserStats> {
 
 export async function checkMilestones(userId: number): Promise<void> {
   try {
+    // Per-user transactional lock makes marker checks and associated rewards
+    // indivisible, including concurrent fire-and-forget milestone checks.
+    const emitted = await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(28117, ${userId})`);
     const [stats, earnedRows, prefsRows] = await Promise.all([
       fetchStats(userId),
-      db.select({ badgeType: badgesTable.badgeType })
+      tx.select({ badgeType: badgesTable.badgeType })
         .from(badgesTable)
         .where(eq(badgesTable.userId, userId)),
-      db.select({ badgesEnabled: notificationPreferencesTable.badgesEnabled })
+      tx.select({ badgesEnabled: notificationPreferencesTable.badgesEnabled })
         .from(notificationPreferencesTable)
         .where(eq(notificationPreferencesTable.userId, userId)),
     ]);
@@ -168,20 +168,23 @@ export async function checkMilestones(userId: number): Promise<void> {
       }
     }
 
-    if (toAward.length === 0 && inviteAwards.length === 0) return;
+    if (toAward.length === 0 && inviteAwards.length === 0) return { toAward, inviteAwards };
 
-    // Grant invite codes first (fire-and-forget per award)
+    // Marker, codes and points commit or roll back as one unit.
     for (const award of inviteAwards) {
       // Insert a hidden marker badge so we never double-award
-      await db.insert(badgesTable).values({
+      await tx.insert(badgesTable).values({
         userId,
         badgeType: award.type,
         label: `Invite codes: ${award.reason}`,
         description: `Earned ${award.codes} invite code${award.codes > 1 ? "s" : ""} for ${award.reason}`,
       });
-      await awardInviteCodes(userId, award.codes);
+      await tx.insert(inviteCodesTable).values(Array.from({ length: award.codes }, () => ({
+        code: nanoid(10).toUpperCase(), ownerId: userId,
+      })));
+       await tx.execute(sql`UPDATE streaks SET total_points = total_points + ${award.points} WHERE user_id = ${userId}`);
       if (badgesEnabled) {
-        await db.insert(notificationsTable).values({
+        await tx.insert(notificationsTable).values({
           userId,
           type: "system",
           title: `🎟️ You earned ${award.codes} invite code${award.codes > 1 ? "s" : ""}!`,
@@ -190,14 +193,13 @@ export async function checkMilestones(userId: number): Promise<void> {
           read: false,
         });
       }
-      notifyUser(userId, { type: "invite_codes_earned", userId, codes: award.codes, reason: award.reason });
     }
 
-    if (toAward.length === 0) return;
+    if (toAward.length === 0) return { toAward, inviteAwards };
 
     // Award each milestone sequentially (avoid race inserts)
     for (const m of toAward) {
-      await db.insert(badgesTable).values({
+      await tx.insert(badgesTable).values({
         userId,
         badgeType: m.type,
         label: m.label,
@@ -206,7 +208,7 @@ export async function checkMilestones(userId: number): Promise<void> {
       });
 
       if (badgesEnabled) {
-        await db.insert(notificationsTable).values({
+        await tx.insert(notificationsTable).values({
           userId,
           type: "badge",
           title: `${m.emoji} Badge earned: ${m.label}`,
@@ -216,14 +218,18 @@ export async function checkMilestones(userId: number): Promise<void> {
         });
       }
 
-      // Real-time WS alert to the user
+      logger.info({ userId, badgeType: m.type, label: m.label }, "Milestone badge awarded");
+    }
+    return { toAward, inviteAwards };
+    });
+    for (const award of emitted.inviteAwards) {
+      notifyUser(userId, { type: "invite_codes_earned", userId, codes: award.codes, reason: award.reason });
+    }
+    for (const m of emitted.toAward) {
       notifyUser(userId, {
-        type: "badge_earned",
-        userId,
+        type: "badge_earned", userId,
         badge: { badgeType: m.type, label: m.label, description: m.description, emoji: m.emoji },
       });
-
-      logger.info({ userId, badgeType: m.type, label: m.label }, "Milestone badge awarded");
     }
   } catch (e) {
     logger.error({ e, userId }, "checkMilestones error");

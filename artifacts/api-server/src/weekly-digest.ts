@@ -117,7 +117,7 @@ export async function runWeeklyDigest(): Promise<void> {
       COUNT(DISTINCT rl.id)::int                 AS "likesEarned",
       COUNT(DISTINCT s.id)::int                  AS "newSubscribers",
       COALESCE(MAX(st.current_streak), 0)::int   AS "currentStreak",
-      COALESCE(MAX(st.total_points), 0)::int     AS "totalPoints"
+      COALESCE(MAX(st.total_points), 0)::float   AS "totalPoints"
     FROM users u
     LEFT JOIN posts new_p
       ON new_p.author_id = u.id
@@ -212,7 +212,7 @@ export async function runWeeklyDigest(): Promise<void> {
     await db.insert(notificationsTable).values({
       userId: row.userId,
       type: "system",
-      title: `📊 Weekly Digest — ${weekLabel}`,
+      title: `Your week: ${weekLabel}`,
       body: `DIGEST:${JSON.stringify(stats)}`,
       read: false,
     });

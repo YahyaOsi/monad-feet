@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, timestamp, uniqueIndex, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
@@ -8,11 +8,15 @@ export const directMessagesTable = pgTable("direct_messages", {
   senderId: integer("sender_id").notNull().references(() => usersTable.id),
   recipientId: integer("recipient_id").notNull().references(() => usersTable.id),
   content: text("content").notNull(),
+  // Inbox-only visibility. History remains readable by both participants, and
+  // newly inserted messages resurface a conversation independently for each.
+  senderHidden: boolean("sender_hidden").notNull().default(false),
+  recipientHidden: boolean("recipient_hidden").notNull().default(false),
   readAt: timestamp("read_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const insertDirectMessageSchema = createInsertSchema(directMessagesTable).omit({ id: true, createdAt: true });
+export const insertDirectMessageSchema = createInsertSchema(directMessagesTable).omit({ id: true, createdAt: true, senderHidden: true, recipientHidden: true });
 export type InsertDirectMessage = z.infer<typeof insertDirectMessageSchema>;
 export type DirectMessage = typeof directMessagesTable.$inferSelect;
 

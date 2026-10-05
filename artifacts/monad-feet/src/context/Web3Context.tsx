@@ -1,71 +1,38 @@
-import { ReactNode } from 'react';
-import { createAppKit } from '@reown/appkit/react';
-import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
-import { defineChain } from '@reown/appkit/networks';
-import { WagmiProvider } from 'wagmi';
-import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
+import { useEffect, useState, type ReactNode } from "react";
+import { getDefaultConfig, RainbowKitProvider, darkTheme, lightTheme } from "@rainbow-me/rainbowkit";
+import "@rainbow-me/rainbowkit/styles.css";
+import { WagmiProvider, http } from "wagmi";
+import { monad } from "wagmi/chains";
+import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 
-const projectId = '19c9787ece0fcd04698c96c998167b4a';
-
-// Monad Mainnet — chainId 143 (0x8f)
-// Source: https://docs.monad.xyz/developer-essentials/network-information
-export const monadMainnet = defineChain({
-  id: 143,
-  caipNetworkId: 'eip155:143',
-  chainNamespace: 'eip155',
-  name: 'Monad Mainnet',
-  network: 'monad-mainnet',
-  nativeCurrency: { name: 'MON', symbol: 'MON', decimals: 18 },
-  rpcUrls: {
-    default: {
-      http: ['https://rpc.monad.xyz'],
-    },
-    public: {
-      http: ['https://rpc.monad.xyz'],
-    },
-  },
-  blockExplorers: {
-    default: { name: 'MonVision', url: 'https://monvision.io' },
-  },
+// Official Monad mainnet chain definition (143, MON, https://rpc.monad.xyz).
+export const monadMainnet = monad;
+const config = getDefaultConfig({
+  appName: "Monad Feet",
+  projectId: "0f8b4abd0914345866418eee18a790bb",
+  chains: [monadMainnet],
+  transports: { [monadMainnet.id]: http("https://rpc.monad.xyz") },
+  ssr: false,
 });
 
-const networks = [monadMainnet] as const;
+export function Web3Provider({ children, queryClient }: { children: ReactNode; queryClient: QueryClient }) {
+  const [isDark, setIsDark] = useState(() =>
+    typeof document !== "undefined" && document.documentElement.classList.contains("dark")
+  );
 
-export const wagmiAdapter = new WagmiAdapter({
-  projectId,
-  networks
-});
+  useEffect(() => {
+    const root = document.documentElement;
+    const observer = new MutationObserver(() => setIsDark(root.classList.contains("dark")));
+    observer.observe(root, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
 
-createAppKit({
-  adapters: [wagmiAdapter],
-  networks,
-  projectId,
-  features: {
-    email: false,
-    socials: [],
-    analytics: false,
-  },
-  metadata: {
-    name: 'Monad Feet',
-    description: 'The invite-only Web3 social club on Monad',
-    url: 'https://monadfeet.replit.app',
-    icons: [],
-  },
-});
-
-declare global {
-  namespace JSX {
-    interface IntrinsicElements {
-      'appkit-button': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement>;
-    }
-  }
-}
-
-export function Web3Provider({ children, queryClient }: { children: ReactNode, queryClient: QueryClient }) {
   return (
-    <WagmiProvider config={wagmiAdapter.wagmiConfig}>
+    <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
-        {children}
+        <RainbowKitProvider theme={isDark ? darkTheme() : lightTheme()}>
+          {children}
+        </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProvider>
   );

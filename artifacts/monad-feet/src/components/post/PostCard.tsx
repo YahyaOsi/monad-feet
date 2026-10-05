@@ -10,18 +10,23 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   Heart, ExternalLink, Loader2, Link2, Shield, MessageSquare,
-  Share2, Check, Gem, Lock, Crown
+  Share2, Check, Lock, Crown
 } from "lucide-react";
 import { useContractActions } from "@/lib/useContractActions";
 import { useOnChainPostLikeCount, useIsPostLikedOnChain } from "@/lib/useOnChain";
 import { CONTRACT_DEPLOYED } from "@/lib/contract";
+import { useUser } from "@/context/UserContext";
+import { useShareLoginPrompt } from "@/hooks/useShareLoginPrompt";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-export function PostCard({ post }: { post: Post }) {
+export function PostCard({ post, onRequireLogin }: { post: Post; onRequireLogin?: () => void }) {
   const queryClient = useQueryClient();
   const { address } = useAccount();
   const [, navigate] = useLocation();
+  const { user } = useUser();
+  const { promptLogin: openLoginPrompt, dialog: loginDialog } = useShareLoginPrompt();
+  const promptLogin = onRequireLogin ?? openLoginPrompt;
   const unlikePost = useUnlikePost();
   const { contractDeployed, likePostOnChain } = useContractActions();
 
@@ -29,6 +34,7 @@ export function PostCard({ post }: { post: Post }) {
   const [optimisticLiked, setOptimisticLiked] = useState<boolean | null>(null);
   const [optimisticCount, setOptimisticCount] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
+  const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
 
   const { data: chainLikeCount } = useOnChainPostLikeCount(post.id);
   const { data: chainLikedByMe } = useIsPostLikedOnChain(post.id, address);
@@ -41,11 +47,12 @@ export function PostCard({ post }: { post: Post }) {
     ? optimisticCount
     : (CONTRACT_DEPLOYED && chainLikeCount !== undefined ? Number(chainLikeCount) : (post.likeCount ?? 0));
 
-  // Paid post: blur image/content if user is not subscribed and is not the author
+  // A locked shell must never load the original private image, even blurred.
   const isBlurred = (post as Post & { isPaid?: boolean; isSubscribedToAuthor?: boolean }).isPaid
     && !(post as Post & { isPaid?: boolean; isSubscribedToAuthor?: boolean }).isSubscribedToAuthor;
 
   const handleLikeToggle = async () => {
+    if (!user) { promptLogin(); return; }
     if (liking || isBlurred) return;
     setLiking(true);
     const wasLiked = isLiked;
@@ -61,11 +68,12 @@ export function PostCard({ post }: { post: Post }) {
 
       try {
         const wallet = localStorage.getItem("mf_wallet_address") ?? "";
-        await fetch(`${BASE}/api/posts/${post.id}/like`, {
+        const response = await fetch(`${BASE}/api/posts/${post.id}/like`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-wallet-address": wallet },
           body: JSON.stringify({ txHash }),
         });
+        if (!response.ok) throw new Error(`Like failed (HTTP ${response.status}).`);
         queryClient.invalidateQueries({ queryKey: getListPostsQueryKey() });
         queryClient.invalidateQueries({ queryKey: getGetPostQueryKey(post.id) });
       } catch {
@@ -110,43 +118,39 @@ export function PostCard({ post }: { post: Post }) {
   return (
     <Card className="overflow-hidden transition-all duration-200 group hover:shadow-md">
       {/* Post image */}
-      {post.imageUrl && (
-        isBlurred ? (
-          /* Blurred paid post image with lock overlay */
+      {isBlurred ? (
           <div className="relative w-full overflow-hidden bg-muted aspect-video select-none">
-            <img
-              src={post.imageUrl}
-              alt="Exclusive post"
-              className="w-full h-full object-cover blur-xl scale-110 brightness-75"
-            />
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/30">
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-gradient-to-br from-primary/20 to-background">
               <div className="p-3 bg-background/90 backdrop-blur-sm rounded-full shadow-lg">
                 <Lock className="h-7 w-7 text-primary" />
               </div>
-              <p className="text-white font-bold text-base drop-shadow">Exclusive content</p>
-              <p className="text-white/80 text-xs drop-shadow">Subscribe to unlock this post</p>
+              <p className="font-bold text-base">Exclusive content</p>
+              <p className="text-muted-foreground text-xs">Subscribe to unlock this post</p>
               <Button
                 size="sm"
                 className="gap-1.5 mt-1 bg-primary hover:bg-primary/90 shadow-lg"
-                onClick={() => navigate(`/profile/${post.authorId}`)}
+                onClick={() => user ? navigate(`/profile/${post.authorId}`) : promptLogin()}
+                data-testid={`button-subscribe-post-${post.id}`}
               >
                 <Crown className="h-3.5 w-3.5" />
                 Subscribe to @{post.authorUsername}
               </Button>
             </div>
           </div>
-        ) : (
+      ) : post.imageUrl ? (
           <Link href={`/post/${post.id}`}>
             <div className="w-full overflow-hidden bg-muted cursor-pointer">
-              <img
+              {failedImageUrl === post.imageUrl ? (
+                <p className="p-6 text-sm text-muted-foreground text-center" role="status">Image unavailable. Open the post to check access.</p>
+              ) : <img
                 src={post.imageUrl}
                 alt="Post image"
                 className="w-full max-h-[480px] object-cover group-hover:scale-[1.005] transition-transform duration-300"
-              />
+                onError={() => setFailedImageUrl(post.imageUrl ?? null)}
+              />}
             </div>
           </Link>
-        )
-      )}
+      ) : null}
 
       <CardHeader className="p-4 pb-2 flex flex-row items-center gap-3">
         <Link href={`/profile/${post.authorId}`}>
@@ -163,11 +167,6 @@ export function PostCard({ post }: { post: Post }) {
             <Link href={`/profile/${post.authorId}`} className="font-semibold text-sm hover:underline truncate">
               {post.authorName}
             </Link>
-            {post.authorNftHolder && (
-              <span title="Monad Feet NFT Holder" className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 flex-shrink-0">
-                <Gem className="h-2.5 w-2.5" />
-              </span>
-            )}
             {(post as Post & { isPaid?: boolean }).isPaid && (
               <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200 flex-shrink-0">
                 <Crown className="h-2.5 w-2.5" />
@@ -190,7 +189,7 @@ export function PostCard({ post }: { post: Post }) {
             target="_blank"
             rel="noopener noreferrer"
             className="flex-shrink-0 flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 hover:bg-violet-200 transition-colors border border-violet-200"
-            title="Anchored on Monad Mainnet"
+            title="Anchored on Monad"
           >
             <Shield className="h-2.5 w-2.5" />
             On Monad
@@ -199,17 +198,11 @@ export function PostCard({ post }: { post: Post }) {
         )}
       </CardHeader>
 
-      {post.content && (
+      {!isBlurred && post.content && (
         <CardContent className="px-4 pb-2 pt-0">
-          {isBlurred ? (
-            <p className="whitespace-pre-wrap text-foreground/90 leading-relaxed text-sm select-none blur-sm pointer-events-none">
-              {post.content}
-            </p>
-          ) : (
             <Link href={`/post/${post.id}`}>
               <p className="whitespace-pre-wrap text-foreground/90 leading-relaxed text-sm cursor-pointer hover:text-foreground transition-colors">{post.content}</p>
             </Link>
-          )}
         </CardContent>
       )}
 
@@ -225,6 +218,8 @@ export function PostCard({ post }: { post: Post }) {
             }`}
             onClick={handleLikeToggle}
             disabled={liking || isBlurred}
+            aria-label={user ? (isLiked ? "Unlike post" : "Like post") : "Sign in to like post"}
+            data-testid={`button-like-post-${post.id}`}
           >
             {liking && !isLiked ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -256,7 +251,7 @@ export function PostCard({ post }: { post: Post }) {
               size="sm"
               variant="outline"
               className="gap-1.5 text-xs h-7 px-2.5 border-primary/30 text-primary hover:bg-primary/5"
-              onClick={() => navigate(`/profile/${post.authorId}`)}
+              onClick={() => user ? navigate(`/profile/${post.authorId}`) : promptLogin()}
             >
               <Crown className="h-3 w-3" />
               Subscribe to unlock
@@ -287,6 +282,7 @@ export function PostCard({ post }: { post: Post }) {
           )}
         </div>
       </CardFooter>
+      {!onRequireLogin && loginDialog}
     </Card>
   );
 }
