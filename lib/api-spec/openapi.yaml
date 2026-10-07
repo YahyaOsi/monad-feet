@@ -1,6 +1,5 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
   description: Monad Feet API specification
@@ -34,7 +33,8 @@ paths:
   /game:
     get:
       operationId: getGame
-      tags: [streak]
+      tags:
+        - streak
       responses:
         "200":
           description: Live Monad game state
@@ -45,7 +45,8 @@ paths:
   /game/claims:
     get:
       operationId: listGameClaims
-      tags: [streak]
+      tags:
+        - streak
       responses:
         "200":
           description: Latest twenty verified awards
@@ -55,7 +56,8 @@ paths:
                 $ref: "#/components/schemas/FeetGameHistory"
     post:
       operationId: claimGame
-      tags: [streak]
+      tags:
+        - streak
       requestBody:
         required: true
         content:
@@ -72,7 +74,8 @@ paths:
   /auth/session:
     get:
       operationId: getAuthSession
-      tags: [auth]
+      tags:
+        - auth
       summary: Return the wallet authenticated by the HTTP-only session cookie
       responses:
         "200":
@@ -83,14 +86,19 @@ paths:
                 type: object
                 properties:
                   walletAddress:
-                    type: ["string", "null"]
-                required: [walletAddress]
+                    type:
+                      - string
+                      - "null"
+                required:
+                  - walletAddress
   /auth/challenge:
     post:
       operationId: createAuthChallenge
-      tags: [auth]
+      tags:
+        - auth
       summary: Request a five-minute one-time wallet sign-in message for Monad chain 143
-      description: Requires a same-origin Origin header. The message is bound to the requested wallet, origin, nonce, and chain.
+      description: Requires a same-origin Origin header. The message is bound to the
+        requested wallet, origin, nonce, and chain.
       requestBody:
         required: true
         content:
@@ -100,7 +108,8 @@ paths:
               properties:
                 walletAddress:
                   type: string
-              required: [walletAddress]
+              required:
+                - walletAddress
       responses:
         "200":
           description: Message to sign with the requested wallet
@@ -111,13 +120,16 @@ paths:
                 properties:
                   message:
                     type: string
-                required: [message]
+                required:
+                  - message
   /auth/verify:
     post:
       operationId: verifyAuthChallenge
-      tags: [auth]
+      tags:
+        - auth
       summary: Verify a wallet signature and create an HTTP-only cookie session
-      description: Consumes the challenge exactly once; requires a same-origin Origin header. Supports EOAs and ERC-1271 wallets on Monad.
+      description: Consumes the challenge exactly once; requires a same-origin Origin
+        header. Supports EOAs and ERC-1271 wallets on Monad.
       requestBody:
         required: true
         content:
@@ -131,7 +143,10 @@ paths:
                   type: string
                 signature:
                   type: string
-              required: [walletAddress, message, signature]
+              required:
+                - walletAddress
+                - message
+                - signature
       responses:
         "200":
           description: Wallet session established
@@ -142,13 +157,15 @@ paths:
                 properties:
                   walletAddress:
                     type: string
-                required: [walletAddress]
+                required:
+                  - walletAddress
         "401":
           description: Signature invalid, expired, or challenge already used
   /auth/logout:
     post:
       operationId: logoutAuth
-      tags: [auth]
+      tags:
+        - auth
       summary: Revoke the current cookie session
       responses:
         "204":
@@ -156,7 +173,8 @@ paths:
   /healthz:
     get:
       operationId: healthCheck
-      tags: [health]
+      tags:
+        - health
       summary: Health check
       description: Returns server health status
       responses:
@@ -166,13 +184,20 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
-
   /auth/registration/prepare:
     post:
       operationId: prepareRegistration
-      tags: [auth]
+      tags:
+        - auth
       summary: Validate app admission and recover an existing on-chain registration
-      description: Requires a signed wallet session. Normalizes username by trimming and lowercasing; accepts 3–32 ASCII letters, digits or underscores. New accounts require an unused app invite. Returns registered false only after a successful chain read. For registered wallets returns the original verified transaction hash, independent of the selected app handle. Already verified app accounts return their existing evidence without consuming another invite. This preflight does not reserve a username or invite; register rechecks atomically.
+      description: Requires a signed wallet session. Normalizes username by trimming
+        and lowercasing; accepts 3–32 ASCII letters, digits or underscores. New
+        accounts require an unused app invite. Returns registered false only
+        after a successful chain read. For registered wallets returns the
+        original verified transaction hash, independent of the selected app
+        handle. Already verified app accounts return their existing evidence
+        without consuming another invite. This preflight does not reserve a
+        username or invite; register rechecks atomically.
       requestBody:
         required: true
         content:
@@ -192,13 +217,17 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RegistrationError"
-
   /auth/register:
     post:
       operationId: registerUser
-      tags: [auth]
+      tags:
+        - auth
       summary: Register a new user
-      description: Requires a signed wallet session matching walletAddress. Register using an unused invite code; NFT access is disabled until a verified contract is configured. Invite registrations receive no starter codes. A successful unique referral awards the inviter 1 point for the first referral, increasing by 1 up to 5 points per referral.
+      description: Requires a signed wallet session matching walletAddress. Register
+        using an unused invite code; NFT access is disabled until a verified
+        contract is configured. Invite registrations receive no starter codes. A
+        successful unique referral awards the inviter 1 point for the first
+        referral, increasing by 1 up to 5 points per referral.
       requestBody:
         required: true
         content:
@@ -230,11 +259,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-
   /users/me:
     get:
       operationId: getMe
-      tags: [users]
+      tags:
+        - users
       summary: Get current user profile
       responses:
         "200":
@@ -251,7 +280,8 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
     put:
       operationId: updateMe
-      tags: [users]
+      tags:
+        - users
       summary: Update current user profile
       requestBody:
         required: true
@@ -266,11 +296,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/User"
-
   /users/{userId}:
     get:
       operationId: getUser
-      tags: [users]
+      tags:
+        - users
       summary: Get user profile by ID
       parameters:
         - name: userId
@@ -291,11 +321,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-
   /invites:
     get:
       operationId: getMyInvites
-      tags: [invites]
+      tags:
+        - invites
       summary: Get current user's invite codes
       responses:
         "200":
@@ -306,11 +336,11 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/InviteCode"
-
   /invites/validate:
     post:
       operationId: validateInviteCode
-      tags: [invites]
+      tags:
+        - invites
       summary: Validate an invite code
       requestBody:
         required: true
@@ -325,11 +355,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ValidateInviteResponse"
-
   /trending:
     get:
       operationId: getTrending
-      tags: [posts]
+      tags:
+        - posts
       summary: Get trending posts ranked by like velocity
       responses:
         "200":
@@ -338,23 +368,27 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TrendingResponse"
-
   /posts:
     get:
       operationId: listPosts
-      tags: [posts]
+      tags:
+        - posts
       summary: List public feed posts
       parameters:
         - name: cursor
           in: query
           required: false
           schema:
-            type: ["integer", "null"]
+            type:
+              - integer
+              - "null"
         - name: limit
           in: query
           required: false
           schema:
-            type: ["integer", "null"]
+            type:
+              - integer
+              - "null"
         - name: authorId
           in: query
           required: false
@@ -369,7 +403,8 @@ paths:
                 $ref: "#/components/schemas/PostsPage"
     post:
       operationId: createPost
-      tags: [posts]
+      tags:
+        - posts
       summary: Create a new public post
       requestBody:
         required: true
@@ -384,11 +419,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Post"
-
   /posts/{postId}:
     get:
       operationId: getPost
-      tags: [posts]
+      tags:
+        - posts
       summary: Get a single post
       parameters:
         - name: postId
@@ -411,7 +446,8 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
     delete:
       operationId: deletePost
-      tags: [posts]
+      tags:
+        - posts
       summary: Delete a post
       parameters:
         - name: postId
@@ -422,11 +458,11 @@ paths:
       responses:
         "204":
           description: Deleted
-
   /posts/{postId}/like:
     post:
       operationId: likePost
-      tags: [posts]
+      tags:
+        - posts
       summary: Like a post
       parameters:
         - name: postId
@@ -443,7 +479,8 @@ paths:
                 $ref: "#/components/schemas/LikeResponse"
     delete:
       operationId: unlikePost
-      tags: [posts]
+      tags:
+        - posts
       summary: Unlike a post
       parameters:
         - name: postId
@@ -458,11 +495,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/LikeResponse"
-
   /private-posts:
     get:
       operationId: listPrivatePosts
-      tags: [private-feed]
+      tags:
+        - private-feed
       summary: List private posts for subscribed creator
       parameters:
         - name: creatorId
@@ -487,7 +524,8 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
     post:
       operationId: createPrivatePost
-      tags: [private-feed]
+      tags:
+        - private-feed
       summary: Create a private post (creator only)
       requestBody:
         required: true
@@ -502,11 +540,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PrivatePost"
-
   /subscriptions:
     get:
       operationId: listSubscriptions
-      tags: [subscriptions]
+      tags:
+        - subscriptions
       summary: List current user's active subscriptions
       responses:
         "200":
@@ -519,7 +557,8 @@ paths:
                   $ref: "#/components/schemas/Subscription"
     post:
       operationId: createSubscription
-      tags: [subscriptions]
+      tags:
+        - subscriptions
       summary: Subscribe to a creator
       requestBody:
         required: true
@@ -540,11 +579,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-
   /subscriptions/price:
     put:
       operationId: updateSubscriptionPrice
-      tags: [subscriptions]
+      tags:
+        - subscriptions
       summary: Set or update creator subscription price
       requestBody:
         required: true
@@ -559,11 +598,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SubscriptionPrice"
-
   /subscriptions/price/{creatorId}:
     get:
       operationId: getCreatorSubscriptionPrice
-      tags: [subscriptions]
+      tags:
+        - subscriptions
       summary: Get creator's subscription price
       parameters:
         - name: creatorId
@@ -584,11 +623,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-
   /streak:
     get:
       operationId: getStreak
-      tags: [streak]
+      tags:
+        - streak
       summary: Get current user's streak and points
       responses:
         "200":
@@ -597,11 +636,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StreakInfo"
-
   /rewards/x:
     get:
       operationId: getXRewards
-      tags: [streak]
+      tags:
+        - streak
       summary: Server-side X reward status (UTC days)
       responses:
         "200":
@@ -610,11 +649,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/XRewardsStatus"
-
   /rewards/x/{task}:
     post:
       operationId: claimXReward
-      tags: [streak]
+      tags:
+        - streak
       summary: Self-report an X action; no X verification
       parameters:
         - in: path
@@ -622,7 +661,12 @@ paths:
           required: true
           schema:
             type: string
-            enum: [follow, like, comment, notifications, post_x]
+            enum:
+              - follow
+              - like
+              - comment
+              - notifications
+              - post_x
       responses:
         "200":
           description: Atomic claim result; claimed false means already claimed
@@ -630,11 +674,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/XClaimResult"
-
   /streak/checkin:
     post:
       operationId: dailyCheckin
-      tags: [streak]
+      tags:
+        - streak
       summary: Daily login checkin for streak and points
       requestBody:
         required: true
@@ -649,11 +693,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StreakInfo"
-
   /badges:
     get:
       operationId: listBadges
-      tags: [badges]
+      tags:
+        - badges
       summary: List current user's loyalty badges
       responses:
         "200":
@@ -664,11 +708,11 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Badge"
-
   /wallet/balance:
     get:
       operationId: getWalletBalance
-      tags: [wallet]
+      tags:
+        - wallet
       summary: Get user wallet balances
       responses:
         "200":
@@ -677,11 +721,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WalletBalance"
-
   /feed/summary:
     get:
       operationId: getFeedSummary
-      tags: [feed]
+      tags:
+        - feed
       summary: Get feed summary stats
       responses:
         "200":
@@ -690,11 +734,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/FeedSummary"
-
   /leaderboard:
     get:
       operationId: getLeaderboard
-      tags: [feed]
+      tags:
+        - feed
       summary: Get top users by streak points
       parameters:
         - name: sortBy
@@ -711,11 +755,11 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/LeaderboardEntry"
-
   /posts/{postId}/comments:
     get:
       operationId: listComments
-      tags: [posts]
+      tags:
+        - posts
       summary: List comments on a post
       parameters:
         - name: postId
@@ -734,7 +778,8 @@ paths:
                   $ref: "#/components/schemas/Comment"
     post:
       operationId: createComment
-      tags: [posts]
+      tags:
+        - posts
       summary: Add a comment to a post
       parameters:
         - name: postId
@@ -755,11 +800,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Comment"
-
   /comments/{commentId}:
     delete:
       operationId: deleteComment
-      tags: [posts]
+      tags:
+        - posts
       summary: Delete a comment
       parameters:
         - name: commentId
@@ -770,11 +815,11 @@ paths:
       responses:
         "204":
           description: Deleted
-
   /users/search:
     get:
       operationId: searchUsers
-      tags: [users]
+      tags:
+        - users
       summary: Search users by username or name
       parameters:
         - name: q
@@ -796,11 +841,11 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/UserWithStats"
-
   /users/{userId}/analytics:
     get:
       operationId: getCreatorAnalytics
-      tags: [users]
+      tags:
+        - users
       summary: Get creator analytics for a user
       parameters:
         - name: userId
@@ -815,12 +860,345 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CreatorAnalytics"
-
+  /creator/program:
+    get:
+      operationId: creatorGetProgram
+      responses:
+        "200":
+          description: Draft program configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatorProgram"
+  /creator/treasury:
+    get:
+      operationId: creatorGetTreasury
+      responses:
+        "200":
+          description: Live read only treasury balance
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatorTreasury"
+  /creator/account:
+    get:
+      operationId: creatorGetAccount
+      responses:
+        "200":
+          description: Current isolated preview or wallet session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatorAccount"
+    patch:
+      operationId: creatorUpdateAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatorAccountInput"
+      responses:
+        "200":
+          description: Updated profile with unverified socials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatorAccount"
+  /creator/session/demo:
+    post:
+      operationId: creatorEnterDemo
+      responses:
+        "200":
+          description: Isolated sample workspace, no live privileges
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatorAccount"
+  /creator/session/logout:
+    post:
+      operationId: creatorLogoutCreator
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatorActionResult"
+  /creator/session/applicant:
+    post:
+      operationId: creatorStartPreviewApplication
+      responses:
+        "200":
+          description: Fresh isolated applicant preview, no main app identity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatorAccount"
+  /creator/auth/challenge:
+    post:
+      operationId: creatorCreateWalletChallenge
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatorWalletInput"
+      responses:
+        "200":
+          description: Expiring single use login challenge
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatorWalletChallenge"
+  /creator/auth/verify:
+    post:
+      operationId: creatorVerifyWallet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatorSignatureInput"
+      responses:
+        "200":
+          description: Wallet ownership verified, main account linking still required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatorAccount"
+  /creator/dashboard:
+    get:
+      operationId: creatorGetDashboard
+      responses:
+        "200":
+          description: Weekly summary and recent contribution activity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatorDashboard"
+  /creator/tasks:
+    get:
+      operationId: creatorGetTasks
+      responses:
+        "200":
+          description: Configurable activity rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CreatorTask"
+  /creator/submissions:
+    get:
+      operationId: creatorGetSubmissions
+      responses:
+        "200":
+          description: Private participant evidence
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CreatorSubmission"
+    post:
+      operationId: creatorCreateSubmission
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatorSubmissionInput"
+      responses:
+        "201":
+          description: Submitted for review, no score yet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatorSubmission"
+  /creator/submissions/{id}:
+    patch:
+      operationId: creatorUpdateSubmission
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatorSubmissionUpdate"
+      responses:
+        "200":
+          description: Withdrawn, appealed, or evidence updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatorSubmission"
+  /creator/application:
+    post:
+      operationId: creatorApplyToProgram
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatorApplicationInput"
+      responses:
+        "200":
+          description: Application awaiting review
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatorAccount"
+  /creator/leaderboard:
+    get:
+      operationId: creatorGetLeaderboard
+      responses:
+        "200":
+          description: Approved weekly scores, demo scope explicitly identified
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CreatorLeaderboardEntry"
+  /creator/rewards:
+    get:
+      operationId: creatorGetRewards
+      responses:
+        "200":
+          description: Immutable finalized allocations, not payments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CreatorReward"
+  /creator/group:
+    post:
+      operationId: creatorRequestGroupAccess
+      responses:
+        "200":
+          description: Eligibility request, no public invite exposed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatorActionResult"
+  /creator/admin:
+    get:
+      operationId: creatorGetAdminOverview
+      responses:
+        "200":
+          description: Isolated preview review studio
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatorAdminOverview"
+  /creator/admin/submissions/{id}/review:
+    post:
+      operationId: creatorReviewSubmission
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatorReviewInput"
+      responses:
+        "200":
+          description: Auditable review with server calculated score
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatorSubmission"
+  /creator/admin/applications/{id}/review:
+    post:
+      operationId: creatorReviewApplication
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatorApplicationReview"
+      responses:
+        "200":
+          description: Membership decision, demo badge only
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatorActionResult"
+  /creator/admin/tasks/{id}:
+    patch:
+      operationId: creatorUpdateTask
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatorTaskInput"
+      responses:
+        "200":
+          description: New scoring version for future submissions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatorTask"
+  /creator/admin/finalize:
+    post:
+      operationId: creatorFinalizeWeek
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatorAllocationInput"
+      responses:
+        "200":
+          description: Finalized sample pool, never sends MON
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CreatorReward"
+  /creator/admin/points:
+    post:
+      operationId: creatorAllocateFinalPoints
+      responses:
+        "200":
+          description: Sample points allocations, no main app credits
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatorActionResult"
 components:
   schemas:
     PrepareRegistrationBody:
       type: object
-      required: [username, inviteCode]
+      required:
+        - username
+        - inviteCode
       properties:
         username:
           type: string
@@ -828,7 +1206,9 @@ components:
           type: string
     PrepareRegistrationResponse:
       type: object
-      required: [registered, txHash]
+      required:
+        - registered
+        - txHash
       properties:
         registered:
           type: boolean
@@ -837,71 +1217,143 @@ components:
           nullable: true
     RegistrationError:
       type: object
-      required: [error, code]
+      required:
+        - error
+        - code
       properties:
         error:
           type: string
         code:
           type: string
-          description: INVALID_USERNAME, USERNAME_TAKEN, INVALID_INVITE, INVITE_USED, AUTH_REQUIRED, WALLET_MISMATCH, INVALID_REGISTRATION, UNVERIFIED_ACCOUNT, REGISTRATION_UNAVAILABLE, RATE_LIMITED, or SAME_ORIGIN_REQUIRED
+          description: INVALID_USERNAME, USERNAME_TAKEN, INVALID_INVITE, INVITE_USED,
+            AUTH_REQUIRED, WALLET_MISMATCH, INVALID_REGISTRATION,
+            UNVERIFIED_ACCOUNT, REGISTRATION_UNAVAILABLE, RATE_LIMITED, or
+            SAME_ORIGIN_REQUIRED
     FeetGameClaimInput:
       type: object
-      required: [txHash]
+      required:
+        - txHash
       properties:
-        txHash: { type: string, pattern: "^0x[0-9a-fA-F]{64}$" }
+        txHash:
+          type: string
+          pattern: ^0x[0-9a-fA-F]{64}$
     FeetGameAward:
       type: object
-      required: [alreadyClaimed, pointsAwarded, invitesAwarded, inviteCodes]
+      required:
+        - alreadyClaimed
+        - pointsAwarded
+        - invitesAwarded
+        - inviteCodes
       properties:
-        alreadyClaimed: { type: boolean }
-        pointsAwarded: { type: integer }
-        invitesAwarded: { type: integer }
-        inviteCodes: { type: array, items: { type: string } }
+        alreadyClaimed:
+          type: boolean
+        pointsAwarded:
+          type: integer
+        invitesAwarded:
+          type: integer
+        inviteCodes:
+          type: array
+          items:
+            type: string
     FeetGameHistory:
       type: object
-      required: [claims]
+      required:
+        - claims
       properties:
         claims:
           type: array
           items:
             type: object
-            required: [txHash, pointsAwarded, invitesAwarded, createdAt]
+            required:
+              - txHash
+              - pointsAwarded
+              - invitesAwarded
+              - createdAt
             properties:
-              txHash: { type: string }
-              pointsAwarded: { type: integer }
-              invitesAwarded: { type: integer }
-              createdAt: { type: string, format: date-time }
+              txHash:
+                type: string
+              pointsAwarded:
+                type: integer
+              invitesAwarded:
+                type: integer
+              createdAt:
+                type: string
+                format: date-time
     FeetGameState:
       type: object
-      required: [contractAddress, treasuryAddress, chainId, enabled, disabledReason, registered, utcDay, nextResetAt, totalPurchases, purchasesUntilInvite, actions, onChainPoints, currentStreak, longestStreak, checkedInToday]
+      required:
+        - contractAddress
+        - treasuryAddress
+        - chainId
+        - enabled
+        - disabledReason
+        - registered
+        - utcDay
+        - nextResetAt
+        - totalPurchases
+        - purchasesUntilInvite
+        - actions
+        - onChainPoints
+        - currentStreak
+        - longestStreak
+        - checkedInToday
       properties:
-        contractAddress: { type: string }
-        treasuryAddress: { type: string }
-        chainId: { type: integer }
-        enabled: { type: boolean }
-        disabledReason: { type: string }
-        registered: { type: boolean }
-        utcDay: { type: string }
-        nextResetAt: { type: string, format: date-time }
-        totalPurchases: { type: integer }
-        purchasesUntilInvite: { type: integer }
-        onChainPoints: { type: integer }
-        currentStreak: { type: integer }
-        longestStreak: { type: integer }
-        checkedInToday: { type: boolean }
+        contractAddress:
+          type: string
+        treasuryAddress:
+          type: string
+        chainId:
+          type: integer
+        enabled:
+          type: boolean
+        disabledReason:
+          type: string
+        registered:
+          type: boolean
+        utcDay:
+          type: string
+        nextResetAt:
+          type: string
+          format: date-time
+        totalPurchases:
+          type: integer
+        purchasesUntilInvite:
+          type: integer
+        onChainPoints:
+          type: integer
+        currentStreak:
+          type: integer
+        longestStreak:
+          type: integer
+        checkedInToday:
+          type: boolean
         actions:
           type: array
           items:
             type: object
-            required: [id, name, priceMon, basePoints, count, remaining, nextPoints]
+            required:
+              - id
+              - name
+              - priceMon
+              - basePoints
+              - count
+              - remaining
+              - nextPoints
             properties:
-              id: { type: integer }
-              name: { type: string }
-              priceMon: { type: string }
-              basePoints: { type: integer }
-              count: { type: integer }
-              remaining: { type: integer }
-              nextPoints: { type: integer }
+              id:
+                type: integer
+              name:
+                type: string
+              priceMon:
+                type: string
+              basePoints:
+                type: integer
+              count:
+                type: integer
+              remaining:
+                type: integer
+              nextPoints:
+                type: integer
     XRewardsStatus:
       type: object
       properties:
@@ -915,7 +1367,11 @@ components:
           type: boolean
         postStreakEligible:
           type: boolean
-      required: [utcDay, lifetime, postClaimedToday, postStreakEligible]
+      required:
+        - utcDay
+        - lifetime
+        - postClaimedToday
+        - postStreakEligible
     XClaimResult:
       type: object
       properties:
@@ -927,7 +1383,11 @@ components:
           type: integer
         utcDay:
           type: string
-      required: [claimed, points, invites, utcDay]
+      required:
+        - claimed
+        - points
+        - invites
+        - utcDay
     HealthStatus:
       type: object
       properties:
@@ -935,7 +1395,6 @@ components:
           type: string
       required:
         - status
-
     ErrorResponse:
       type: object
       properties:
@@ -943,7 +1402,6 @@ components:
           type: string
       required:
         - error
-
     User:
       type: object
       properties:
@@ -952,19 +1410,33 @@ components:
         walletAddress:
           type: string
         email:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         name:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         username:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         avatarUrl:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         bio:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         subscriptionPrice:
-          type: ["number", "null"]
+          type:
+            - number
+            - "null"
         registrationTxHash:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         createdAt:
           type: string
           format: date-time
@@ -972,7 +1444,6 @@ components:
         - id
         - walletAddress
         - createdAt
-
     UserWithStats:
       type: object
       properties:
@@ -981,19 +1452,33 @@ components:
         walletAddress:
           type: string
         email:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         name:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         username:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         avatarUrl:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         bio:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         subscriptionPrice:
-          type: ["number", "null"]
+          type:
+            - number
+            - "null"
         registrationTxHash:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         createdAt:
           type: string
           format: date-time
@@ -1013,7 +1498,6 @@ components:
         - totalLikes
         - streakPoints
         - currentStreak
-
     RegisterUserBody:
       type: object
       properties:
@@ -1022,39 +1506,53 @@ components:
         inviteCode:
           type: string
         email:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         name:
           type: string
         username:
           type: string
         avatarUrl:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         bio:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         txHash:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
       required:
         - walletAddress
         - inviteCode
         - name
         - username
-
     UpdateUserBody:
       type: object
       properties:
         walletAddress:
           type: string
         name:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         username:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         avatarUrl:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         bio:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
       required:
         - walletAddress
-
     InviteCode:
       type: object
       properties:
@@ -1065,7 +1563,9 @@ components:
         used:
           type: boolean
         usedByUsername:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         createdAt:
           type: string
           format: date-time
@@ -1074,7 +1574,6 @@ components:
         - code
         - used
         - createdAt
-
     ValidateInviteBody:
       type: object
       properties:
@@ -1082,7 +1581,6 @@ components:
           type: string
       required:
         - code
-
     ValidateInviteResponse:
       type: object
       properties:
@@ -1093,7 +1591,6 @@ components:
       required:
         - valid
         - message
-
     Post:
       type: object
       properties:
@@ -1102,17 +1599,27 @@ components:
         content:
           type: string
         imageUrl:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         onChainTxHash:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         authorId:
           type: integer
         authorName:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         authorUsername:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         authorAvatarUrl:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         likeCount:
           type: integer
         likedByMe:
@@ -1127,7 +1634,6 @@ components:
         - likeCount
         - likedByMe
         - createdAt
-
     PostsPage:
       type: object
       properties:
@@ -1136,20 +1642,23 @@ components:
           items:
             $ref: "#/components/schemas/Post"
         nextCursor:
-          type: ["integer", "null"]
+          type:
+            - integer
+            - "null"
         total:
           type: integer
       required:
         - posts
         - total
-
     CreatePostBody:
       type: object
       properties:
         content:
           type: string
         imageUrl:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         authorWalletAddress:
           type: string
         isPaid:
@@ -1157,7 +1666,6 @@ components:
       required:
         - content
         - authorWalletAddress
-
     LikeResponse:
       type: object
       properties:
@@ -1168,7 +1676,6 @@ components:
       required:
         - likeCount
         - likedByMe
-
     PrivatePost:
       type: object
       properties:
@@ -1177,15 +1684,23 @@ components:
         content:
           type: string
         imageUrl:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         creatorId:
           type: integer
         creatorName:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         creatorUsername:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         creatorAvatarUrl:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         createdAt:
           type: string
           format: date-time
@@ -1194,20 +1709,20 @@ components:
         - content
         - creatorId
         - createdAt
-
     CreatePrivatePostBody:
       type: object
       properties:
         content:
           type: string
         imageUrl:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         creatorWalletAddress:
           type: string
       required:
         - content
         - creatorWalletAddress
-
     Subscription:
       type: object
       properties:
@@ -1218,13 +1733,21 @@ components:
         creatorId:
           type: integer
         creatorName:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         creatorUsername:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         creatorAvatarUrl:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         creatorWalletAddress:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         pricePerMonth:
           type: number
         consecutiveMonths:
@@ -1236,7 +1759,9 @@ components:
           type: string
           format: date-time
         txHash:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
       required:
         - id
         - subscriberId
@@ -1245,7 +1770,6 @@ components:
         - consecutiveMonths
         - expiresAt
         - createdAt
-
     CreateSubscriptionBody:
       type: object
       properties:
@@ -1259,7 +1783,6 @@ components:
         - subscriberWalletAddress
         - creatorId
         - txHash
-
     SubscriptionPrice:
       type: object
       properties:
@@ -1270,7 +1793,6 @@ components:
       required:
         - creatorId
         - pricePerMonth
-
     UpdateSubscriptionPriceBody:
       type: object
       properties:
@@ -1281,7 +1803,6 @@ components:
       required:
         - walletAddress
         - pricePerMonth
-
     StreakInfo:
       type: object
       properties:
@@ -1293,16 +1814,21 @@ components:
           type: integer
         totalPoints:
           type: number
-          description: Accumulated off-chain points; each UTC daily check-in awards 10 points. Streak milestone points are separate.
+          description: Accumulated off-chain points; each UTC daily check-in awards 10
+            points. Streak milestone points are separate.
         lastCheckin:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
           format: date-time
         checkedInToday:
           type: boolean
         extraInviteEarned:
           type: boolean
         lastCheckinTxHash:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
       required:
         - userId
         - currentStreak
@@ -1310,7 +1836,6 @@ components:
         - totalPoints
         - checkedInToday
         - extraInviteEarned
-
     Badge:
       type: object
       properties:
@@ -1325,9 +1850,13 @@ components:
         description:
           type: string
         creatorId:
-          type: ["integer", "null"]
+          type:
+            - integer
+            - "null"
         creatorName:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         earnedAt:
           type: string
           format: date-time
@@ -1338,7 +1867,6 @@ components:
         - label
         - description
         - earnedAt
-
     WalletBalance:
       type: object
       properties:
@@ -1352,7 +1880,6 @@ components:
         - walletAddress
         - monBalance
         - mfeetBalance
-
     FeedSummary:
       type: object
       properties:
@@ -1374,7 +1901,6 @@ components:
         - totalUsers
         - activeToday
         - trendingPosts
-
     LeaderboardEntry:
       type: object
       properties:
@@ -1383,11 +1909,17 @@ components:
         userId:
           type: integer
         name:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         username:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         avatarUrl:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         totalPoints:
           type: number
         currentStreak:
@@ -1409,7 +1941,6 @@ components:
         - userId
         - totalPoints
         - currentStreak
-
     Comment:
       type: object
       properties:
@@ -1420,11 +1951,17 @@ components:
         authorId:
           type: integer
         authorName:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         authorUsername:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         authorAvatarUrl:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         content:
           type: string
         createdAt:
@@ -1436,7 +1973,6 @@ components:
         - authorId
         - content
         - createdAt
-
     TrendingPost:
       type: object
       properties:
@@ -1451,19 +1987,31 @@ components:
         likeCount:
           type: integer
         content:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         imageUrl:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         authorId:
           type: integer
         authorName:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         authorUsername:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         authorAvatarUrl:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         onChainTxHash:
-          type: ["string", "null"]
+          type:
+            - string
+            - "null"
         likedByMe:
           type: boolean
         createdAt:
@@ -1478,7 +2026,6 @@ components:
         - authorId
         - likedByMe
         - createdAt
-
     TrendingResponse:
       type: object
       properties:
@@ -1492,7 +2039,6 @@ components:
       required:
         - posts
         - generatedAt
-
     CreateCommentBody:
       type: object
       properties:
@@ -1500,7 +2046,6 @@ components:
           type: string
       required:
         - content
-
     CreatorAnalytics:
       type: object
       properties:
@@ -1532,11 +2077,17 @@ components:
               subscriberId:
                 type: integer
               subscriberName:
-                type: ["string", "null"]
+                type:
+                  - string
+                  - "null"
               subscriberUsername:
-                type: ["string", "null"]
+                type:
+                  - string
+                  - "null"
               subscriberAvatarUrl:
-                type: ["string", "null"]
+                type:
+                  - string
+                  - "null"
               consecutiveMonths:
                 type: integer
               subscribedAt:
@@ -1557,3 +2108,674 @@ components:
         - totalLikes
         - topPosts
         - recentSubscribers
+    CreatorHealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+    CreatorActionResult:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+    CreatorProgram:
+      type: object
+      required:
+        - name
+        - status
+        - treasuryWallet
+        - chainId
+        - poolPercent
+        - pointsPool
+        - weekStart
+        - weekEnd
+        - rulesVersion
+        - integrationReady
+        - announcement
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+        treasuryWallet:
+          type: string
+        chainId:
+          type: integer
+        poolPercent:
+          type: integer
+        pointsPool:
+          type: integer
+        weekStart:
+          type: string
+        weekEnd:
+          type: string
+        rulesVersion:
+          type: string
+        integrationReady:
+          type: boolean
+        announcement:
+          type: string
+    CreatorTreasury:
+      type: object
+      required:
+        - wallet
+        - chainId
+        - status
+        - balanceWei
+        - poolWei
+        - blockNumber
+        - fetchedAt
+        - error
+      properties:
+        wallet:
+          type: string
+        chainId:
+          type: integer
+        status:
+          type: string
+          enum:
+            - live
+            - unavailable
+        balanceWei:
+          type:
+            - string
+            - "null"
+        poolWei:
+          type:
+            - string
+            - "null"
+        blockNumber:
+          type:
+            - string
+            - "null"
+        fetchedAt:
+          type: string
+        error:
+          type:
+            - string
+            - "null"
+    CreatorAccount:
+      type: object
+      required:
+        - id
+        - mode
+        - name
+        - handle
+        - wallet
+        - mainUserId
+        - membershipStatus
+        - badge
+        - xHandle
+        - telegramHandle
+        - xVerified
+        - telegramVerified
+        - verificationCode
+        - groupStatus
+        - bio
+        - channels
+        - canReview
+        - pointsAllocated
+      properties:
+        id:
+          type: integer
+        mode:
+          type: string
+          enum:
+            - demo
+            - wallet
+        name:
+          type: string
+        handle:
+          type: string
+        wallet:
+          type:
+            - string
+            - "null"
+        mainUserId:
+          type:
+            - string
+            - "null"
+        membershipStatus:
+          type: string
+          enum:
+            - not_applied
+            - pending
+            - approved
+            - rejected
+            - integration_required
+        badge:
+          type: boolean
+        xHandle:
+          type: string
+        telegramHandle:
+          type: string
+        xVerified:
+          type: boolean
+        telegramVerified:
+          type: boolean
+        verificationCode:
+          type: string
+        groupStatus:
+          type: string
+        bio:
+          type: string
+        channels:
+          type: string
+        canReview:
+          type: boolean
+        pointsAllocated:
+          type: integer
+    CreatorAccountInput:
+      type: object
+      required:
+        - name
+        - xHandle
+        - telegramHandle
+        - bio
+        - channels
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        xHandle:
+          type: string
+          maxLength: 40
+        telegramHandle:
+          type: string
+          maxLength: 40
+        bio:
+          type: string
+          maxLength: 2000
+        channels:
+          type: string
+          maxLength: 2000
+    CreatorApplicationInput:
+      type: object
+      required:
+        - name
+        - xHandle
+        - telegramHandle
+        - bio
+        - channels
+        - acceptRules
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        xHandle:
+          type: string
+          maxLength: 40
+        telegramHandle:
+          type: string
+          maxLength: 40
+        bio:
+          type: string
+          minLength: 20
+          maxLength: 2000
+        channels:
+          type: string
+          maxLength: 2000
+        acceptRules:
+          type: boolean
+    CreatorWalletInput:
+      type: object
+      required:
+        - wallet
+      properties:
+        wallet:
+          type: string
+          pattern: ^0x[a-fA-F0-9]{40}$
+    CreatorWalletChallenge:
+      type: object
+      required:
+        - id
+        - message
+        - expiresAt
+      properties:
+        id:
+          type: string
+        message:
+          type: string
+        expiresAt:
+          type: string
+    CreatorSignatureInput:
+      type: object
+      required:
+        - challengeId
+        - signature
+      properties:
+        challengeId:
+          type: string
+          maxLength: 100
+        signature:
+          type: string
+          pattern: ^0x[a-fA-F0-9]+$
+          maxLength: 4096
+    CreatorTask:
+      type: object
+      required:
+        - id
+        - title
+        - description
+        - platform
+        - score
+        - dailyLimit
+        - weeklyCap
+        - enabled
+        - campaignTitle
+        - campaignUrl
+        - evidenceHint
+        - version
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        platform:
+          type: string
+        score:
+          type: integer
+        dailyLimit:
+          type: integer
+        weeklyCap:
+          type: integer
+        enabled:
+          type: boolean
+        campaignTitle:
+          type: string
+        campaignUrl:
+          type: string
+        evidenceHint:
+          type: string
+        version:
+          type: integer
+    CreatorTaskInput:
+      type: object
+      required:
+        - title
+        - description
+        - score
+        - dailyLimit
+        - weeklyCap
+        - enabled
+        - campaignTitle
+        - campaignUrl
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 150
+        description:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        score:
+          type: integer
+          minimum: 0
+          maximum: 1000
+        dailyLimit:
+          type: integer
+          minimum: 1
+          maximum: 10
+        weeklyCap:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        enabled:
+          type: boolean
+        campaignTitle:
+          type: string
+          maxLength: 150
+        campaignUrl:
+          type: string
+          maxLength: 500
+    CreatorSubmission:
+      type: object
+      required:
+        - id
+        - memberId
+        - creatorName
+        - taskId
+        - taskTitle
+        - platform
+        - contentUrl
+        - description
+        - evidenceUrl
+        - activityDate
+        - createdAt
+        - weekStart
+        - status
+        - score
+        - reviewNote
+        - reviewedAt
+        - ruleVersion
+        - appealNote
+      properties:
+        id:
+          type: integer
+        memberId:
+          type: integer
+        creatorName:
+          type: string
+        taskId:
+          type: string
+        taskTitle:
+          type: string
+        platform:
+          type: string
+        contentUrl:
+          type: string
+        description:
+          type: string
+        evidenceUrl:
+          type: string
+        activityDate:
+          type: string
+        createdAt:
+          type: string
+        weekStart:
+          type: string
+        status:
+          type: string
+          enum:
+            - submitted
+            - needs_evidence
+            - approved
+            - rejected
+            - withdrawn
+        score:
+          type: integer
+        reviewNote:
+          type: string
+        reviewedAt:
+          type:
+            - string
+            - "null"
+        ruleVersion:
+          type: integer
+        appealNote:
+          type: string
+    CreatorSubmissionInput:
+      type: object
+      required:
+        - taskId
+        - contentUrl
+        - activityDate
+        - description
+        - evidenceUrl
+      properties:
+        taskId:
+          type: string
+          maxLength: 100
+        contentUrl:
+          type: string
+          minLength: 1
+          maxLength: 500
+        activityDate:
+          type: string
+          format: date
+        description:
+          type: string
+          maxLength: 2000
+        evidenceUrl:
+          type: string
+          maxLength: 500
+    CreatorSubmissionUpdate:
+      type: object
+      required:
+        - action
+      properties:
+        action:
+          type: string
+          enum:
+            - withdraw
+            - evidence
+            - appeal
+        evidenceUrl:
+          type: string
+          maxLength: 500
+        note:
+          type: string
+          maxLength: 2000
+    CreatorReviewInput:
+      type: object
+      required:
+        - decision
+        - note
+      properties:
+        decision:
+          type: string
+          enum:
+            - approved
+            - rejected
+            - needs_evidence
+        note:
+          type: string
+          minLength: 3
+          maxLength: 2000
+    CreatorApplicationReview:
+      type: object
+      required:
+        - decision
+        - note
+        - verifyX
+        - verifyTelegram
+      properties:
+        decision:
+          type: string
+          enum:
+            - approved
+            - rejected
+        note:
+          type: string
+          minLength: 3
+          maxLength: 2000
+        verifyX:
+          type: boolean
+        verifyTelegram:
+          type: boolean
+    CreatorLeaderboardEntry:
+      type: object
+      required:
+        - id
+        - rank
+        - name
+        - handle
+        - score
+        - contributions
+        - estimatedMonWei
+        - isYou
+        - mode
+      properties:
+        id:
+          type: integer
+        rank:
+          type: integer
+        name:
+          type: string
+        handle:
+          type: string
+        score:
+          type: integer
+        contributions:
+          type: integer
+        estimatedMonWei:
+          type: string
+          nullable: true
+        isYou:
+          type: boolean
+        mode:
+          type: string
+    CreatorReward:
+      type: object
+      required:
+        - id
+        - memberId
+        - creatorName
+        - weekStart
+        - weekEnd
+        - score
+        - amountWei
+        - poolWei
+        - balanceWei
+        - status
+        - txHash
+        - finalizedAt
+        - mode
+      properties:
+        id:
+          type: integer
+        memberId:
+          type: integer
+        creatorName:
+          type: string
+        weekStart:
+          type: string
+        weekEnd:
+          type: string
+        score:
+          type: integer
+        amountWei:
+          type: string
+        poolWei:
+          type: string
+        balanceWei:
+          type: string
+        status:
+          type: string
+        txHash:
+          type:
+            - string
+            - "null"
+        finalizedAt:
+          type: string
+        mode:
+          type: string
+    CreatorAllocationInput:
+      type: object
+      required:
+        - weekStart
+        - balanceMon
+        - confirm
+      properties:
+        weekStart:
+          type: string
+          format: date
+        balanceMon:
+          type: string
+          pattern: ^[0-9]+(\.[0-9]{1,18})?$
+          maxLength: 40
+        confirm:
+          type: boolean
+    CreatorDashboard:
+      type: object
+      required:
+        - account
+        - weeklyScore
+        - programScore
+        - rank
+        - approvedCount
+        - pendingCount
+        - estimatedMonWei
+        - samplePoolWei
+        - totalWeeklyScore
+        - recentSubmissions
+        - activity
+        - finalized
+        - weekStart
+        - weekEnd
+      properties:
+        account:
+          $ref: "#/components/schemas/CreatorAccount"
+        weeklyScore:
+          type: integer
+        programScore:
+          type: integer
+        rank:
+          type: integer
+        approvedCount:
+          type: integer
+        pendingCount:
+          type: integer
+        estimatedMonWei:
+          type: string
+          nullable: true
+        samplePoolWei:
+          type: string
+        totalWeeklyScore:
+          type: integer
+        recentSubmissions:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreatorSubmission"
+        activity:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreatorActivity"
+        finalized:
+          type: boolean
+        weekStart:
+          type: string
+        weekEnd:
+          type: string
+    CreatorActivity:
+      type: object
+      required:
+        - id
+        - message
+        - createdAt
+      properties:
+        id:
+          type: integer
+        message:
+          type: string
+        createdAt:
+          type: string
+    CreatorAdminOverview:
+      type: object
+      required:
+        - applications
+        - submissions
+        - rewards
+        - tasks
+        - audit
+        - finalizedWeeks
+        - sampleBalanceMon
+        - mode
+      properties:
+        applications:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreatorAccount"
+        submissions:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreatorSubmission"
+        rewards:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreatorReward"
+        tasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreatorTask"
+        audit:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreatorActivity"
+        finalizedWeeks:
+          type: array
+          items:
+            type: string
+        sampleBalanceMon:
+          type: string
+        mode:
+          type: string

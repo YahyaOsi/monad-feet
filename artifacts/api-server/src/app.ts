@@ -4,6 +4,8 @@ import router from "./routes";
 import { logger } from "./lib/logger";
 import { protectApi } from "./lib/walletAuth";
 import { privateResponses } from "./lib/contentPrivacy";
+import cookieParser from "cookie-parser";
+import creatorRouter from "./routes/creator";
 
 const app: Express = express();
 
@@ -29,6 +31,12 @@ app.use(
 // Browser same-origin clients do not need permissive cross-origin access.
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
+
+// Creator previews and login need no social-network account. Every live
+// creator route independently verifies the signed session, main user and
+// registration evidence. Existing main-app authorization is unchanged.
+app.use("/api/creator", creatorRouter);
 
 app.use("/api", (_req, res, next) => {
   // Include authentication failures in the no-cache policy.

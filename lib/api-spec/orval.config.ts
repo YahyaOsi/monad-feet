@@ -30,6 +30,7 @@ export default defineConfig({
       clean: true,
       prettier: true,
       override: {
+        query: { version: 5 },
         fetch: {
           includeHttpResponseReturnType: false,
         },
@@ -48,13 +49,16 @@ export default defineConfig({
       },
     },
     output: {
-      target: path.resolve(apiZodSrc, "generated/api.ts"),
+      workspace: apiZodSrc,
+      target: "generated",
+      schemas: { path: "generated/types", type: "typescript" },
       client: "zod",
-      mode: "single",
+      mode: "split",
       clean: false,
       prettier: true,
       override: {
         zod: {
+          version: 3,
           coerce: {
             query: ['boolean', 'number', 'string'],
             param: ['boolean', 'number', 'string'],
