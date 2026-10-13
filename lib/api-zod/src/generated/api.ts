@@ -31,6 +31,11 @@ export const GetGameResponse = zod.object({
       count: zod.number(),
       remaining: zod.number(),
       nextPoints: zod.number(),
+      dailyRewards: zod.array(zod.number()),
+      doublingPurchases: zod.array(zod.number()),
+      totalPurchases: zod.number().optional(),
+      inviteEvery: zod.number().nullish(),
+      purchasesUntilInvite: zod.number().nullish(),
     }),
   ),
 });
@@ -256,6 +261,47 @@ export const GetTrendingResponse = zod.object({
 });
 
 /**
+ * @summary Recover the original verified transaction for an owned draft without sending a transaction
+ */
+
+export const RecoverPostBody = zod.object({
+  postId: zod.number().min(1),
+});
+
+export const RecoverPostResponse = zod.object({
+  anchored: zod.boolean(),
+  txHash: zod.string().nullable(),
+});
+
+/**
+ * @summary Reserve an unpublished draft before the wallet transaction
+ */
+export const PreparePostBody = zod.object({
+  content: zod.string().optional(),
+  imageUrl: zod.string().optional(),
+  isPaid: zod.boolean().optional(),
+  legacyPostId: zod.number().optional(),
+});
+
+export const PreparePostResponse = zod.object({
+  postId: zod.number(),
+  contentUri: zod.string(),
+  content: zod.string(),
+  imageUrl: zod.string(),
+  isPaid: zod.boolean(),
+});
+
+/**
+ * @summary Check current CHOG Genesis ownership for the signed wallet
+ */
+export const GetNftAccessResponse = zod.object({
+  chogHolder: zod.boolean(),
+  collection: zod.string(),
+  chainId: zod.number(),
+  monadFeetNftAvailable: zod.boolean(),
+});
+
+/**
  * @summary List public feed posts
  */
 export const ListPostsQueryParams = zod.object({
@@ -267,6 +313,9 @@ export const ListPostsQueryParams = zod.object({
 export const ListPostsResponse = zod.object({
   posts: zod.array(
     zod.object({
+      isPaid: zod.boolean().optional(),
+      isSubscribedToAuthor: zod.boolean().optional(),
+      publicationConfirmed: zod.boolean().optional(),
       id: zod.number(),
       content: zod.string(),
       imageUrl: zod.string().nullish(),
@@ -288,6 +337,8 @@ export const ListPostsResponse = zod.object({
  * @summary Create a new public post
  */
 export const CreatePostBody = zod.object({
+  postId: zod.number().optional(),
+  txHash: zod.string().optional(),
   content: zod.string(),
   imageUrl: zod.string().nullish(),
   authorWalletAddress: zod.string(),
@@ -302,6 +353,9 @@ export const GetPostParams = zod.object({
 });
 
 export const GetPostResponse = zod.object({
+  isPaid: zod.boolean().optional(),
+  isSubscribedToAuthor: zod.boolean().optional(),
+  publicationConfirmed: zod.boolean().optional(),
   id: zod.number(),
   content: zod.string(),
   imageUrl: zod.string().nullish(),
@@ -354,6 +408,7 @@ export const ListPrivatePostsQueryParams = zod.object({
 });
 
 export const ListPrivatePostsResponseItem = zod.object({
+  source: zod.enum(["private", "post"]).optional(),
   id: zod.number(),
   content: zod.string(),
   imageUrl: zod.string().nullish(),
@@ -378,6 +433,8 @@ export const CreatePrivatePostBody = zod.object({
  * @summary List current user's active subscriptions
  */
 export const ListSubscriptionsResponseItem = zod.object({
+  verified: zod.boolean().optional(),
+  status: zod.string().optional(),
   id: zod.number(),
   subscriberId: zod.number(),
   creatorId: zod.number(),
@@ -429,10 +486,57 @@ export const GetCreatorSubscriptionPriceResponse = zod.object({
   pricePerMonth: zod.number(),
 });
 
+export const GetChainEventsResponse = zod.object({
+  updatedAt: zod.string(),
+  latestBlock: zod.string(),
+  events: zod.array(
+    zod.object({
+      id: zod.string(),
+      kind: zod.string(),
+      label: zod.string(),
+      sublabel: zod.string(),
+      txHash: zod.string(),
+      at: zod.string(),
+    }),
+  ),
+});
+
+export const GetDailyBonusResponse = zod.object({
+  utcDay: zod.string(),
+  nextResetAt: zod.coerce.date(),
+  progress: zod.number(),
+  eligible: zod.boolean(),
+  claimed: zod.boolean(),
+  task: zod.object({
+    id: zod.string(),
+    title: zod.string(),
+    points: zod.number(),
+    target: zod.number(),
+    href: zod.string(),
+  }),
+});
+
+export const ClaimDailyBonusResponse = zod.object({
+  utcDay: zod.string(),
+  nextResetAt: zod.coerce.date(),
+  progress: zod.number(),
+  eligible: zod.boolean(),
+  claimed: zod.boolean(),
+  task: zod.object({
+    id: zod.string(),
+    title: zod.string(),
+    points: zod.number(),
+    target: zod.number(),
+    href: zod.string(),
+  }),
+});
+
 /**
  * @summary Get current user's streak and points
  */
 export const GetStreakResponse = zod.object({
+  syncPending: zod.boolean().optional(),
+  syncError: zod.string().nullish(),
   userId: zod.number(),
   currentStreak: zod.number(),
   longestStreak: zod.number(),
@@ -481,6 +585,8 @@ export const DailyCheckinBody = zod.object({
 });
 
 export const DailyCheckinResponse = zod.object({
+  syncPending: zod.boolean().optional(),
+  syncError: zod.string().nullish(),
   userId: zod.number(),
   currentStreak: zod.number(),
   longestStreak: zod.number(),
@@ -498,6 +604,10 @@ export const DailyCheckinResponse = zod.object({
 /**
  * @summary List current user's loyalty badges
  */
+export const ListBadgesQueryParams = zod.object({
+  userId: zod.coerce.number().optional(),
+});
+
 export const ListBadgesResponseItem = zod.object({
   id: zod.number(),
   userId: zod.number(),
@@ -523,12 +633,17 @@ export const GetWalletBalanceResponse = zod.object({
  * @summary Get feed summary stats
  */
 export const GetFeedSummaryResponse = zod.object({
+  totalPendingHistoricalPosts: zod.number().optional(),
+  totalOnChainPosts: zod.number().nullish(),
   totalPosts: zod.number(),
   totalLikes: zod.number(),
   totalUsers: zod.number(),
   activeToday: zod.number(),
   trendingPosts: zod.array(
     zod.object({
+      isPaid: zod.boolean().optional(),
+      isSubscribedToAuthor: zod.boolean().optional(),
+      publicationConfirmed: zod.boolean().optional(),
       id: zod.number(),
       content: zod.string(),
       imageUrl: zod.string().nullish(),
@@ -576,6 +691,7 @@ export const ListCommentsParams = zod.object({
 });
 
 export const ListCommentsResponseItem = zod.object({
+  parentCommentId: zod.number().nullish(),
   id: zod.number(),
   postId: zod.number(),
   authorId: zod.number(),
@@ -595,6 +711,7 @@ export const CreateCommentParams = zod.object({
 });
 
 export const CreateCommentBody = zod.object({
+  parentCommentId: zod.number().nullish(),
   content: zod.string(),
 });
 
@@ -649,6 +766,9 @@ export const GetCreatorAnalyticsResponse = zod.object({
   totalLikes: zod.number(),
   topPosts: zod.array(
     zod.object({
+      isPaid: zod.boolean().optional(),
+      isSubscribedToAuthor: zod.boolean().optional(),
+      publicationConfirmed: zod.boolean().optional(),
       id: zod.number(),
       content: zod.string(),
       imageUrl: zod.string().nullish(),

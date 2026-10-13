@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useAccount, useDisconnect } from "wagmi";
 import { useUser } from "./UserContext";
+import { MonadLoading } from "@/components/MonadLoading";
 
 export function WalletSessionGate({ children, profileError }: { children: ReactNode; profileError?: string }) {
   const { address, status } = useAccount();
@@ -9,11 +10,7 @@ export function WalletSessionGate({ children, profileError }: { children: ReactN
 
   if (status === "connecting" || status === "reconnecting" || (address && session.address?.toLowerCase() !== address.toLowerCase())
     || (address && (session.phase === "checking" || session.phase === "signing"))) {
-    return (
-      <div className="flex min-h-[100dvh] items-center justify-center bg-background text-foreground" role="status">
-        {session.phase === "signing" ? "Waiting for wallet signature…" : "Checking wallet session…"}
-      </div>
-    );
+    return <MonadLoading signing={session.phase === "signing"} />;
   }
   if (status !== "connected" || !address) {
     if (session.phase === "error") {

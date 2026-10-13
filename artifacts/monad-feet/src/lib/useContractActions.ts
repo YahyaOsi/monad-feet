@@ -1,5 +1,5 @@
 /**
- * useContractActions — central hook for all MonadFeet on-chain writes.
+ * useContractActions — central hook for all MonadFeet onchain writes.
  *
  * Confirm a transaction receipt before returning a hash to the DB.
  */
@@ -78,35 +78,40 @@ export function useContractActions() {
       ...(value !== undefined ? { value } : {}),
     } as Parameters<typeof writeContractAsync>[0]);
     try { onSubmitted?.(hash); } catch { /* persistence failures are surfaced by the caller */ }
-    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+    const receipt = await publicClient.waitForTransactionReceipt({ hash,
+      ...(functionName === "createPost" ? {
+        timeout: 60_000,
+        onReplaced: ({ transactionReceipt }: { transactionReceipt: { transactionHash: `0x${string}` } }) => onSubmitted?.(transactionReceipt.transactionHash),
+      } : {}),
+    });
     if (receipt.status !== "success") throw new Error(`Monad transaction reverted: ${hash}`);
-    return hash;
+    return functionName === "createPost" ? receipt.transactionHash : hash;
   }
 
   return {
     contractDeployed: CONTRACT_DEPLOYED,
 
-    /** Register a new user on-chain. Call before saving to DB. */
+    /** Register a new user onchain. Call before saving to DB. */
     registerOnChain: (username: string, inviteCode: string, onSubmitted?: (hash: string) => void, assertCurrent?: () => void) =>
       call("registerUser", [username, inviteCode], undefined, onSubmitted, assertCurrent),
 
-    /** Anchor a DB post on-chain. Call after getting postId from DB. */
-    createPostOnChain: (postId: number, contentUri: string) =>
-      call("createPost", [BigInt(postId), contentUri]),
+    /** Anchor a DB post onchain. Call after getting postId from DB. */
+    createPostOnChain: (postId: number, contentUri: string, onSubmitted?: (hash: string) => void, assertCurrent?: () => void) =>
+      call("createPost", [BigInt(postId), contentUri], undefined, onSubmitted, assertCurrent),
 
-    /** Like a post on-chain. Call before updating DB. */
-    likePostOnChain: (postId: number) =>
-      call("likePost", [BigInt(postId)]),
+    /** Like a post onchain. Call before updating DB. */
+    likePostOnChain: (postId: number, onSubmitted?: (hash: string) => void, assertCurrent?: () => void) =>
+      call("likePost", [BigInt(postId)], undefined, onSubmitted, assertCurrent),
 
     /**
-     * Subscribe to a creator on-chain. The contract forwards MON per the live contract (listed price is NOT enforced on-chain).
+     * Subscribe to a creator onchain. The contract forwards MON per the live contract (listed price is NOT enforced onchain).
      * @param creatorAddress Creator's wallet address (0x…)
      * @param priceMonEther  Price as an ether string (e.g. "1.5" for 1.5 MON)
      */
     subscribeOnChain: (creatorAddress: `0x${string}`, priceMonEther: string, onSubmitted?: (hash: string) => void) =>
       call("subscribe", [creatorAddress], parseEther(priceMonEther), onSubmitted),
 
-    /** Daily streak check-in on-chain. Call before updating DB. */
+    /** Daily streak check in onchain. Call before updating DB. */
     dailyCheckinOnChain: (onSubmitted?: (hash: string) => void) =>
       call("dailyCheckin", [], undefined, onSubmitted),
 
@@ -117,7 +122,7 @@ export function useContractActions() {
     playFeetGameOnChain: (actionType: number, valueWei: bigint, onSubmitted?: (hash: string) => void) =>
       call("playFeetGame", [actionType], valueWei, onSubmitted),
 
-    /** Anchor a profile update on-chain. Call after saving to DB. */
+    /** Anchor a profile update onchain. Call after saving to DB. */
     updateProfileOnChain: (name: string, bio: string, avatarUri: string) =>
       call("updateProfile", [name, bio, avatarUri]),
   };

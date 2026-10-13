@@ -18,6 +18,8 @@ import dmRouter from "./dm";
 import blocksRouter from "./blocks";
 import rewardsRouter from "./rewards";
 import gameRouter from "./game";
+import dailyBonusRouter from "./daily-bonus";
+import chainEventsRouter from "./chain-events";
 
 const router: IRouter = Router();
 
@@ -40,5 +42,7 @@ router.use(dmRouter);
 router.use(blocksRouter);
 router.use(rewardsRouter);
 router.use(gameRouter);
+router.use(dailyBonusRouter);
+router.use(chainEventsRouter);
 
 export default router;

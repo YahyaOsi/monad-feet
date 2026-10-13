@@ -4,7 +4,7 @@ import { useAccount } from "wagmi";
 import { parseEther } from "viem";
 import {
   Droplets, Hand, Sparkles, RefreshCw, ExternalLink, AlertTriangle,
-  Clock, ShieldCheck, Loader2, History, UserPlus,
+  Clock, ShieldCheck, Loader2, History, UserPlus, Minus, Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +30,15 @@ const TINTS = [
 ];
 const HASH_RE = /^0x[0-9a-fA-F]{64}$/;
 const short = (h: string) => `${h.slice(0, 8)}…${h.slice(-6)}`;
+type ActionInvite = { totalPurchases?: number | null; purchasesUntilInvite?: number | null; inviteEvery?: number | null };
+const inviteOf = (a: GameAction) => a as GameAction & ActionInvite;
+const sumPoints = (action: GameAction, qty: number) =>
+  action.dailyRewards.slice(action.count, action.count + qty).reduce((total, points) => total + points, 0);
+const formatMon = (wei: bigint) => {
+  const whole = wei / 10n ** 18n;
+  const frac = (wei % 10n ** 18n).toString().padStart(18, "0").replace(/0+$/, "");
+  return frac ? `${whole}.${frac}` : whole.toString();
+};
 const eq = (a?: string, b?: string) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
 
 function useCountdown(target?: string | number) {
@@ -51,6 +60,8 @@ export default function DailyGame() {
   const sessionWallet = user && address && eq(user.walletAddress, address) ? address : undefined;
   const activeWalletRef = useRef(sessionWallet);
   activeWalletRef.current = sessionWallet;
+  const chainRef = useRef(chainId);
+  chainRef.current = chainId;
   const stillSameWallet = () => !!sessionWallet && eq(activeWalletRef.current, sessionWallet);
   const game = useGameState(sessionWallet);
   const claims = useGameClaims(sessionWallet);
@@ -63,6 +74,8 @@ export default function DailyGame() {
   const [busy, setBusy] = useState<string | null>(null);
   const busyRef = useRef(false);
   const [confirmAction, setConfirmAction] = useState<GameAction | null>(null);
+  const [qty, setQty] = useState(1);
+  const [progress, setProgress] = useState<{ actionId: number; done: number; total: number } | null>(null);
   const [manualHash, setManualHash] = useState("");
   const [syncing, setSyncing] = useState<string | null>(null);
 
@@ -117,36 +130,54 @@ export default function DailyGame() {
     }
   }
 
-  async function play(action: GameAction) {
+  async function play(action: GameAction, quantity: number) {
     if (busyRef.current || !writesOpen || wrongChain || !stillSameWallet()) return;
+    const total = Math.max(1, Math.min(quantity, action.remaining));
+    const startChain = chainId;
     busyRef.current = true;
     setBusy(`play-${action.id}`);
     setConfirmAction(null);
-    let submitted: string | null = null;
+    let done = 0;
+    let stopReason: string | null = null;
+    const value = parseEther(action.priceMon);
     try {
-      const value = parseEther(action.priceMon);
-      const hash = await playFeetGameOnChain(action.id, value, (h) => {
-        submitted = h;
-        const ok = ledger.upsert({ txHash: h, actionName: action.name, status: "submitted", at: Date.now() });
-        if (!ok) toast({ title: "Could not save to browser storage", description: `Write down this hash to recover later: ${h}`, variant: "destructive", duration: 30_000 });
-      });
-      if (!hash) throw new Error("No transaction hash returned.");
-      ledger.patch(hash, { status: "confirmed" });
-      if (!stillSameWallet()) return;
-      toast({ title: "Confirmed on Monad", description: `${action.name} receipt confirmed. Syncing rewards…` });
-      await syncHash(hash, true);
-    } catch (e) {
-      if (!stillSameWallet()) return;
-      const msg = e instanceof Error ? e.message.split("\n")[0] : "Transaction failed";
-      toast({
-        title: submitted ? "Transaction not confirmed" : "No payment sent",
-        description: submitted ? `${msg}. Hash ${short(submitted)} kept for recovery.` : msg,
-        variant: "destructive",
-      });
+      for (let i = 0; i < total; i++) {
+        if (!stillSameWallet()) { stopReason = "Wallet changed. Stopped before the next purchase."; break; }
+        if (chainRef.current !== startChain) { stopReason = "Network changed. Stopped before the next purchase."; break; }
+        setProgress({ actionId: action.id, done, total });
+        let submitted: string | null = null;
+        try {
+          // Exactly one action and one price per transaction. Never batched.
+          const hash = await playFeetGameOnChain(action.id, value, (h) => {
+            submitted = h;
+            const ok = ledger.upsert({ txHash: h, actionName: `${action.name} ${i + 1} of ${total}`, status: "submitted", at: Date.now() });
+            if (!ok) toast({ title: "Could not save to browser storage", description: `Write down this hash to recover later: ${h}`, variant: "destructive", duration: 30_000 });
+          });
+          if (!hash) throw new Error("No transaction hash returned.");
+          ledger.patch(hash, { status: "confirmed" });
+          done++;
+          if (!stillSameWallet()) { stopReason = "Wallet changed. Stopped before the next purchase."; break; }
+          const synced = await syncHash(hash, true);
+          if (!synced) { stopReason = "A receipt confirmed but credit did not sync. Retry it below before buying more."; break; }
+        } catch (e) {
+          const msg = e instanceof Error ? e.message.split("\n")[0] : "Transaction failed";
+          stopReason = submitted ? `${msg}. Hash ${short(submitted)} kept for recovery.` : `${msg}. No payment sent for this one.`;
+          break;
+        }
+      }
     } finally {
       busyRef.current = false;
       setBusy(null);
+      setProgress(null);
       game.refetch();
+    }
+    if (!stillSameWallet()) return;
+    if (total > 1 || stopReason) {
+      toast({
+        title: `${done} of ${total} ${action.name.toLowerCase()} ${total === 1 ? "purchase" : "purchases"} completed`,
+        description: stopReason ?? `Paid ${formatMon(value * BigInt(done))} MON plus gas across ${done} separate transactions.`,
+        variant: stopReason ? "destructive" : "default",
+      });
     }
   }
 
@@ -172,7 +203,7 @@ export default function DailyGame() {
     if (!stillSameWallet()) return;
     const h = manualHash.trim();
     if (!HASH_RE.test(h)) {
-      toast({ title: "Invalid hash", description: "Paste a 0x-prefixed 64-character transaction hash.", variant: "destructive" });
+      toast({ title: "Invalid hash", description: "Paste a full 0x transaction hash (64 hex characters).", variant: "destructive" });
       return;
     }
     ledger.upsert({ txHash: h, actionName: "Manual recovery", status: "submitted", at: Date.now() });
@@ -191,7 +222,7 @@ export default function DailyGame() {
         </p>
         <p className="mt-2 max-w-xl text-xs text-muted-foreground">
           Your points are intended for future $MFEET conversion. Timing and rates are not set.
-          On-chain check-ins require network gas; optional treatments show their MON price before you pay.
+          Onchain check ins need network gas; optional treatments show their MON price before you pay.
         </p>
         <div className="mt-4 flex flex-wrap items-center gap-3 text-xs">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-background/70 px-3 py-1 font-mono" data-testid="text-reset-countdown">
@@ -208,7 +239,7 @@ export default function DailyGame() {
       <div className="space-y-6" id="daily-spa">
       <div>
         <h2 className="text-xl font-semibold">Your daily foot spa</h2>
-        <p className="mt-1 text-sm text-muted-foreground">Optional treatments earn points and an invite code every five lifetime treatments. Treatment limits reset at 00:00 UTC.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Optional treatments earn points, and massages and pedicures also earn invite codes. Limits reset at 00:00 UTC.</p>
       </div>
       {!GAME_ENABLED && (
         <Notice tone="amber" testId="notice-game-paused">
@@ -217,7 +248,7 @@ export default function DailyGame() {
       )}
       <details className="rounded-xl border border-border p-4 text-xs text-muted-foreground" data-testid="notice-disclosure">
         <summary className="cursor-pointer font-medium">Treatment costs and contract details</summary>
-        <p className="mt-2">This is an early, unaudited deployment. Each treatment has the listed MON price plus network gas.
+        <p className="mt-2">This is an early unaudited deployment. Each treatment has the listed MON price plus network gas.
           Treatment fees go 100% to the platform treasury <span className="font-mono">{short(MONAD_TREASURY_ADDRESS)}</span>.
           Review the amount in the confirmation before opening your wallet.</p>
       </details>
@@ -231,7 +262,7 @@ export default function DailyGame() {
 
       {!sessionWallet ? (
         <Notice tone="red" testId="notice-wallet-mismatch">
-          Connected wallet does not match your signed-in account. Switch back or sign in again.
+          Connected wallet does not match your signed in account. Switch back or sign in again.
         </Notice>
       ) : game.isLoading ? (
         <div className="space-y-4">
@@ -284,11 +315,11 @@ export default function DailyGame() {
           )}
 
           <section className="grid grid-cols-2 gap-3 md:grid-cols-5" data-testid="section-stats">
-            <Stat label="Contract points" value={String(g.onChainPoints)} sub="on-chain balance" testId="text-onchain-points" />
+            <Stat label="Contract points" value={String(g.onChainPoints)} sub="onchain balance" testId="text-onchain-points" />
             <Stat label="App points" value={appStreak ? String(appStreak.totalPoints) : "-"} sub="separate balance" testId="text-app-points" />
             <Stat label="Treatments today" value={String(g.actions.reduce((s, a) => s + a.count, 0))} testId="text-today-count" />
             <Stat label="Lifetime treatments" value={String(g.totalPurchases)} testId="text-total-purchases" />
-            <Stat label="Check-in streak" value={`${g.currentStreak}d`} sub={`best ${g.longestStreak}d`} testId="text-streak" />
+            <Stat label="Check in streak" value={`${g.currentStreak}d`} sub={`best ${g.longestStreak}d`} testId="text-streak" />
           </section>
 
           <section className="grid gap-4 md:grid-cols-3" data-testid="section-actions">
@@ -305,8 +336,16 @@ export default function DailyGame() {
                   <p className="font-mono text-2xl font-bold" data-testid={`text-price-${a.id}`}>{a.priceMon} <span className="text-sm text-muted-foreground">MON</span></p>
                   <dl className="mt-3 space-y-1 text-sm">
                     <Row k="Next reward" v={`${a.nextPoints} pts`} />
-                    <Row k="Base" v={`${a.basePoints} pts, doubles each buy`} />
-                    <Row k="Today" v={`${a.count} / ${a.count + a.remaining}`} />
+                    <Row k="Base reward" v={`${a.basePoints} pts`} />
+                    <Row k="Doubles on purchase" v={a.doublingPurchases.join(", ")} />
+                    <Row k="Daily points at 10 visits" v={`${a.dailyRewards.reduce((total, points) => total + points, 0).toLocaleString()} pts`} />
+                    <Row k="Today" v={`${a.count} of ${a.count + a.remaining}`} />
+                    <Row k="Invite code" v={(() => {
+                      const inv = inviteOf(a);
+                      if (!inv.inviteEvery) return "Not included";
+                      const left = inv.purchasesUntilInvite ?? inv.inviteEvery;
+                      return left <= 0 ? "On your next one" : `In ${left} more`;
+                    })()} />
                   </dl>
                   <div className="mt-2 flex gap-0.5" aria-hidden>
                     {Array.from({ length: a.count + a.remaining }).map((_, k) => (
@@ -314,22 +353,38 @@ export default function DailyGame() {
                     ))}
                   </div>
                   <div className="mt-auto pt-4">
-                    {confirmAction?.id === a.id ? (
-                      <div className="space-y-2 rounded-xl border border-border bg-muted/40 p-3 text-xs" data-testid={`confirm-action-${a.id}`}>
-                        <p>You pay exactly <b className="font-mono">{a.priceMon} MON</b> plus gas. 100% of the treatment fee goes to treasury <span className="font-mono">{short(MONAD_TREASURY_ADDRESS)}</span>. This contract is unaudited.</p>
+                    {confirmAction?.id === a.id ? (() => {
+                      const q = Math.max(1, Math.min(qty, a.remaining));
+                      const costWei = parseEther(a.priceMon) * BigInt(q);
+                      return (
+                      <div className="space-y-3 rounded-xl border border-border bg-muted/40 p-3 text-xs" data-testid={`confirm-action-${a.id}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-medium">How many</span>
+                          <div className="flex items-center gap-1">
+                            <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => setQty(Math.max(1, q - 1))} disabled={q <= 1} data-testid={`button-qty-minus-${a.id}`}><Minus className="h-3 w-3" /></Button>
+                            <span className="w-8 text-center font-mono text-sm font-bold" data-testid={`text-qty-${a.id}`}>{q}</span>
+                            <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => setQty(Math.min(a.remaining, q + 1))} disabled={q >= a.remaining} data-testid={`button-qty-plus-${a.id}`}><Plus className="h-3 w-3" /></Button>
+                          </div>
+                        </div>
+                        <dl className="space-y-1">
+                          <Row k="Points" v={`+${sumPoints(a, q).toLocaleString()} pts`} />
+                          <Row k="Total cost" v={`${formatMon(costWei)} MON plus gas`} />
+                        </dl>
+                        <p>{q > 1 ? `Your wallet opens ${q} times, one ${a.priceMon} MON payment each. Confirm each one. We stop at the first failure or wallet change.` : `You pay exactly ${a.priceMon} MON plus gas.`} All treatment fees go to treasury <span className="font-mono">{short(MONAD_TREASURY_ADDRESS)}</span>. This contract is unaudited.</p>
                         <div className="flex gap-2">
-                          <Button size="sm" className="flex-1" onClick={() => play(a)} disabled={!!busy} data-testid={`button-confirm-play-${a.id}`}>Open wallet</Button>
+                          <Button size="sm" className="flex-1" onClick={() => play(a, q)} disabled={!!busy} data-testid={`button-confirm-play-${a.id}`}>Open wallet</Button>
                           <Button size="sm" variant="ghost" onClick={() => setConfirmAction(null)} data-testid={`button-cancel-play-${a.id}`}>Cancel</Button>
                         </div>
                       </div>
-                    ) : (
+                      );
+                    })() : (
                       <Button
                         className="w-full"
                         disabled={!writesOpen || soldOut || !!busy || wrongChain}
-                        onClick={() => setConfirmAction(a)}
+                        onClick={() => { setQty(1); setConfirmAction(a); }}
                         data-testid={`button-play-${a.id}`}
                       >
-                        {isBusy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Waiting for receipt…</>
+                        {isBusy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> {progress && progress.total > 1 ? `Purchase ${progress.done + 1} of ${progress.total}` : "Waiting for receipt"}</>
                           : soldOut ? "Done for today"
                           : !GAME_ENABLED ? "Paused"
                           : `Book for ${a.priceMon} MON`}
@@ -342,7 +397,7 @@ export default function DailyGame() {
           </section>
 
           <p className="text-sm text-muted-foreground" data-testid="section-invite-progress">
-            {g.purchasesUntilInvite} more treatment{g.purchasesUntilInvite === 1 ? "" : "s"} until your next invite code.
+            Invite codes come from lifetime counts per treatment: wash never gives one, massage gives one every 7, pedicure every 3.
             Earned codes appear in Invite Codes below.
           </p>
         </>
@@ -352,7 +407,7 @@ export default function DailyGame() {
         <h2 className="flex items-center gap-2 font-semibold"><ShieldCheck className="h-4 w-4" /> Unsynced spa payments</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Transactions saved in this browser for this wallet and contract. Sync credits them without paying again.
-          The server verifies each receipt on chain before awarding anything. For check-in recovery, use Daily Streak above.
+          The server verifies each receipt on chain before awarding anything. For check in recovery, use Daily Streak above.
         </p>
         {unclaimed.length === 0 ? (
           <p className="mt-3 rounded-lg bg-muted/40 px-3 py-3 text-sm text-muted-foreground" data-testid="text-no-pending">Nothing waiting. Every saved payment has been credited.</p>
@@ -402,7 +457,7 @@ export default function DailyGame() {
                   {short(c.txHash)} <ExternalLink className="h-3 w-3" />
                 </a>
                 <span className="text-xs text-muted-foreground">{new Date(c.createdAt).toLocaleString()}</span>
-                <span className="font-medium">+{c.pointsAwarded} pts{c.invitesAwarded ? ` · ${c.invitesAwarded} invite` : ""}</span>
+                <span className="font-medium">+{c.pointsAwarded} pts{c.invitesAwarded ? `, ${c.invitesAwarded} invite` : ""}</span>
               </li>
             ))}
           </ul>

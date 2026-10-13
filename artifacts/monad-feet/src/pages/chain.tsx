@@ -1,27 +1,25 @@
-import { useState, useCallback } from "react";
-import { useWatchContractEvent } from "wagmi";
+import { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Link2, Copy, CheckCircle2, ExternalLink, Users, FileText,
   Zap, Shield, AlertCircle, Terminal, RefreshCw, Globe,
-  Activity, UserPlus, Heart, Repeat2, Flame, Radio, UserCog
+  Activity, UserPlus, Heart, Repeat2, Flame, Radio, UserCog, Gift, MessageSquare
 } from "lucide-react";
 import {
   CONTRACT_DEPLOYED,
   MONAD_FEET_CONTRACT_ADDRESS,
-  MONAD_FEET_ABI,
   MONAD_MAINNET_CHAIN_ID,
 } from "@/lib/contract";
 import { useContractUserCount, useContractPostCount } from "@/lib/useOnChain";
-import { useGetFeedSummary } from "@workspace/api-client-react";
+import { useGetFeedSummary, getGetFeedSummaryQueryKey, useGetChainEvents, getGetChainEventsQueryKey } from "@workspace/api-client-react";
 import { formatDistanceToNow } from "date-fns";
 
 const EXPLORER = "https://monvision.io";
 const RPC_URL = "https://rpc.monad.xyz";
 
-type EventKind = "UserRegistered" | "PostCreated" | "PostLiked" | "Subscribed" | "StreakCheckin" | "ProfileUpdated";
+type EventKind = string;
 
 interface LiveEvent {
   id: string;
@@ -32,7 +30,11 @@ interface LiveEvent {
   at: Date;
 }
 
-const EVENT_META: Record<EventKind, { icon: React.ReactNode; color: string; bg: string }> = {
+type EventMeta = { icon: React.ReactNode; color: string; bg: string };
+const FALLBACK_META: EventMeta = { icon: <Activity className="h-3.5 w-3.5" />, color: "text-violet-700", bg: "bg-violet-50 border-violet-200" };
+const EVENT_META: Record<string, EventMeta> = {
+  GamePlayed:     { icon: <Zap className="h-3.5 w-3.5" />,      color: "text-amber-700",  bg: "bg-amber-50 border-amber-200"   },
+  InviteEarned:   { icon: <Gift className="h-3.5 w-3.5" />,     color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200" },
   UserRegistered: { icon: <UserPlus className="h-3.5 w-3.5" />, color: "text-green-700",  bg: "bg-green-50 border-green-200"   },
   PostCreated:    { icon: <FileText className="h-3.5 w-3.5" />, color: "text-blue-700",   bg: "bg-blue-50 border-blue-200"     },
   PostLiked:      { icon: <Heart className="h-3.5 w-3.5" />,    color: "text-red-700",    bg: "bg-red-50 border-red-200"       },
@@ -64,7 +66,7 @@ function StatBox({ label, chain, db, icon, loading }: {
           <div className="text-2xl font-bold">
             {loading ? <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" /> : (chain ?? "-")}
           </div>
-          <div className="text-xs text-violet-600 font-medium">On-chain</div>
+          <div className="text-xs text-violet-600 font-medium">Onchain</div>
         </div>
         {db !== undefined && (
           <div className="pb-0.5">
@@ -80,126 +82,34 @@ function StatBox({ label, chain, db, icon, loading }: {
 export default function ChainPage() {
   const { data: userCount, isLoading: usersLoading, refetch: refetchUsers } = useContractUserCount();
   const { data: postCount, isLoading: postsLoading, refetch: refetchPosts } = useContractPostCount();
-  const { data: summary } = useGetFeedSummary();
-
-  const [liveEvents, setLiveEvents] = useState<LiveEvent[]>([]);
-  const [isWatching, setIsWatching] = useState(CONTRACT_DEPLOYED);
-
-  const addEvent = useCallback((ev: LiveEvent) => {
-    setLiveEvents(prev => [ev, ...prev].slice(0, 40));
-  }, []);
-
-  // Watch all contract events
-  useWatchContractEvent({
-    address: CONTRACT_DEPLOYED ? MONAD_FEET_CONTRACT_ADDRESS : undefined,
-    abi: MONAD_FEET_ABI,
-    eventName: "UserRegistered",
-    onLogs(logs) {
-      logs.forEach(log => addEvent({
-        id: `${log.transactionHash}:reg`,
-        kind: "UserRegistered",
-        label: `@${(log.args as { username?: string }).username ?? "?"} joined Monad Feet`,
-        sublabel: `Block ${log.blockNumber}`,
-        txHash: log.transactionHash ?? "",
-        at: new Date(),
-      }));
-    },
+  const { data: summary, refetch: refetchSummary } = useGetFeedSummary({
+    query: { queryKey: getGetFeedSummaryQueryKey(), refetchInterval: 30_000, refetchOnWindowFocus: true },
   });
 
-  useWatchContractEvent({
-    address: CONTRACT_DEPLOYED ? MONAD_FEET_CONTRACT_ADDRESS : undefined,
-    abi: MONAD_FEET_ABI,
-    eventName: "PostCreated",
-    onLogs(logs) {
-      logs.forEach(log => addEvent({
-        id: `${log.transactionHash}:post`,
-        kind: "PostCreated",
-        label: `New post anchored on-chain`,
-        sublabel: `Post #${(log.args as { postId?: bigint }).postId?.toString() ?? "?"} · Block ${log.blockNumber}`,
-        txHash: log.transactionHash ?? "",
-        at: new Date(),
-      }));
-    },
+  const eventsQuery = useGetChainEvents({
+    query: { queryKey: getGetChainEventsQueryKey(), refetchInterval: 15_000, refetchOnWindowFocus: true, retry: 2 },
   });
+  const [clearedBefore, setClearedBefore] = useState(0);
+  const liveEvents = useMemo(() => {
+    const seen = new Map<string, LiveEvent>();
+    for (const ev of eventsQuery.data?.events ?? []) {
+      const at = new Date(ev.at);
+      if (!Number.isFinite(at.getTime()) || at.getTime() <= clearedBefore) continue;
+      const key = ev.id || `${ev.txHash}:${ev.kind}`;
+      if (!seen.has(key)) seen.set(key, { ...ev, id: key, at });
+    }
+    return [...seen.values()].sort((x, y) => y.at.getTime() - x.at.getTime() || y.id.localeCompare(x.id)).slice(0, 60);
+  }, [eventsQuery.data, clearedBefore]);
+  const eventsError = eventsQuery.isError;
 
-  useWatchContractEvent({
-    address: CONTRACT_DEPLOYED ? MONAD_FEET_CONTRACT_ADDRESS : undefined,
-    abi: MONAD_FEET_ABI,
-    eventName: "PostLiked",
-    onLogs(logs) {
-      logs.forEach(log => addEvent({
-        id: `${log.transactionHash}:like`,
-        kind: "PostLiked",
-        label: `Post #${(log.args as { postId?: bigint }).postId?.toString() ?? "?"} liked on-chain`,
-        sublabel: `Block ${log.blockNumber}`,
-        txHash: log.transactionHash ?? "",
-        at: new Date(),
-      }));
-    },
-  });
-
-  useWatchContractEvent({
-    address: CONTRACT_DEPLOYED ? MONAD_FEET_CONTRACT_ADDRESS : undefined,
-    abi: MONAD_FEET_ABI,
-    eventName: "Subscribed",
-    onLogs(logs) {
-      logs.forEach(log => addEvent({
-        id: `${log.transactionHash}:sub`,
-        kind: "Subscribed",
-        label: `New subscription recorded on-chain`,
-        sublabel: `Block ${log.blockNumber}`,
-        txHash: log.transactionHash ?? "",
-        at: new Date(),
-      }));
-    },
-  });
-
-  useWatchContractEvent({
-    address: CONTRACT_DEPLOYED ? MONAD_FEET_CONTRACT_ADDRESS : undefined,
-    abi: MONAD_FEET_ABI,
-    eventName: "StreakCheckin",
-    onLogs(logs) {
-      logs.forEach(log => {
-        const args = log.args as { currentStreak?: bigint; totalPoints?: bigint };
-        addEvent({
-          id: `${log.transactionHash}:checkin`,
-          kind: "StreakCheckin",
-          label: `Streak check-in, ${args.currentStreak?.toString() ?? "?"} day streak`,
-          sublabel: `${args.totalPoints?.toString() ?? "?"} total points · Block ${log.blockNumber}`,
-          txHash: log.transactionHash ?? "",
-          at: new Date(),
-        });
-      });
-    },
-  });
-
-  useWatchContractEvent({
-    address: CONTRACT_DEPLOYED ? MONAD_FEET_CONTRACT_ADDRESS : undefined,
-    abi: MONAD_FEET_ABI,
-    eventName: "ProfileUpdated",
-    onLogs(logs) {
-      logs.forEach(log => {
-        const args = log.args as { name?: string };
-        addEvent({
-          id: `${log.transactionHash}:profile`,
-          kind: "ProfileUpdated",
-          label: `Profile updated on-chain${args.name ? `, ${args.name}` : ""}`,
-          sublabel: `Block ${log.blockNumber}`,
-          txHash: log.transactionHash ?? "",
-          at: new Date(),
-        });
-      });
-    },
-  });
-
-  const handleRefresh = () => { refetchUsers(); refetchPosts(); };
+  const handleRefresh = () => { refetchUsers(); refetchPosts(); refetchSummary(); };
 
   return (
     <div className="space-y-6 max-w-3xl">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-            <Link2 className="h-7 w-7 text-violet-600" /> On-Chain Status
+            <Link2 className="h-7 w-7 text-violet-600" /> Onchain Status
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
             Live data from MonadFeet contract on Monad
@@ -223,7 +133,7 @@ export default function ChainPage() {
                 </div>
                 <div className="flex-1">
                   <p className="font-semibold text-green-800">Live on Monad</p>
-                  <p className="text-xs text-green-700 mt-0.5">All user actions are being permanently recorded on-chain.</p>
+                  <p className="text-xs text-green-700 mt-0.5">All user actions are being permanently recorded onchain.</p>
                 </div>
               </>
             ) : (
@@ -233,7 +143,7 @@ export default function ChainPage() {
                 </div>
                 <div className="flex-1">
                   <p className="font-semibold text-amber-800">Contract Not Deployed</p>
-                  <p className="text-xs text-amber-700 mt-0.5">Actions save to the database only. Deploy to go fully on-chain.</p>
+                  <p className="text-xs text-amber-700 mt-0.5">Actions save to the database only. Deploy to go fully onchain.</p>
                 </div>
                 <Badge className="bg-amber-100 text-amber-700 border-amber-200 flex-shrink-0">Demo Mode</Badge>
               </>
@@ -275,7 +185,7 @@ export default function ChainPage() {
           <CardDescription>
             {CONTRACT_DEPLOYED
               ? "Numbers read directly from the contract, updating every 30 seconds"
-              : "On-chain features are not live yet. Showing app counts."}
+              : "Onchain features are not live yet. Showing app counts."}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -298,6 +208,51 @@ export default function ChainPage() {
         </CardContent>
       </Card>
 
+      {/* App activity, distinct from lifetime registry counts */}
+      {summary && <section aria-label="App activity" className="space-y-3">
+        <h2 className="text-base font-semibold">App Activity</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <Card className="bg-primary/5 border-none shadow-none">
+            <CardContent className="p-4 flex items-center gap-4">
+              <div className="p-3 bg-primary/10 rounded-full text-primary">
+                <MessageSquare className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Published app posts</p>
+                <p className="text-2xl font-bold">{summary.totalPosts}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="bg-primary/5 border-none shadow-none">
+            <CardContent className="p-4 flex items-center gap-4">
+              <div className="p-3 bg-primary/10 rounded-full text-primary">
+                <Heart className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Total Likes</p>
+                <p className="text-2xl font-bold">{summary.totalLikes}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="bg-primary/5 border-none shadow-none">
+            <CardContent className="p-4 flex items-center gap-4">
+              <div className="p-3 bg-primary/10 rounded-full text-primary">
+                <Users className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Active Today</p>
+                <p className="text-2xl font-bold">{summary.activeToday}</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          App count: verified public and exclusive publications saved here. Registry lifetime anchors: {summary.totalOnChainPosts ?? "temporarily unavailable"}.
+          Unconfirmed historical app-post records: {summary.totalPendingHistoricalPosts ?? 0}, excluded from the published count.
+          An on-chain transaction awaiting app recovery can also make the totals differ.
+        </p>
+      </section>}
+
       {/* Live Event Feed */}
       <Card>
         <CardHeader className="pb-3">
@@ -305,46 +260,46 @@ export default function ChainPage() {
             <div>
               <CardTitle className="text-base flex items-center gap-2">
                 <Activity className="h-4 w-4 text-primary" /> Live Event Feed
-                {CONTRACT_DEPLOYED && (
-                  <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-200">
-                    <Radio className="h-2.5 w-2.5" /> Listening
+                {!eventsError && eventsQuery.data && (
+                  <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-200" data-testid="status-live-events">
+                    <Radio className="h-2.5 w-2.5" /> Live
                   </span>
                 )}
               </CardTitle>
               <CardDescription className="mt-1">
-                {CONTRACT_DEPLOYED
-                  ? "Contract events streaming live from Monad"
-                  : "Deploy the contract to see live blockchain events here"}
+                {eventsQuery.data
+                  ? `Confirmed contract events, refreshed every 15 seconds. Block ${eventsQuery.data.latestBlock}, updated ${formatDistanceToNow(new Date(eventsQuery.data.updatedAt), { addSuffix: true })}.`
+                  : "Confirmed contract events from Monad, refreshed every 15 seconds."}
               </CardDescription>
             </div>
             {liveEvents.length > 0 && (
-              <Button variant="ghost" size="sm" onClick={() => setLiveEvents([])} className="text-xs text-muted-foreground">
+              <Button variant="ghost" size="sm" onClick={() => setClearedBefore(liveEvents[0]?.at.getTime() ?? Date.now())} className="text-xs text-muted-foreground">
                 Clear
               </Button>
             )}
           </div>
         </CardHeader>
         <CardContent>
-          {!CONTRACT_DEPLOYED ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <Activity className="h-8 w-8 mx-auto mb-2 opacity-30" />
-              <p className="text-sm">No on-chain events yet</p>
+          {eventsError && (
+            <div role="alert" className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs" data-testid="status-live-events-error">
+              <span className="text-destructive">Could not refresh events{liveEvents.length ? ". Showing the last good list." : "."}</span>
+              <Button size="sm" variant="outline" onClick={() => void eventsQuery.refetch()} data-testid="button-retry-live-events">Retry</Button>
             </div>
+          )}
+          {eventsQuery.isLoading ? (
+            <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-14 animate-pulse rounded-lg bg-muted" />)}</div>
           ) : liveEvents.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <div className="flex items-center justify-center gap-2 mb-2">
-                <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-                <span className="text-sm font-medium text-green-700">Listening for events</span>
-              </div>
-              <p className="text-xs">Waiting for on-chain activity from Monad…</p>
-              <p className="text-xs mt-1 text-muted-foreground/60">
-                Events appear instantly when users register, post, like, or check in.
+            <div className="text-center py-8 text-muted-foreground" data-testid="status-live-events-empty">
+              <Activity className="h-8 w-8 mx-auto mb-2 opacity-30" />
+              <p className="text-sm font-medium">{eventsError ? "Events unavailable right now" : "No confirmed events yet"}</p>
+              <p className="text-xs mt-1 text-muted-foreground/70">
+                Registrations, posts, likes, check ins, spa treatments and invites show up here once confirmed.
               </p>
             </div>
           ) : (
             <div className="space-y-2 max-h-96 overflow-y-auto">
               {liveEvents.map(ev => {
-                const meta = EVENT_META[ev.kind];
+                const meta = EVENT_META[ev.kind] ?? FALLBACK_META;
                 return (
                   <div key={ev.id} className={`flex items-start gap-3 rounded-lg border p-3 ${meta.bg}`}>
                     <div className={`mt-0.5 flex-shrink-0 ${meta.color}`}>{meta.icon}</div>
@@ -386,7 +341,7 @@ export default function ChainPage() {
               { fn: "createPost(postId, contentUri)", trigger: "Post to feed", gas: "~60k" },
               { fn: "likePost(postId)", trigger: "Like a post", gas: "~45k" },
               { fn: "subscribe(creator) payable", trigger: "Subscribe to creator", gas: "~50k" },
-              { fn: "dailyCheckin()", trigger: "Daily streak check-in", gas: "~35k" },
+              { fn: "dailyCheckin()", trigger: "Daily streak check in", gas: "~35k" },
             ].map(({ fn, trigger, gas }) => (
               <div key={fn} className="flex items-center gap-3 py-2 border-b border-border/50 last:border-0">
                 <code className="text-xs font-mono bg-violet-50 text-violet-700 px-2 py-1 rounded flex-1 min-w-0 truncate">{fn}</code>

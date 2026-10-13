@@ -16,6 +16,7 @@ import {
   BellOff, Bell, ShieldX, ShieldCheck, Trash2,
 } from "lucide-react";
 import { useUser } from "@/context/UserContext";
+import { useToast } from "@/hooks/use-toast";
 import { usePresence } from "@/hooks/usePresence";
 import { useSubscriptionPayment } from "@/lib/useSubscriptionPayment";
 import { useDmInbox } from "@/hooks/useDmInbox";
@@ -128,8 +129,8 @@ function UserResultItem({
         </AvatarFallback>
       </Avatar>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold truncate">{user.name ?? user.username ?? "Unknown"}</p>
-        <p className="text-xs text-muted-foreground truncate">@{user.username ?? "-"}</p>
+        <p className="text-sm font-semibold break-words [overflow-wrap:anywhere]">{user.name ?? user.username ?? "Unknown"}</p>
+        <p className="text-xs text-muted-foreground break-all">@{user.username ?? "-"}</p>
       </div>
     </button>
   );
@@ -224,6 +225,7 @@ export default function MessagesPage() {
 
 function MessagesInbox() {
   const { user } = useUser();
+  const { toast } = useToast();
   const [, navigate] = useLocation();
   const search = useSearch();
   const urlUserId = parseDmUserId(search);
@@ -280,6 +282,7 @@ function MessagesInbox() {
   const toggleBlock = async () => {
     if (!thread || blockLoading) return;
     const { id, isBlocked } = thread.otherUser;
+    if (!isBlocked && !window.confirm("Block this member? Direct messages between you will stop. Existing messages, posts and on-chain records are not deleted. You can use Unblock to reverse this.")) return;
     setBlockLoading(true);
     setActionError(null);
     try {
@@ -292,6 +295,7 @@ function MessagesInbox() {
       setConversations((prev) =>
         prev.map((c) => c.userId === id ? { ...c, isBlocked: !isBlocked } : c),
       );
+      toast({ title: isBlocked ? "Member unblocked" : "Member blocked", description: isBlocked ? "You can send messages again." : "Messages are blocked. Use Unblock in this conversation to reverse it." });
     } catch (error) {
       if (mounted.current && currentThread.current === id) setActionError(dmErrorMessage(error));
     } finally {
@@ -415,7 +419,7 @@ function MessagesInbox() {
           </div>
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Messages</h1>
-            <p className="text-muted-foreground text-sm">Private, encrypted-by-trust DMs</p>
+            <p className="text-muted-foreground text-sm">Private, trust based DMs</p>
           </div>
         </div>
         <Button
@@ -452,7 +456,7 @@ function MessagesInbox() {
               {dmPaid && (
                 <p className="text-xs text-amber-700 mt-2 flex items-center gap-1.5">
                   <Shield className="h-3.5 w-3.5" />
-                  Non-subscribers will see a subscribe prompt before they can message you.
+                  People who are not subscribers will see a subscribe prompt before they can message you.
                 </p>
               )}
             </div>
@@ -585,6 +589,7 @@ function MessagesInbox() {
                     <p className="text-xs text-muted-foreground">
                       Tap <SquarePen className="h-3 w-3 inline" /> above to find a member and start a conversation.
                     </p>
+                    <Button size="sm" variant="outline" onClick={() => setComposing(true)}>Find a member</Button>
                   </div>
                 ) : (
                   conversations.map((conv) => (

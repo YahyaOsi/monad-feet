@@ -260,7 +260,7 @@ export default function Trending() {
                           )}
                           {post.onChainTxHash && (
                             <span className="ml-auto flex-shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200">
-                              ⛓ On-chain
+                              ⛓ Onchain
                             </span>
                           )}
                         </div>

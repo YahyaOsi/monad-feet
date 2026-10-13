@@ -14,6 +14,8 @@ import { useUser } from "@/context/UserContext";
 import { useInviteCodeAlert } from "@/hooks/usePresence";
 import { useToast } from "@/hooks/use-toast";
 import { CommunityRewards } from "@/components/daily/CommunityRewards";
+import { DailyBonus } from "@/components/daily/DailyBonus";
+import { getGetDailyBonusQueryKey } from "@workspace/api-client-react";
 
 interface PendingCheckin { txHash: string; wallet: string; status: "submitted" | "confirmed"; at: number }
 const checkinKey = (wallet: string) =>
@@ -35,19 +37,22 @@ function writePendingCheckin(wallet: string, v: PendingCheckin | null): boolean 
 const HASH_RE = /^0x[0-9a-fA-F]{64}$/;
 type CheckinState = "idle" | "signing" | "syncing" | "done" | "error";
 
-/** Wallet rewards, with the existing spa placed between check-in and milestones. */
+/** Wallet rewards, with the existing spa placed between check in and milestones. */
 export function DailyRewards({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const invalidateGame = useInvalidateGame();
   const { address: connectedAddress } = useAccount();
   const { user } = useUser();
   const address = connectedAddress?.toLowerCase() === user?.walletAddress?.toLowerCase() ? connectedAddress : undefined;
-  const { data: streak, isLoading: streakLoading, error: streakError } = useGetStreak();
+  const { data: streak, isLoading: streakLoading, error: streakError, refetch: refetchStreak } = useGetStreak({
+    query: { queryKey: [...getGetStreakQueryKey(), user?.id ?? "signed-out", address?.toLowerCase() ?? "none"], enabled: !!user?.id, refetchOnWindowFocus: true },
+  });
   const { data: invites, isLoading: invitesLoading, error: invitesError } = useGetMyInvites({
     query: {
       queryKey: [...getGetMyInvitesQueryKey(), user?.id ?? "signed-out"],
       enabled: !!user?.id,
-      refetchInterval: 5000,
+      refetchInterval: 60_000,
+      refetchIntervalInBackground: false,
       refetchOnMount: "always",
       refetchOnWindowFocus: true,
     },
@@ -58,7 +63,7 @@ export function DailyRewards({ children }: { children: ReactNode }) {
   const handleInviteCodesEarned = useCallback((codes: number, reason: string) => {
     queryClient.invalidateQueries({ queryKey: getGetMyInvitesQueryKey() });
     if (user?.id) queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.id) });
-    toast({ title: `You earned ${codes} invite code${codes > 1 ? "s" : ""}!`, description: `Reward for ${reason}. Check below to copy and share them.` });
+    toast({ title: `You earned ${codes} invite code${codes > 1 ? "s" : ""}`, description: `Reward for ${reason}. Check below to copy and share them.` });
   }, [queryClient, user?.id, toast]);
   useInviteCodeAlert(handleInviteCodesEarned);
   const { contractDeployed, dailyCheckinOnChain } = useContractActions();
@@ -90,6 +95,14 @@ export function DailyRewards({ children }: { children: ReactNode }) {
       setPendingCheckin(null);
     }
   }, [pendingCheckin, streak?.lastCheckinTxHash]);
+  const autoRetried = useRef<string | null>(null);
+  useEffect(() => {
+    if (!pendingCheckin || streakLoading || streak?.checkedInToday || checkinState !== "idle") return;
+    if (autoRetried.current === pendingCheckin.txHash) return;
+    autoRetried.current = pendingCheckin.txHash;
+    void syncCheckin(pendingCheckin);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingCheckin, streakLoading, streak?.checkedInToday, checkinState]);
   const savePending = (v: PendingCheckin) => {
     if (sameWallet(v.wallet)) setPendingCheckin(v);
     if (!writePendingCheckin(v.wallet, v) && sameWallet(v.wallet)) {
@@ -108,6 +121,7 @@ export function DailyRewards({ children }: { children: ReactNode }) {
       setPendingCheckin(null);
       setManualCheckinHash("");
       queryClient.invalidateQueries({ queryKey: getGetStreakQueryKey() });
+      queryClient.invalidateQueries({ queryKey: getGetDailyBonusQueryKey() });
       invalidateGame();
       if (user?.id) queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(user.id) });
       setCheckinState("done");
@@ -118,6 +132,7 @@ export function DailyRewards({ children }: { children: ReactNode }) {
         ? `Receipt for ${rec.txHash.slice(0, 10)}… was confirmed on chain, but the app has not recorded it yet (${detail}). The hash is saved; "Retry sync" resubmits the same transaction without opening your wallet.`
         : `The app could not verify ${rec.txHash.slice(0, 10)}… (${detail}). Nothing was recorded. If this transaction has not confirmed yet, retry in a moment.`);
       setCheckinState("error");
+      void refetchStreak();
     }
   };
   const chainRegistered = onChainUser ? Boolean(onChainUser[0]) : null;
@@ -129,7 +144,7 @@ export function DailyRewards({ children }: { children: ReactNode }) {
     const saved = readPendingCheckin(wallet) ?? pendingCheckin;
     if (saved && sameWallet(saved.wallet)) { await syncCheckin(saved); return; }
     setCheckinError(null);
-    if (!contractDeployed) { setCheckinError("On-chain check-in is unavailable."); setCheckinState("error"); return; }
+    if (!contractDeployed) { setCheckinError("Onchain check in is unavailable."); setCheckinState("error"); return; }
     if (chainRegistered === false) { setCheckinError("unregistered"); setCheckinState("error"); return; }
     let submitted: string | null = null;
     setCheckinState("signing");
@@ -155,7 +170,7 @@ export function DailyRewards({ children }: { children: ReactNode }) {
   const submitManualCheckin = async () => {
     const h = manualCheckinHash.trim();
     if (!address) return;
-    if (!HASH_RE.test(h)) { setCheckinError("Paste a 0x-prefixed 64-character transaction hash."); return; }
+    if (!HASH_RE.test(h)) { setCheckinError("Paste a full 0x transaction hash (64 hex characters)."); return; }
     const rec: PendingCheckin = { txHash: h, wallet: address, status: "submitted", at: Date.now() };
     savePending(rec);
     await syncCheckin(rec);
@@ -175,12 +190,12 @@ export function DailyRewards({ children }: { children: ReactNode }) {
     } catch { toast({ title: "Could not copy", description: "Select and copy the invite code manually.", variant: "destructive" }); }
   };
   const checkinLabel = () => {
-    if (streak?.checkedInToday || checkinState === "done") return "Checked in today!";
-    if (checkinState === "signing") return "Sign on Monad...";
-    if (checkinState === "syncing") return "Syncing...";
+    if (streak?.checkedInToday || checkinState === "done") return "Checked in today";
+    if (checkinState === "signing") return "Sign in your wallet";
+    if (checkinState === "syncing") return "Syncing";
     if (pendingCheckin) return "Retry sync (no new transaction)";
     if (checkinState === "error") return "Try again";
-    return contractDeployed ? "Sign & Check In on Monad" : "Check In Now";
+    return contractDeployed ? "Sign and check in on Monad" : "Check In Now";
   };
   const isCheckinPending = checkinState === "signing" || checkinState === "syncing";
   const dbStreak = streak?.currentStreak ?? 0;
@@ -198,48 +213,59 @@ export function DailyRewards({ children }: { children: ReactNode }) {
     <Card id="daily-checkin">
       <CardHeader>
         <CardTitle className="flex items-center gap-2"><Flame className="h-5 w-5 text-orange-500" /> Daily Streak</CardTitle>
-        <CardDescription>Start with 10 points at registration. Check in for +10 points once per UTC day (resets at 00:00 UTC). One-time milestones add extra rewards. Buying a spa treatment does not check you in.</CardDescription>
+        <CardDescription>Start with 10 points at registration. Check in for +10 points once per UTC day (resets at 00:00 UTC). One time milestones add extra rewards. Buying a spa treatment does not check you in.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {streakError && <p role="alert" className="text-sm text-destructive">Could not load check-in progress. Refresh to try again.</p>}
+        {streakError && <p role="alert" className="text-sm text-destructive">Could not load check in progress. Refresh to try again.</p>}
         <div className="grid grid-cols-3 gap-3">
           {[["Current", dbStreak, "days"], ["Best", streak?.longestStreak ?? 0, "days"], ["Points", currentPoints, "total"]].map(([label, value, unit]) => <div key={label} className="rounded-xl bg-muted p-3 text-center">
             <p className="text-xs text-muted-foreground">{label}</p><p className="text-2xl font-bold text-primary">{streakLoading ? "-" : value}</p><p className="text-xs text-muted-foreground">{unit}</p>
           </div>)}
         </div>
-        {streakMismatch && <p className="text-xs text-muted-foreground">On-chain streak ({chainStreak}d) differs from server reward streak ({dbStreak}d). Server rewards use the server streak.</p>}
-        {streak?.lastCheckinTxHash && <a href={`https://monvision.io/tx/${streak.lastCheckinTxHash}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-xs text-primary">Last check-in: {streak.lastCheckinTxHash.slice(0, 10)}…{streak.lastCheckinTxHash.slice(-6)} <ExternalLink className="h-3 w-3" /></a>}
+        {(() => {
+          const ext = streak as (typeof streak & { syncPending?: boolean | null; syncError?: string | null }) | undefined;
+          if (!ext?.syncPending && !ext?.syncError) return null;
+          return <div role="status" className="rounded-lg border border-amber-300/60 bg-amber-50 p-3 text-xs text-amber-900 dark:text-amber-200" data-testid="status-streak-sync">
+            <p className="font-medium">{ext.syncPending ? "Your latest check in is still syncing with the app." : "Your latest check in did not sync."}</p>
+            {ext.syncError && <p className="mt-1">{ext.syncError}</p>}
+            <p className="mt-1">Your streak may look behind until it syncs. Check again, retry your saved receipt, or paste the tx hash below. Do not check in again until this clears.</p>
+            <Button size="sm" variant="outline" className="mt-2" onClick={() => void refetchStreak()} data-testid="button-refresh-streak-sync">Check again</Button>
+          </div>;
+        })()}
+        {streakMismatch && <p className="text-xs text-muted-foreground">Onchain streak ({chainStreak}d) differs from server reward streak ({dbStreak}d). Server rewards use the server streak.</p>}
+        {streak?.lastCheckinTxHash && <a href={`https://monvision.io/tx/${streak.lastCheckinTxHash}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-xs text-primary">Last check in: {streak.lastCheckinTxHash.slice(0, 10)}…{streak.lastCheckinTxHash.slice(-6)} <ExternalLink className="h-3 w-3" /></a>}
         <Button className="w-full h-12 gap-2" onClick={handleCheckin} disabled={!address || streakLoading || !!streakError || streak?.checkedInToday || isCheckinPending || checkinState === "done"} data-testid="button-daily-checkin">
           {isCheckinPending && <Loader2 className="h-5 w-5 animate-spin" />}{checkinLabel()}
         </Button>
-        {!address && <p className="text-xs text-destructive">Connect the wallet for your signed-in account to check in.</p>}
-        {chainRegistered === false && <p className="text-xs text-muted-foreground" data-testid="text-checkin-unregistered">Register your wallet using the new-contract registration section below before checking in.</p>}
+        {!address && <p className="text-xs text-destructive">Connect the wallet for your signed in account to check in.</p>}
+        {chainRegistered === false && <p className="text-xs text-muted-foreground" data-testid="text-checkin-unregistered">Register your wallet on the new contract below before checking in.</p>}
         {checkinError && checkinError !== "unregistered" && <p className="text-xs text-destructive" data-testid="text-checkin-error">{checkinError}</p>}
         {storageWarning && <p className="text-xs text-destructive break-all" data-testid="text-checkin-storage-warning">{storageWarning}</p>}
         {pendingCheckin && <div className="flex items-center justify-between gap-2 rounded-lg border p-3 text-xs" data-testid="row-pending-checkin">
-          <span>Saved check-in <a href={`https://monvision.io/tx/${pendingCheckin.txHash}`} target="_blank" rel="noreferrer" className="font-mono text-primary underline">{pendingCheckin.txHash.slice(0, 10)}…{pendingCheckin.txHash.slice(-6)}</a> ({pendingCheckin.status === "confirmed" ? "receipt confirmed, not yet recorded by app" : "receipt not confirmed by this browser"})</span>
+          <span>Saved check in <a href={`https://monvision.io/tx/${pendingCheckin.txHash}`} target="_blank" rel="noreferrer" className="font-mono text-primary underline">{pendingCheckin.txHash.slice(0, 10)}…{pendingCheckin.txHash.slice(-6)}</a> ({pendingCheckin.status === "confirmed" ? "receipt confirmed, not yet recorded by app" : "receipt not confirmed by this browser"})</span>
           <Button size="sm" variant="ghost" onClick={forgetPendingCheckin} disabled={isCheckinPending} data-testid="button-forget-pending-checkin">Forget</Button>
         </div>}
-        {!streak?.checkedInToday && !pendingCheckin && <div className="flex flex-col gap-2 sm:flex-row">
-          <Input value={manualCheckinHash} onChange={(e) => setManualCheckinHash(e.target.value)} placeholder="Already checked in on chain? Paste tx hash" className="font-mono text-xs" data-testid="input-manual-checkin-hash" />
+        {(!streak?.checkedInToday || (streak as typeof streak & { syncError?: string | null })?.syncError) && !pendingCheckin && <div className="flex flex-col gap-2 sm:flex-row">
+          <Input value={manualCheckinHash} onChange={(e) => setManualCheckinHash(e.target.value)} placeholder="Already checked in onchain? Paste the tx hash" className="font-mono text-xs" data-testid="input-manual-checkin-hash" />
           <Button size="sm" variant="outline" onClick={submitManualCheckin} disabled={!address || isCheckinPending || !manualCheckinHash.trim()} data-testid="button-submit-manual-checkin">Recover</Button>
         </div>}
-        <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">Check-in transaction details</summary>
-          <p className="mt-2">Check-in has no treatment fee; Monad network gas is required. This is an early, unaudited contract. Recovery verifies the original receipt without a new transaction.</p>
-          {chainPoints !== null && <p className="mt-2" data-testid="text-contract-points">Contract points: <span className="font-mono">{chainPoints}</span>. A separate on-chain balance (the contract's 5/10/20 check-in tiers plus game rewards), not the app points above (+10 per check-in plus milestones).</p>}
+        <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">Check in transaction details</summary>
+          <p className="mt-2">Check in has no treatment fee; Monad network gas is required. This is an early unaudited contract. Recovery verifies the original receipt without a new transaction.</p>
+          {chainPoints !== null && <p className="mt-2" data-testid="text-contract-points">Contract points: <span className="font-mono">{chainPoints}</span>. A separate onchain balance (the contract's 5, 10 and 20 point check in tiers plus game rewards), not the app points above (+10 per check in plus milestones).</p>}
         </details>
       </CardContent>
     </Card>
     {children}
+    <DailyBonus />
     <Card>
-      <CardHeader><CardTitle>One-time milestone progress</CardTitle><CardDescription>These bonuses are in addition to the daily +10 baseline. Codes and points are awarded once per account.</CardDescription></CardHeader>
+      <CardHeader><CardTitle>One time milestone progress</CardTitle><CardDescription>These bonuses are in addition to the daily +10 baseline. Codes and points are awarded once per account.</CardDescription></CardHeader>
       <CardContent className="space-y-4">
         {milestones.map(({ label, current, target, reward }) => {
           const done = current >= target;
           return <div key={label} className="space-y-1.5">
             <div className="flex items-center justify-between gap-2 text-sm"><span className="flex items-center gap-2 font-medium">{done && <CheckCircle2 className="h-4 w-4 text-green-600" />}{label}</span><span className="text-xs text-muted-foreground">+{reward}</span></div>
             <div className="h-2 rounded-full overflow-hidden bg-muted"><div className={`h-full rounded-full ${done ? "bg-green-500" : "bg-primary"}`} style={{ width: `${Math.min(100, Math.round(current / target * 100))}%` }} /></div>
-            <div className="flex justify-between text-xs text-muted-foreground"><span>{current} / {target}</span><span>{done ? "Earned!" : `${Math.max(0, target - current)} more to go`}</span></div>
+            <div className="flex justify-between text-xs text-muted-foreground"><span>{current} / {target}</span><span>{done ? "Earned" : `${Math.max(0, target - current)} more to go`}</span></div>
           </div>;
         })}
         <p className="text-xs text-muted-foreground">Codes appear automatically in the Invite Codes section below once earned.</p>

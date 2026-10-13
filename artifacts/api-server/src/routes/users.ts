@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { bindNewImage, viewerId } from "../lib/contentPrivacy";
-import { eq, sql, ilike, or, desc, and, isNull } from "drizzle-orm";
+import { eq, sql, ilike, or, desc, and, isNull, isNotNull } from "drizzle-orm";
 import { db, usersTable, verifiedRegistrationsTable, inviteCodesTable, streaksTable, postsTable, postLikesTable, subscriptionsTable, privatePostsTable } from "@workspace/db";
 import {
   RegisterUserBody,
@@ -9,17 +9,22 @@ import {
 } from "@workspace/api-zod";
 import { nanoid } from "nanoid";
 import { referralPoints } from "../reward-rules";
+import { grantEarlyBetaBadges } from "../lib/earlyBeta";
 import { hasVerifiedRegistration, allowAttempt } from "../lib/walletAuth";
 import { discoverRegistration, verifyRegistration, normalizeRegistrationUsername, isUniqueViolation } from "../lib/registrationChain";
 import { consumeInviteCode, isInviteUsed } from "../lib/inviteCodes";
-// No verified NFT contract is configured. Ownership cannot be established
-// from a wallet-supplied field or the launch date. Reintroduce a fail-closed
-// on-chain check against a verified contract before enabling NFT admission.
-async function hasMonadFeetNft(_wallet: string): Promise<boolean> {
-  return false;
-}
-
+import { hasChogNft, CHOG_COLLECTION } from "../lib/chog";
 const router: IRouter = Router();
+
+router.get("/auth/nft-access", async (req, res): Promise<void> => {
+  const wallet = getWalletAddress(req);
+  if (!wallet) { res.status(401).json({ error: "Sign in with your wallet to check NFT access." }); return; }
+  try {
+    res.json({ chogHolder: await hasChogNft(wallet, true), collection: CHOG_COLLECTION, chainId: 143, monadFeetNftAvailable: false });
+  } catch {
+    res.status(503).json({ error: "CHOG ownership could not be checked. Retry; NFT access has not been approved." });
+  }
+});
 
 function getWalletAddress(req: { headers: Record<string, string | string[] | undefined> }): string | null {
   const addr = req.headers["x-wallet-address"];
@@ -75,9 +80,11 @@ router.post("/auth/registration/prepare", async (req, res): Promise<void> => {
     const [taken] = await db.select().from(usersTable).where(sql`lower(trim(${usersTable.username})) = ${username}`);
     if (taken) { res.status(409).json({ error: "Username already taken", code: "USERNAME_TAKEN" }); return; }
     const code = typeof req.body?.inviteCode === "string" ? req.body.inviteCode.trim().toUpperCase() : "";
-    const [invite] = await db.select().from(inviteCodesTable).where(eq(inviteCodesTable.code, code));
-    if (!invite || isInviteUsed(invite)) {
-      res.status(400).json({ error: invite ? "Invite code already used" : "Invalid invite code", code: invite ? "INVITE_USED" : "INVALID_INVITE" }); return;
+    if (code || !await hasChogNft(wallet, true)) {
+      const [invite] = await db.select().from(inviteCodesTable).where(eq(inviteCodesTable.code, code));
+      if (!invite || isInviteUsed(invite)) {
+        res.status(400).json({ error: invite ? "Invite code already used" : "An unused invite or a CHOG Genesis NFT in this wallet is required.", code: invite ? "INVITE_USED" : "INVALID_INVITE" }); return;
+      }
     }
     res.json(await discoverRegistration(wallet));
   } catch {
@@ -137,11 +144,17 @@ router.post("/auth/register", async (req, res): Promise<void> => {
 
   // Existing accounts are recognized by the lookup endpoints; registration is
   // reserved for a new wallet with a valid, unredeemed code.
-  const nftHolder = await hasMonadFeetNft(normalizedWallet);
+  let nftHolder = false;
+  try { nftHolder = await hasChogNft(normalizedWallet, true); }
+  catch {
+    if (!inviteCode) { res.status(503).json({ error: "CHOG ownership could not be verified. Please retry." }); return; }
+    // A valid invite remains an independent admission route. Do not grant an
+    // unverified holder badge during an NFT RPC outage.
+  }
 
   let invite: typeof inviteCodesTable.$inferSelect | null = null;
 
-  if (!nftHolder) {
+  if (!nftHolder || inviteCode) {
     // Must supply a valid, unused invite code
     if (!inviteCode) {
       res.status(400).json({ error: "An invite code is required to join." });
@@ -179,6 +192,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
       const [created] = await tx.insert(usersTable).values({
         walletAddress: normalizedWallet, email, name, username, avatarUrl, bio,
         registrationTxHash: registrationTxHash.toLowerCase(), nftHolder,
+        admissionMethod: invite ? "invite" : "chog",
       }).returning();
       await tx.insert(verifiedRegistrationsTable).values({
         userId: created.id, txHash: registrationTxHash.toLowerCase(),
@@ -203,14 +217,10 @@ router.post("/auth/register", async (req, res): Promise<void> => {
               set: { totalPoints: sql`${streaksTable.totalPoints} + ${bonus}` },
             });
         }
-      } else if (nftHolder) {
-        // Reserved for verified NFT access in the future; not active today.
-        await tx.insert(inviteCodesTable).values({ code: nanoid(10).toUpperCase(), ownerId: created.id });
-        await tx.update(streaksTable).set({ totalPoints: sql`${streaksTable.totalPoints} + 10` })
-          .where(eq(streaksTable.userId, created.id));
       }
       return created;
     });
+    await grantEarlyBetaBadges(newUser.id);
     res.status(201).json(formatUser(newUser));
   } catch (error) {
     // Another retry may have committed while this request was waiting on locks.
@@ -253,7 +263,16 @@ router.get("/users/me", async (req, res): Promise<void> => {
     return;
   }
 
-  res.json(formatUser({ ...user }));
+  try {
+    const nftHolder = await hasChogNft(user.walletAddress);
+    if (user.admissionMethod === "chog" && !nftHolder) {
+      res.status(403).json({ error: "This account joined through CHOG access. Hold a CHOG Genesis NFT in this wallet to access member features.", code: "CHOG_REQUIRED" }); return;
+    }
+    res.json(formatUser({ ...user, nftHolder }));
+  } catch {
+    if (user.admissionMethod === "chog") res.status(503).json({ error: "NFT ownership check is unavailable. Please retry." });
+    else res.json(formatUser({ ...user, nftHolder: false }));
+  }
 });
 
 router.put("/users/me", async (req, res): Promise<void> => {
@@ -491,13 +510,13 @@ router.get("/users/:userId", async (req, res): Promise<void> => {
   const [postCountResult] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(postsTable)
-    .where(eq(postsTable.authorId, user.id));
+    .where(and(eq(postsTable.authorId, user.id), isNotNull(postsTable.chainVerifiedAt)));
 
   const [likesResult] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(postLikesTable)
     .innerJoin(postsTable, eq(postsTable.id, postLikesTable.postId))
-    .where(eq(postsTable.authorId, user.id));
+    .where(and(eq(postsTable.authorId, user.id), isNotNull(postsTable.chainVerifiedAt), isNotNull(postLikesTable.chainVerifiedAt)));
 
   const [streak] = await db
     .select()

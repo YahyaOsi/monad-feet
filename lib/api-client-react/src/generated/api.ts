@@ -18,6 +18,7 @@ import type {
 
 import type {
   Badge,
+  ChainEvents,
   Comment,
   CreateAuthChallenge200,
   CreateAuthChallengeBody,
@@ -26,6 +27,7 @@ import type {
   CreatePrivatePostBody,
   CreateSubscriptionBody,
   CreatorAnalytics,
+  DailyBonusStatus,
   ErrorResponse,
   FeedSummary,
   FeetGameAward,
@@ -34,17 +36,23 @@ import type {
   FeetGameState,
   GetAuthSession200,
   GetLeaderboardParams,
+  GetNftAccess200,
   HealthStatus,
   InviteCode,
   LeaderboardEntry,
   LikeResponse,
+  ListBadgesParams,
   ListPostsParams,
   ListPrivatePostsParams,
   Post,
+  PostDraft,
   PostsPage,
+  PreparePostBody,
   PrepareRegistrationBody,
   PrepareRegistrationResponse,
   PrivatePost,
+  RecoverPost200,
+  RecoverPostBody,
   RegisterUserBody,
   RegistrationError,
   SearchUsersParams,
@@ -1323,6 +1331,253 @@ export function useGetTrending<
 }
 
 /**
+ * @summary Recover the original verified transaction for an owned draft without sending a transaction
+ */
+export const getRecoverPostUrl = () => {
+  return `/api/posts/recover`;
+};
+
+export const recoverPost = async (
+  recoverPostBody: RecoverPostBody,
+  options?: RequestInit,
+): Promise<RecoverPost200> => {
+  return customFetch<RecoverPost200>(getRecoverPostUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(recoverPostBody),
+  });
+};
+
+export const getRecoverPostMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof recoverPost>>,
+    TError,
+    { data: BodyType<RecoverPostBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof recoverPost>>,
+  TError,
+  { data: BodyType<RecoverPostBody> },
+  TContext
+> => {
+  const mutationKey = ["recoverPost"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof recoverPost>>,
+    { data: BodyType<RecoverPostBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return recoverPost(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RecoverPostMutationResult = NonNullable<
+  Awaited<ReturnType<typeof recoverPost>>
+>;
+export type RecoverPostMutationBody = BodyType<RecoverPostBody>;
+export type RecoverPostMutationError = ErrorType<void>;
+
+/**
+ * @summary Recover the original verified transaction for an owned draft without sending a transaction
+ */
+export const useRecoverPost = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof recoverPost>>,
+    TError,
+    { data: BodyType<RecoverPostBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof recoverPost>>,
+  TError,
+  { data: BodyType<RecoverPostBody> },
+  TContext
+> => {
+  return useMutation(getRecoverPostMutationOptions(options));
+};
+
+/**
+ * @summary Reserve an unpublished draft before the wallet transaction
+ */
+export const getPreparePostUrl = () => {
+  return `/api/posts/prepare`;
+};
+
+export const preparePost = async (
+  preparePostBody: PreparePostBody,
+  options?: RequestInit,
+): Promise<PostDraft> => {
+  return customFetch<PostDraft>(getPreparePostUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(preparePostBody),
+  });
+};
+
+export const getPreparePostMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof preparePost>>,
+    TError,
+    { data: BodyType<PreparePostBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof preparePost>>,
+  TError,
+  { data: BodyType<PreparePostBody> },
+  TContext
+> => {
+  const mutationKey = ["preparePost"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof preparePost>>,
+    { data: BodyType<PreparePostBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return preparePost(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PreparePostMutationResult = NonNullable<
+  Awaited<ReturnType<typeof preparePost>>
+>;
+export type PreparePostMutationBody = BodyType<PreparePostBody>;
+export type PreparePostMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Reserve an unpublished draft before the wallet transaction
+ */
+export const usePreparePost = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof preparePost>>,
+    TError,
+    { data: BodyType<PreparePostBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof preparePost>>,
+  TError,
+  { data: BodyType<PreparePostBody> },
+  TContext
+> => {
+  return useMutation(getPreparePostMutationOptions(options));
+};
+
+/**
+ * @summary Check current CHOG Genesis ownership for the signed wallet
+ */
+export const getGetNftAccessUrl = () => {
+  return `/api/auth/nft-access`;
+};
+
+export const getNftAccess = async (
+  options?: RequestInit,
+): Promise<GetNftAccess200> => {
+  return customFetch<GetNftAccess200>(getGetNftAccessUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetNftAccessQueryKey = () => {
+  return [`/api/auth/nft-access`] as const;
+};
+
+export const getGetNftAccessQueryOptions = <
+  TData = Awaited<ReturnType<typeof getNftAccess>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getNftAccess>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetNftAccessQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getNftAccess>>> = ({
+    signal,
+  }) => getNftAccess({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getNftAccess>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetNftAccessQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getNftAccess>>
+>;
+export type GetNftAccessQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Check current CHOG Genesis ownership for the signed wallet
+ */
+
+export function useGetNftAccess<
+  TData = Awaited<ReturnType<typeof getNftAccess>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getNftAccess>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetNftAccessQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
  * @summary List public feed posts
  */
 export const getListPostsUrl = (params?: ListPostsParams) => {
@@ -2357,6 +2612,217 @@ export function useGetCreatorSubscriptionPrice<
   return { ...query, queryKey: queryOptions.queryKey };
 }
 
+export const getGetChainEventsUrl = () => {
+  return `/api/chain/events`;
+};
+
+export const getChainEvents = async (
+  options?: RequestInit,
+): Promise<ChainEvents> => {
+  return customFetch<ChainEvents>(getGetChainEventsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetChainEventsQueryKey = () => {
+  return [`/api/chain/events`] as const;
+};
+
+export const getGetChainEventsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getChainEvents>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getChainEvents>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetChainEventsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getChainEvents>>> = ({
+    signal,
+  }) => getChainEvents({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getChainEvents>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetChainEventsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getChainEvents>>
+>;
+export type GetChainEventsQueryError = ErrorType<unknown>;
+
+export function useGetChainEvents<
+  TData = Awaited<ReturnType<typeof getChainEvents>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getChainEvents>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetChainEventsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getGetDailyBonusUrl = () => {
+  return `/api/rewards/daily`;
+};
+
+export const getDailyBonus = async (
+  options?: RequestInit,
+): Promise<DailyBonusStatus> => {
+  return customFetch<DailyBonusStatus>(getGetDailyBonusUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetDailyBonusQueryKey = () => {
+  return [`/api/rewards/daily`] as const;
+};
+
+export const getGetDailyBonusQueryOptions = <
+  TData = Awaited<ReturnType<typeof getDailyBonus>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getDailyBonus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetDailyBonusQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getDailyBonus>>> = ({
+    signal,
+  }) => getDailyBonus({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getDailyBonus>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetDailyBonusQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getDailyBonus>>
+>;
+export type GetDailyBonusQueryError = ErrorType<unknown>;
+
+export function useGetDailyBonus<
+  TData = Awaited<ReturnType<typeof getDailyBonus>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getDailyBonus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetDailyBonusQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getClaimDailyBonusUrl = () => {
+  return `/api/rewards/daily`;
+};
+
+export const claimDailyBonus = async (
+  options?: RequestInit,
+): Promise<DailyBonusStatus> => {
+  return customFetch<DailyBonusStatus>(getClaimDailyBonusUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getClaimDailyBonusMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof claimDailyBonus>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof claimDailyBonus>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["claimDailyBonus"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof claimDailyBonus>>,
+    void
+  > = () => {
+    return claimDailyBonus(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ClaimDailyBonusMutationResult = NonNullable<
+  Awaited<ReturnType<typeof claimDailyBonus>>
+>;
+
+export type ClaimDailyBonusMutationError = ErrorType<unknown>;
+
+export const useClaimDailyBonus = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof claimDailyBonus>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof claimDailyBonus>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getClaimDailyBonusMutationOptions(options));
+};
+
 /**
  * @summary Get current user's streak and points
  */
@@ -2672,39 +3138,57 @@ export const useDailyCheckin = <
 /**
  * @summary List current user's loyalty badges
  */
-export const getListBadgesUrl = () => {
-  return `/api/badges`;
+export const getListBadgesUrl = (params?: ListBadgesParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/badges?${stringifiedParams}`
+    : `/api/badges`;
 };
 
-export const listBadges = async (options?: RequestInit): Promise<Badge[]> => {
-  return customFetch<Badge[]>(getListBadgesUrl(), {
+export const listBadges = async (
+  params?: ListBadgesParams,
+  options?: RequestInit,
+): Promise<Badge[]> => {
+  return customFetch<Badge[]>(getListBadgesUrl(params), {
     ...options,
     method: "GET",
   });
 };
 
-export const getListBadgesQueryKey = () => {
-  return [`/api/badges`] as const;
+export const getListBadgesQueryKey = (params?: ListBadgesParams) => {
+  return [`/api/badges`, ...(params ? [params] : [])] as const;
 };
 
 export const getListBadgesQueryOptions = <
   TData = Awaited<ReturnType<typeof listBadges>>,
   TError = ErrorType<unknown>,
->(options?: {
-  query?: UseQueryOptions<
-    Awaited<ReturnType<typeof listBadges>>,
-    TError,
-    TData
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}) => {
+>(
+  params?: ListBadgesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listBadges>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
   const { query: queryOptions, request: requestOptions } = options ?? {};
 
-  const queryKey = queryOptions?.queryKey ?? getListBadgesQueryKey();
+  const queryKey = queryOptions?.queryKey ?? getListBadgesQueryKey(params);
 
   const queryFn: QueryFunction<Awaited<ReturnType<typeof listBadges>>> = ({
     signal,
-  }) => listBadges({ signal, ...requestOptions });
+  }) => listBadges(params, { signal, ...requestOptions });
 
   return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
     Awaited<ReturnType<typeof listBadges>>,
@@ -2725,15 +3209,18 @@ export type ListBadgesQueryError = ErrorType<unknown>;
 export function useListBadges<
   TData = Awaited<ReturnType<typeof listBadges>>,
   TError = ErrorType<unknown>,
->(options?: {
-  query?: UseQueryOptions<
-    Awaited<ReturnType<typeof listBadges>>,
-    TError,
-    TData
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-  const queryOptions = getListBadgesQueryOptions(options);
+>(
+  params?: ListBadgesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listBadges>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListBadgesQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

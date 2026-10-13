@@ -12,6 +12,9 @@ export interface NotificationItem {
   actorName?: string | null;
   actorAvatarUrl?: string | null;
   actorUsername?: string | null;
+  actorId?: number | null;
+  resourceType?: string | null;
+  resourceId?: number | string | null;
 }
 
 export interface NotificationPreferences {
@@ -32,7 +35,8 @@ export interface NotificationScope {
   walletAddress: string;
 }
 
-export const NOTIFICATION_POLL_INTERVAL = 5_000;
+// WebSocket events still refresh immediately; polling is a fallback.
+export const NOTIFICATION_POLL_INTERVAL = 30_000;
 
 export function notificationsQueryKey(scope: NotificationScope | null) {
   return ["notifications", scope?.userId ?? null, scope?.walletAddress.toLowerCase() ?? null] as const;

@@ -2,7 +2,7 @@
 
 ## Overview
 
-An exclusive, invite-only Web3 social media platform for the Monad blockchain community. Users connect via Web3 wallets (Reown AppKit), enter invite codes to join, post image-first content, subscribe to creators, earn daily streak points toward a future $MFEET airdrop, and receive real-time notifications.
+An exclusive Web3 social media platform for the Monad blockchain community. Users connect via Web3 wallets (RainbowKit and Wagmi), join with an invite code or verified CHOG Genesis ownership, publish image-first content with confirmed Monad transactions, subscribe to creators, earn app points, and receive real-time notifications. Points are not tokens; future token plans or rewards have no guaranteed eligibility, date, value or conversion rate.
 
 ## Stack
 
@@ -21,17 +21,19 @@ An exclusive, invite-only Web3 social media platform for the Monad blockchain co
 - **Routing**: wouter
 - **UI**: shadcn/ui + lucide-react
 
-## Current beta access and launch status
-- Creator-approved release mode: publicly hosted, invite-only beta with game and subscription payments active. Keep receipt/session/privacy checks and risk disclosures. Do not pause payments without a new reason or request; NFT access still requires a supplied verified collection.
+## Current access and launch status
+- Beta ended on October 10, 2026. The community remains membership-gated, not open registration. Existing game and subscription payment settings remain creator-approved; keep receipt/session/privacy checks and risk disclosures. Do not pause or expand payments without a new reason or request.
 - Wallet UI uses RainbowKit and Wagmi, with wallet signatures and server-side sessions. Email and social login are disabled.
 - Monad Mainnet chain ID is 143. Current platform address: `0x616929D84ED483a26a568fC97A364e5c5eCBe39D`; treasury: `0x23B4C6DdcA73ba99045E1c0Def939BD41932E773`.
-- NFT access is disabled. The new collection is planned for 10 October 2026, but the date alone must not enable access. Its address and purchase link are not available yet.
-- New users must redeem a valid invite code and start with zero invites. Existing accounts and balances are preserved.
+- CHOG Genesis holders can qualify for invite-free admission after a live ownership check of `0xc96d31f8626c6d03fae5dcd3d61e3fb9f4a73763`, followed by signed, receipt-verified registration. Existing and new holders receive the exact label "ChogNFT holder badge". CHOG-only access depends on current ownership; transferring the NFT does not revoke independently earned invite admission.
+- Monad Feet NFT admission is unavailable; mint is coming soon. A launch date alone must not enable it.
+- New users must redeem a valid invite code or qualify through CHOG ownership and start with zero invites. Existing accounts and balances are preserved.
 - The creator confirmed on 2026-09-30 that the four existing development accounts are test accounts, not real users needing registration recovery. Leave them unverified; do not manufacture receipts or delete them without authorization.
 - New members start with 10 points; daily check-ins award 10 points. Lifetime streak milestones: 2 days = 1 invite + 10 points, 5 days = 1 invite + 50 points, 7 days = 2 invites + 100 points. These milestone awards are separate from the daily check-in.
 - Social tasks are explicitly self-reported: four one-time tasks award 5 points each; an X post awards 10 per UTC day and adds one invite if the previous UTC day was also claimed. No extra generic invite points are added to these combined rewards.
-- Points are intended for future $MFEET conversion; no conversion ratio or distribution is implemented.
+- Points measure current app activities, not tokens or confirmed rewards. Potential future $MFEET plans do not guarantee conversion, eligibility, distribution, dates or rates.
 - Member access requires signed wallet authentication and server-verified on-chain registration evidence. A client-provided transaction hash alone must not grant access.
+- New public and exclusive posts require successful, canonical Monad publication evidence before visibility. No user or admin post deletion and no unlike are supported. Preserve unsigned historical records privately for their authors; exclude them from published counts. The registry stores authorship and a content commitment, not complete captions or image bytes.
 - Paid subscriptions and game payments use the current deployment with runtime-hash and receipt verification. Subscriptions still lack on-chain creator-price enforcement; do not grant private access based only on `isSubscribed`.
 - Current contract source: `contracts/MonadFeetV2.sol`. Executable bytecode equivalence was verified (metadata differs), not independently audited. See `docs/contract-verification.md`. Older architecture/deployment notes below are historical, not the source of truth for this deployment.
 - Daily game `/daily`: Wash Feet 1.43 MON/5 initial points, Massage Feet 14.3 MON/7, Pedicure 143 MON/15. Each action caps at 10 purchases per UTC day with doubling points. Five lifetime purchases earn an invite event; the server issues usable codes once per verified transaction. Purchases do not advance the separate daily check-in streak. Never silently migrate old chain state.

@@ -11,6 +11,8 @@ import { AnalyticsConsentBanner, AnalyticsPageTracker } from "@/components/Analy
 
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
+import Docs from "@/pages/docs";
+import Roadmap from "@/pages/roadmap";
 import Onboarding from "@/pages/onboarding";
 import Feed from "@/pages/feed";
 import PrivateFeed from "@/pages/private-feed";
@@ -89,10 +91,12 @@ function Router() {
   const [location] = useLocation();
   const { profileError } = useUser();
   const publicShareRoute = /^\/(?:post|profile)\/\d+$/.test(location);
-  const app = (
-    <AppLayout>
+  const publicInformationRoute = location === "/docs" || location === "/roadmap";
+  const pages = (
       <Switch>
         <Route path="/" component={Landing} />
+        <Route path="/docs" component={Docs} />
+        <Route path="/roadmap" component={Roadmap} />
         <Route path="/onboarding" component={Onboarding} />
         <Route path="/feed" component={() => <ProtectedRoute component={Feed} />} />
         <Route path="/discover" component={() => <ProtectedRoute component={Discover} />} />
@@ -110,9 +114,9 @@ function Router() {
         <Route path="/messages" component={() => <ProtectedRoute component={MessagesPage} />} />
         <Route component={NotFound} />
       </Switch>
-    </AppLayout>
   );
-  return publicShareRoute
+  const app = publicInformationRoute ? pages : <AppLayout>{pages}</AppLayout>;
+  return publicShareRoute || publicInformationRoute
     ? app
     : <WalletSessionGate profileError={profileError}>{app}</WalletSessionGate>;
 }

@@ -26,6 +26,7 @@ test("production HTTP handlers: paid content, provenance, aliases, deletion and 
       assert.match(col, /^[a-z_][a-z0-9_]*$/);
       const seq = `${table}_${col}_fixture_seq`;
       await admin.query(`CREATE SEQUENCE "${schema}"."${seq}"`);
+      await admin.query(`ALTER SEQUENCE "${schema}"."${seq}" OWNED BY "${schema}"."${table}"."${col}"`);
       await admin.query(`ALTER TABLE "${schema}"."${table}" ALTER COLUMN "${col}" SET DEFAULT nextval('"${schema}"."${seq}"')`);
     }
     const url = new URL(originalURL);
@@ -86,6 +87,9 @@ test("production HTTP handlers: paid content, provenance, aliases, deletion and 
     const { rows: [publicPost] } = await pool.query("INSERT INTO posts(content,image_url,author_id,is_paid) VALUES('PUBLIC_TEXT','/api/storage/objects/uploads/public', $1,false) RETURNING id", [owner.id]);
     await pool.query("INSERT INTO posts(content,image_url,author_id,is_paid) VALUES('PUBLIC_ALIAS','/objects/uploads/legacy',$1,false), ('EXTERNAL_SECRET','https://external.invalid/private.png',$1,true), ('OTHER_AUTHOR_POST',NULL,$2,false)", [owner.id, outsider.id]);
     const { rows: [publicComment] } = await pool.query("INSERT INTO comments(post_id,author_id,content) VALUES($1,$2,'PUBLIC_COMMENT') RETURNING id", [publicPost.id, outsider.id]);
+    // Synthetic published fixtures in this isolated schema only. Live records
+    // must continue to obtain this evidence through receipt verification.
+    await pool.query("UPDATE posts SET chain_verified_at=now()");
     await pool.query("INSERT INTO comments(post_id,author_id,content) VALUES($1,$2,'PAID_COMMENT_SECRET')", [paid.id, owner.id]);
     await pool.query("INSERT INTO private_posts(content,image_url,creator_id) VALUES('PRIVATE_POST_SECRET','/objects/uploads/private-post',$1)", [owner.id]);
     await pool.query("UPDATE users SET avatar_url='/api/storage/objects/uploads/legacy' WHERE id=$1", [owner.id]);
@@ -143,7 +147,8 @@ test("production HTTP handlers: paid content, provenance, aliases, deletion and 
         assert.equal(post.json().isSubscribedToAuthor, allowed);
         const privatePost = await request(`/private-posts?creatorId=${owner.id}`, person);
         assert.equal(privatePost.status, allowed ? 200 : 403);
-        assert.equal(privatePost.text.includes("PRIVATE_POST_SECRET"), allowed);
+        // Unsigned historical private posts remain visible only to their author.
+        assert.equal(privatePost.text.includes("PRIVATE_POST_SECRET"), person === owner);
       }
       const before = downloads;
       assert.equal((await request("/storage/objects/uploads/legacy", null)).status, 403);
@@ -308,20 +313,26 @@ test("production HTTP handlers: paid content, provenance, aliases, deletion and 
       assert.equal(binding.visibility, "unbound");
       assert.equal((await request(`/storage${path}`)).status, 403);
       assert.equal((await request(`/storage${path}`, owner)).status, 200);
-      const create = (person, imageUrl, isPaid) => request("/posts", person, "POST", { authorWalletAddress: person.wallet, content: "NEW_SECRET", imageUrl, isPaid });
+      const create = (person, imageUrl, isPaid) => request("/posts/prepare", person, "POST", { content: "NEW_SECRET", imageUrl, isPaid });
+      assert.equal((await request("/posts", owner, "POST", { authorWalletAddress: owner.wallet, content: "NEW_SECRET", imageUrl: path, isPaid: true })).status, 400);
       assert.equal((await create(outsider, path, false)).status, 400);
       assert.equal((await create(owner, "https://external.invalid/new.png", true)).status, 400);
       assert.equal((await create(owner, "data:image/png;base64,AA", true)).status, 400);
-      assert.equal((await create(owner, path, true)).status, 201);
+      assert.equal((await create(owner, path, true)).status, 200);
+      const { bindNewImage } = await import("./contentPrivacy.ts");
+      await bindNewImage(path, owner.id, "private");
       assert.equal((await create(owner, path, false)).status, 400);
       assert.equal((await request("/users/me", owner, "PUT", { walletAddress: owner.wallet, avatarUrl: path })).status, 400);
       assert.equal((await create(outsider, "/objects/uploads/legacy", false)).status, 400);
       assert.equal((await create(outsider, "https://another.invalid/api/storage/objects/uploads/legacy", false)).status, 400);
       assert.equal((await create(owner, "https://external.invalid/private.png?alias=1", false)).status, 400);
-      assert.equal((await request("/private-posts", outsider, "POST", { creatorWalletAddress: outsider.wallet, content: "claim", imageUrl: path })).status, 400);
+      assert.equal((await request("/private-posts", outsider, "POST", { creatorWalletAddress: outsider.wallet, content: "claim", imageUrl: path })).status, 405);
       const secondUpload = await request("/storage/uploads/request-url", owner, "POST", { name: "other.png", size: 1, contentType: "image/png" });
-      const race = await Promise.all([create(owner, secondUpload.json().objectPath, true), create(owner, secondUpload.json().objectPath, false)]);
-      assert.deepEqual(race.map(r => r.status).sort(), [201, 400]);
+      const race = await Promise.allSettled([
+        bindNewImage(secondUpload.json().objectPath, owner.id, "private"),
+        bindNewImage(secondUpload.json().objectPath, owner.id, "public"),
+      ]);
+      assert.deepEqual(race.map(r => r.status).sort(), ["fulfilled", "rejected"]);
     });
     await t.test("private-post and GCS legacy references override public aliases without relabeling", async () => {
       await pool.query("INSERT INTO posts(content,image_url,author_id,is_paid) VALUES('alias','/objects/uploads/private-post',$1,false),('GCS_SECRET','https://storage.googleapis.com/fixture-bucket/private/uploads/gcs',$1,true)", [owner.id]);
@@ -334,8 +345,8 @@ test("production HTTP handlers: paid content, provenance, aliases, deletion and 
       assert.equal((await pool.query("SELECT count(*)::int AS n FROM media_objects WHERE object_path IN ('/objects/uploads/gcs','/objects/uploads/private-post')")).rows[0].n, 0);
     });
     await t.test("deletion never declassifies legacy private/public aliases", async () => {
-      assert.equal((await request(`/posts/${paid.id}`, owner, "DELETE")).status, 204);
-      assert.equal((await request(`/posts/${paid.id}`, owner)).status, 404);
+      assert.equal((await request(`/posts/${paid.id}`, owner, "DELETE")).status, 405);
+      assert.equal((await request(`/posts/${paid.id}`, owner)).status, 200);
       assert.ok(!(await request("/notifications")).text.includes("PAID_SECRET"));
       const before = downloads;
       assert.equal((await request("/storage/objects/uploads/legacy")).status, 403);

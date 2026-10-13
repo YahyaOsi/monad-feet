@@ -1,5 +1,6 @@
 import { createPublicClient, decodeEventLog, decodeFunctionData, http, keccak256, parseAbi, parseEther, type Transaction, type TransactionReceipt } from "viem";
 import { CHAIN_ID, REGISTRY, TREASURY, REGISTRY_RUNTIME_HASH } from "./chainConfig";
+import { spaRewardSchedule } from "./spaPointRules";
 
 export const GAME_ACTIONS = [
   { id: 1, name: "Wash Feet", priceMon: "1.43", basePoints: 5 },
@@ -22,14 +23,15 @@ function requireReceipt(condition: unknown, message: string): asserts condition 
   if (!condition) throw new InvalidReceiptError(message);
 }
 export function safeNumber(value: bigint): number {
-  if (value < 0n || value > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error("On-chain number exceeds safe API range");
+  if (value < 0n || value > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error("This chain value is too large to display safely");
   return Number(value);
 }
 export function gameActionState(day: bigint, state: readonly [bigint, number, number, number, bigint]) {
   return GAME_ACTIONS.map((a, i) => {
     const count = state[0] === day ? Number(state[i + 1]) : 0;
-    if (count < 0 || count > 10) throw new Error("Invalid on-chain game count");
-    return { ...a, count, remaining: 10 - count, nextPoints: count < 10 ? a.basePoints * 2 ** count : 0 };
+    if (count < 0 || count > 10) throw new Error("Invalid game count on chain");
+    const schedule = spaRewardSchedule(a.id);
+    return { ...a, ...schedule, count, remaining: 10 - count, nextPoints: schedule.dailyRewards[count] ?? 0 };
   });
 }
 export async function checkGameDeployment() {
@@ -76,15 +78,15 @@ export function validateRewardReceipt(
       "Invalid game point award");
     for (const invite of invites) requireReceipt(invite.args.user.toLowerCase() === wallet &&
       invite.args.timestamp === timestamp, "Invalid invite event");
-    return { points: safeNumber(event.args.pointsEarned), invites: invites.length, timestamp, streak: 0 };
+    return { points: safeNumber(event.args.pointsEarned), invites: invites.length, timestamp, streak: 0, actionType: action.id };
   }
-  requireReceipt(call.functionName === "dailyCheckin" && tx.value === 0n, "Not a daily check-in");
+  requireReceipt(call.functionName === "dailyCheckin" && tx.value === 0n, "Not a daily check in");
   const checkins = events.filter((e) => e.eventName === "StreakCheckin");
-  requireReceipt(checkins.length === 1, "Missing or ambiguous check-in event");
+  requireReceipt(checkins.length === 1, "Missing or unclear check in event");
   const event = checkins[0];
   requireReceipt(event.args.user.toLowerCase() === wallet && event.args.timestamp === timestamp &&
-    event.args.currentStreak >= 1n, "Invalid check-in event");
-  return { points: 0, invites: 0, timestamp, streak: safeNumber(event.args.currentStreak) };
+    event.args.currentStreak >= 1n, "Invalid check in event");
+  return { points: 0, invites: 0, timestamp, streak: safeNumber(event.args.currentStreak), actionType: null };
 }
 export async function verifyRewardReceipt(kind: "game" | "checkin", hash: string, wallet: string) {
   requireReceipt(/^0x[0-9a-fA-F]{64}$/.test(hash), "Confirmed transaction hash required");

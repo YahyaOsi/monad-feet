@@ -9,6 +9,7 @@ export const chainRewardClaimsTable = pgTable("chain_reward_claims", {
   txHash: text("tx_hash").notNull(),
   userId: integer("user_id").notNull().references(() => usersTable.id),
   kind: text("kind").notNull(),
+  actionType: integer("action_type"),
   pointsAwarded: integer("points_awarded").notNull(),
   inviteCodes: jsonb("invite_codes").$type<string[]>().notNull().default([]),
   blockTimestamp: timestamp("block_timestamp", { withTimezone: true }).notNull(),

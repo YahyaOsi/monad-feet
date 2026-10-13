@@ -3,6 +3,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
 export const usersTable = pgTable("users", {
+  admissionMethod: text("admission_method").notNull().default("invite"),
   id: serial("id").primaryKey(),
   walletAddress: text("wallet_address").notNull().unique(),
   email: text("email"),

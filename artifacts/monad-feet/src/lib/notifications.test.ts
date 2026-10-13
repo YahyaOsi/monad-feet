@@ -48,7 +48,7 @@ test("query keys are user/wallet scoped and refresh configuration covers reload/
   assert.equal(options.refetchOnWindowFocus, "always");
   assert.equal(options.refetchOnReconnect, "always");
   assert.equal(notificationQueryOptions(null).enabled, false);
-  assert.equal(NOTIFICATION_POLL_INTERVAL, 5_000);
+  assert.equal(NOTIFICATION_POLL_INTERVAL, 30_000);
 });
 
 test("shared layout/page queries deduplicate, use total server count, and duplicate events cannot inflate it", async t => {
@@ -233,8 +233,8 @@ test("account switches abort previous snapshots and old mutations never invalida
 });
 
 test("invalid notification payloads and HTTP errors are explicit, not empty success", async t => {
-  t.mock.method(globalThis, "fetch", async () => response({ error: "Sign-in required" }, 401));
-  await assert.rejects(notificationRequest(alice, ""), /Sign-in required/);
+  t.mock.method(globalThis, "fetch", async () => response({ error: "Sign in required" }, 401));
+  await assert.rejects(notificationRequest(alice, ""), /Sign in required/);
   t.mock.method(globalThis, "fetch", async () => response({ unreadCount: -1, notifications: [] }));
   await assert.rejects(notificationQueryOptions(alice).queryFn({ signal: new AbortController().signal }), /invalid notification response/);
 });

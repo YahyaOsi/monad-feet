@@ -1,7 +1,7 @@
 /**
  * Weekly Digest
  *
- * Runs every Sunday at midnight (server time).
+ * Runs on Sunday (UTC), with at most one delivery per user per UTC week.
  * For every user who was active in the last 7 days, it computes:
  *   - posts created this week
  *   - new likes earned on any of their posts
@@ -15,14 +15,13 @@
  * can render it as a rich stat card instead of plain text.
  */
 
-import { desc, sql, like } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import {
   db,
-  notificationsTable,
   notificationPreferencesTable,
-  usersTable,
 } from "@workspace/db";
 import { logger } from "./lib/logger";
+import { deliverWeeklyDigest } from "./lib/weeklyDigestDelivery";
 
 export type DigestStats = {
   postsThisWeek: number;
@@ -34,28 +33,10 @@ export type DigestStats = {
 };
 
 // ── Scheduling state ────────────────────────────────────────────
-let lastDigestRun: Date | null = null;
 let scheduleTimer: ReturnType<typeof setInterval> | null = null;
+let running: Promise<void> | null = null;
 
 // ── Helpers ─────────────────────────────────────────────────────
-
-function daysSince(d: Date): number {
-  return (Date.now() - d.getTime()) / 86_400_000;
-}
-
-async function loadLastRunFromDb(): Promise<void> {
-  const [row] = await db
-    .select({ createdAt: notificationsTable.createdAt })
-    .from(notificationsTable)
-    .where(like(notificationsTable.title, "%Weekly Digest%"))
-    .orderBy(desc(notificationsTable.createdAt))
-    .limit(1);
-
-  if (row) {
-    lastDigestRun = new Date(row.createdAt);
-    logger.info({ lastDigestRun }, "Weekly digest: last run loaded from DB");
-  }
-}
 
 async function shouldNotify(userId: number): Promise<boolean> {
   const [prefs] = await db
@@ -102,7 +83,13 @@ async function getPeakRankByAuthor(): Promise<Map<number, number>> {
 
 // ── Main digest runner ──────────────────────────────────────────
 
-export async function runWeeklyDigest(): Promise<void> {
+export function runWeeklyDigest(): Promise<void> {
+  if (!running) running = runDigest().finally(() => { running = null; });
+  return running;
+}
+
+async function runDigest(): Promise<void> {
+  const now = new Date();
   logger.info("Weekly digest: starting run");
 
   const [peakRankMap] = await Promise.all([getPeakRankByAuthor()]);
@@ -156,32 +143,10 @@ export async function runWeeklyDigest(): Promise<void> {
     ? (statsResult as unknown as StatRow[])
     : (rawStats.rows ?? []);
 
-  // Also pull all user IDs so we can send to everyone (even inactive), if they have a streak
-  const allUsers = await db
-    .select({ id: usersTable.id, name: usersTable.name, username: usersTable.username })
-    .from(usersTable);
-
-  // Build a set of user IDs already covered by the activity query
-  const coveredIds = new Set(userStats.map((r) => r.userId));
-
-  // For inactive users with no activity, we still want to send a short digest
-  const inactiveUsers: StatRow[] = allUsers
-    .filter((u) => !coveredIds.has(u.id))
-    .map((u) => ({
-      userId: u.id,
-      name: u.name,
-      username: u.username,
-      postsThisWeek: 0,
-      likesEarned: 0,
-      newSubscribers: 0,
-      currentStreak: 0,
-      totalPoints: 0,
-    }));
-
   // Only send to active users (skip zero-activity inactive users)
   const recipients = userStats; // only those with at least some activity
 
-  const weekLabel = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const weekLabel = now.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
   let sent = 0;
 
   for (const row of recipients) {
@@ -209,52 +174,28 @@ export async function runWeeklyDigest(): Promise<void> {
       ? highlights.join(" · ")
       : "Keep posting to build your streak!";
 
-    await db.insert(notificationsTable).values({
-      userId: row.userId,
-      type: "system",
-      title: `Your week: ${weekLabel}`,
-      body: `DIGEST:${JSON.stringify(stats)}`,
-      read: false,
-    });
+    const delivered = await deliverWeeklyDigest(row.userId, `Your week: ${weekLabel}`, `DIGEST:${JSON.stringify(stats)}`, now);
+    if (!delivered) continue;
 
     sent++;
     logger.info({ userId: row.userId, displayName, summary }, "Weekly digest: notification sent");
   }
 
-  lastDigestRun = new Date();
   logger.info({ sent, week: weekLabel }, "Weekly digest: run complete");
 }
 
 // ── Scheduler ────────────────────────────────────────────────────
 
 export async function scheduleWeeklyDigest(): Promise<void> {
-  await loadLastRunFromDb();
-
-  // Check immediately on startup whether we're overdue
-  const isOverdue = lastDigestRun === null || daysSince(lastDigestRun) >= 6;
-  const now = new Date();
-  const isSunday = now.getDay() === 0;
-
-  if (isSunday && isOverdue) {
-    logger.info("Weekly digest: overdue on startup — running now");
-    runWeeklyDigest().catch((e) => logger.error({ e }, "Weekly digest startup run failed"));
-  }
-
-  // Check every 30 minutes whether it's Sunday and we haven't run this week
-  scheduleTimer = setInterval(
-    () => {
-      const d = new Date();
-      const sunday = d.getDay() === 0;
-      const midnight = d.getHours() === 0;
-      const overdue = lastDigestRun === null || daysSince(lastDigestRun) >= 6;
-
-      if (sunday && midnight && overdue) {
-        logger.info("Weekly digest: Sunday midnight — running");
-        runWeeklyDigest().catch((e) => logger.error({ e }, "Weekly digest scheduled run failed"));
-      }
-    },
-    30 * 60 * 1000, // every 30 minutes
-  );
+  if (scheduleTimer) return;
+  const check = () => {
+    if (new Date().getUTCDay() === 0) {
+      runWeeklyDigest().catch(e => logger.error({ e }, "Weekly digest run failed"));
+    }
+  };
+  // Retry partial failures throughout Sunday; committed recipients are skipped.
+  scheduleTimer = setInterval(check, 30 * 60 * 1000);
+  check();
 
   logger.info("Weekly digest: scheduler started (checks every 30 min)");
 }

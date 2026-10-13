@@ -17,6 +17,9 @@ import { useOnChainPostLikeCount, useIsPostLikedOnChain } from "@/lib/useOnChain
 import { CONTRACT_DEPLOYED } from "@/lib/contract";
 import { useUser } from "@/context/UserContext";
 import { useShareLoginPrompt } from "@/hooks/useShareLoginPrompt";
+import { usePostLike } from "@/hooks/usePostLike";
+import { usePostPublication } from "@/hooks/usePostPublication";
+import { PublicationRecovery } from "@/components/post/PublicationRecovery";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -27,74 +30,16 @@ export function PostCard({ post, onRequireLogin }: { post: Post; onRequireLogin?
   const { user } = useUser();
   const { promptLogin: openLoginPrompt, dialog: loginDialog } = useShareLoginPrompt();
   const promptLogin = onRequireLogin ?? openLoginPrompt;
-  const unlikePost = useUnlikePost();
-  const { contractDeployed, likePostOnChain } = useContractActions();
-
-  const [liking, setLiking] = useState(false);
-  const [optimisticLiked, setOptimisticLiked] = useState<boolean | null>(null);
-  const [optimisticCount, setOptimisticCount] = useState<number | null>(null);
+  const publication = usePostPublication();
+  const [publicationError, setPublicationError] = useState<string | null>(null);
+  const [recoveryHash, setRecoveryHash] = useState("");
   const [copied, setCopied] = useState(false);
   const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
-
-  const { data: chainLikeCount } = useOnChainPostLikeCount(post.id);
-  const { data: chainLikedByMe } = useIsPostLikedOnChain(post.id, address);
-
-  const isLiked = optimisticLiked !== null
-    ? optimisticLiked
-    : (CONTRACT_DEPLOYED && chainLikedByMe !== undefined ? chainLikedByMe : post.likedByMe);
-
-  const likeCount = optimisticCount !== null
-    ? optimisticCount
-    : (CONTRACT_DEPLOYED && chainLikeCount !== undefined ? Number(chainLikeCount) : (post.likeCount ?? 0));
 
   // A locked shell must never load the original private image, even blurred.
   const isBlurred = (post as Post & { isPaid?: boolean; isSubscribedToAuthor?: boolean }).isPaid
     && !(post as Post & { isPaid?: boolean; isSubscribedToAuthor?: boolean }).isSubscribedToAuthor;
-
-  const handleLikeToggle = async () => {
-    if (!user) { promptLogin(); return; }
-    if (liking || isBlurred) return;
-    setLiking(true);
-    const wasLiked = isLiked;
-
-    if (!wasLiked) {
-      setOptimisticLiked(true);
-      setOptimisticCount(likeCount + 1);
-
-      let txHash: string | null = null;
-      if (contractDeployed) {
-        try { txHash = await likePostOnChain(post.id); } catch { /* user declined */ }
-      }
-
-      try {
-        const wallet = localStorage.getItem("mf_wallet_address") ?? "";
-        const response = await fetch(`${BASE}/api/posts/${post.id}/like`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-wallet-address": wallet },
-          body: JSON.stringify({ txHash }),
-        });
-        if (!response.ok) throw new Error(`Like failed (HTTP ${response.status}).`);
-        queryClient.invalidateQueries({ queryKey: getListPostsQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getGetPostQueryKey(post.id) });
-      } catch {
-        setOptimisticLiked(wasLiked);
-        setOptimisticCount(likeCount);
-      }
-    } else {
-      setOptimisticLiked(false);
-      setOptimisticCount(Math.max(0, likeCount - 1));
-      try {
-        await unlikePost.mutateAsync({ postId: post.id });
-        queryClient.invalidateQueries({ queryKey: getListPostsQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getGetPostQueryKey(post.id) });
-      } catch {
-        setOptimisticLiked(wasLiked);
-        setOptimisticCount(likeCount);
-      }
-    }
-
-    setLiking(false);
-  };
+  const { isLiked, likeCount, usingChainCount, liking, handleLikeToggle } = usePostLike(post, promptLogin, !!isBlurred);
 
   const handleShare = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -113,10 +58,26 @@ export function PostCard({ post, onRequireLogin }: { post: Post; onRequireLogin?
   const initials = post.authorName ? post.authorName.slice(0, 2).toUpperCase() : "??";
   const explorerTxUrl = post.onChainTxHash ? `https://monvision.io/tx/${post.onChainTxHash}` : null;
   const isChainVerified = !!post.onChainTxHash;
-  const usingChainCount = CONTRACT_DEPLOYED && chainLikeCount !== undefined;
 
   return (
     <Card className="overflow-hidden transition-all duration-200 group hover:shadow-md">
+      {!post.onChainTxHash && user?.id === post.authorId && (
+        <div className="border-b bg-amber-500/10 p-3 space-y-2">
+          <p className="text-sm">This post is private until confirmed on Monad. Finish publishing checks for an existing transaction before asking you to sign.</p>
+          <Button size="sm" disabled={publication.busy} onClick={async () => {
+            setPublicationError(null);
+            try {
+              await publication.publish({ legacyPostId: post.id, content: post.content ?? "", imageUrl: post.imageUrl ?? "", isPaid: !!post.isPaid }, recoveryHash || undefined);
+              setRecoveryHash("");
+              void queryClient.invalidateQueries({ queryKey: getListPostsQueryKey() });
+            } catch (error) { setPublicationError(error instanceof Error ? error.message : "Publication failed."); }
+          }}>{publication.busy ? "Checking Monad…" : "Finish publishing"}</Button>
+          {publicationError && publication.draft?.postId === post.id && <PublicationRecovery
+            draft={publication.draft} busy={publication.busy} onDiscard={publication.discard}
+            onError={setPublicationError} transactionHash={recoveryHash} onTransactionHashChange={setRecoveryHash} />}
+          {publicationError && <p className="text-xs text-destructive" role="alert">{publicationError}</p>}
+        </div>
+      )}
       {/* Post image */}
       {isBlurred ? (
           <div className="relative w-full overflow-hidden bg-muted aspect-video select-none">
@@ -141,9 +102,16 @@ export function PostCard({ post, onRequireLogin }: { post: Post; onRequireLogin?
           <Link href={`/post/${post.id}`}>
             <div className="w-full overflow-hidden bg-muted cursor-pointer">
               {failedImageUrl === post.imageUrl ? (
-                <p className="p-6 text-sm text-muted-foreground text-center" role="status">Image unavailable. Open the post to check access.</p>
+                <div className="p-6 text-sm text-muted-foreground text-center" role="status">
+                  <p>Image could not load.</p>
+                  <Button variant="outline" size="sm" className="mt-2" onClick={(event) => {
+                    event.preventDefault(); event.stopPropagation(); setFailedImageUrl(null);
+                  }}>Retry image</Button>
+                </div>
               ) : <img
                 src={post.imageUrl}
+                loading="lazy"
+                decoding="async"
                 alt="Post image"
                 className="w-full max-h-[480px] object-cover group-hover:scale-[1.005] transition-transform duration-300"
                 onError={() => setFailedImageUrl(post.imageUrl ?? null)}
@@ -164,7 +132,7 @@ export function PostCard({ post, onRequireLogin }: { post: Post; onRequireLogin?
 
         <div className="flex flex-col flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
-            <Link href={`/profile/${post.authorId}`} className="font-semibold text-sm hover:underline truncate">
+            <Link href={`/profile/${post.authorId}`} className="font-semibold text-sm hover:underline break-words [overflow-wrap:anywhere]">
               {post.authorName}
             </Link>
             {(post as Post & { isPaid?: boolean }).isPaid && (
@@ -174,7 +142,7 @@ export function PostCard({ post, onRequireLogin }: { post: Post; onRequireLogin?
               </span>
             )}
           </div>
-          <div className="flex items-center text-xs text-muted-foreground gap-1">
+          <div className="flex flex-wrap items-center text-xs text-muted-foreground gap-1 [overflow-wrap:anywhere]">
             <span>@{post.authorUsername}</span>
             <span>·</span>
             <Link href={`/post/${post.id}`} className="hover:underline">
@@ -217,15 +185,12 @@ export function PostCard({ post, onRequireLogin }: { post: Post; onRequireLogin?
                 : "text-muted-foreground hover:text-foreground"
             }`}
             onClick={handleLikeToggle}
-            disabled={liking || isBlurred}
-            aria-label={user ? (isLiked ? "Unlike post" : "Like post") : "Sign in to like post"}
+            disabled={liking || isBlurred || !post.onChainTxHash}
+            aria-label={user ? (isLiked ? "Sync confirmed like; likes cannot be undone" : "Like post on Monad") : "Sign in to like post"}
             data-testid={`button-like-post-${post.id}`}
           >
-            {liking && !isLiked ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Heart className={`h-4 w-4 ${isLiked ? "fill-current" : ""}`} />
-            )}
+            <Heart className={`h-4 w-4 ${isLiked ? "fill-current" : ""}`} />
+            {liking && <Loader2 className="h-3 w-3 animate-spin" />}
             <span className="font-medium">{likeCount}</span>
           </Button>
 

@@ -339,6 +339,82 @@ paths:
               schema:
                 $ref: "#/components/schemas/TrendingResponse"
 
+  /posts/recover:
+    post:
+      operationId: recoverPost
+      tags: [posts]
+      summary: Recover the original verified transaction for an owned draft without sending a transaction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [postId]
+              properties:
+                postId: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Chain status and verified original hash
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [anchored, txHash]
+                properties:
+                  anchored: { type: boolean }
+                  txHash: { type: ["string", "null"] }
+        "400":
+          description: Invalid post ID
+        "401":
+          description: Signed member session required
+        "403":
+          description: Draft is not owned by this member
+        "409":
+          description: Existing chain record does not match this draft
+        "503":
+          description: Chain recovery unavailable; retain the draft and retry or supply the original hash
+  /posts/prepare:
+    post:
+      operationId: preparePost
+      tags: [posts]
+      summary: Reserve an unpublished draft before the wallet transaction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                content: { type: string }
+                imageUrl: { type: string }
+                isPaid: { type: boolean }
+                legacyPostId: { type: integer }
+      responses:
+        "200":
+          description: Owned unpublished draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostDraft"
+  /auth/nft-access:
+    get:
+      operationId: getNftAccess
+      tags: [users]
+      summary: Check current CHOG Genesis ownership for the signed wallet
+      responses:
+        "200":
+          description: Verified current ownership
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  chogHolder: { type: boolean }
+                  collection: { type: string }
+                  chainId: { type: integer }
+                  monadFeetNftAvailable: { type: boolean }
+                required: [chogHolder, collection, chainId, monadFeetNftAvailable]
   /posts:
     get:
       operationId: listPosts
@@ -585,6 +661,38 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /chain/events:
+    get:
+      operationId: getChainEvents
+      tags: [chain]
+      responses:
+        "200":
+          description: Confirmed chain events
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChainEvents"
+  /rewards/daily:
+    get:
+      operationId: getDailyBonus
+      tags: [rewards]
+      responses:
+        "200":
+          description: Today's bonus task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyBonusStatus"
+    post:
+      operationId: claimDailyBonus
+      tags: [rewards]
+      responses:
+        "200":
+          description: Daily task status after claiming
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyBonusStatus"
   /streak:
     get:
       operationId: getStreak
@@ -655,6 +763,10 @@ paths:
       operationId: listBadges
       tags: [badges]
       summary: List current user's loyalty badges
+      parameters:
+        - name: userId
+          in: query
+          schema: { type: integer }
       responses:
         "200":
           description: Badges
@@ -871,6 +983,42 @@ components:
               pointsAwarded: { type: integer }
               invitesAwarded: { type: integer }
               createdAt: { type: string, format: date-time }
+    ChainEvents:
+      type: object
+      required: [events, updatedAt, latestBlock]
+      properties:
+        updatedAt: { type: string }
+        latestBlock: { type: string }
+        events:
+          type: array
+          items:
+            type: object
+            required: [id, kind, label, sublabel, txHash, at]
+            properties:
+              id: { type: string }
+              kind: { type: string }
+              label: { type: string }
+              sublabel: { type: string }
+              txHash: { type: string }
+              at: { type: string }
+    DailyBonusStatus:
+      type: object
+      required: [utcDay, task, progress, eligible, claimed, nextResetAt]
+      properties:
+        utcDay: { type: string }
+        nextResetAt: { type: string, format: date-time }
+        progress: { type: integer }
+        eligible: { type: boolean }
+        claimed: { type: boolean }
+        task:
+          type: object
+          required: [id, title, points, target, href]
+          properties:
+            id: { type: string }
+            title: { type: string }
+            points: { type: integer }
+            target: { type: integer }
+            href: { type: string }
     FeetGameState:
       type: object
       required: [contractAddress, treasuryAddress, chainId, enabled, disabledReason, registered, utcDay, nextResetAt, totalPurchases, purchasesUntilInvite, actions, onChainPoints, currentStreak, longestStreak, checkedInToday]
@@ -893,7 +1041,7 @@ components:
           type: array
           items:
             type: object
-            required: [id, name, priceMon, basePoints, count, remaining, nextPoints]
+            required: [id, name, priceMon, basePoints, count, remaining, nextPoints, dailyRewards, doublingPurchases]
             properties:
               id: { type: integer }
               name: { type: string }
@@ -902,6 +1050,15 @@ components:
               count: { type: integer }
               remaining: { type: integer }
               nextPoints: { type: integer }
+              dailyRewards:
+                type: array
+                items: { type: integer }
+              doublingPurchases:
+                type: array
+                items: { type: integer }
+              totalPurchases: { type: integer }
+              inviteEvery: { type: ["integer", "null"] }
+              purchasesUntilInvite: { type: ["integer", "null"] }
     XRewardsStatus:
       type: object
       properties:
@@ -1097,6 +1254,12 @@ components:
     Post:
       type: object
       properties:
+        isPaid:
+          type: boolean
+        isSubscribedToAuthor:
+          type: boolean
+        publicationConfirmed:
+          type: boolean
         id:
           type: integer
         content:
@@ -1146,6 +1309,10 @@ components:
     CreatePostBody:
       type: object
       properties:
+        postId:
+          type: integer
+        txHash:
+          type: string
         content:
           type: string
         imageUrl:
@@ -1157,6 +1324,16 @@ components:
       required:
         - content
         - authorWalletAddress
+
+    PostDraft:
+      type: object
+      properties:
+        postId: { type: integer }
+        contentUri: { type: string }
+        content: { type: string }
+        imageUrl: { type: string }
+        isPaid: { type: boolean }
+      required: [postId, contentUri, content, imageUrl, isPaid]
 
     LikeResponse:
       type: object
@@ -1172,6 +1349,7 @@ components:
     PrivatePost:
       type: object
       properties:
+        source: { type: string, enum: [private, post] }
         id:
           type: integer
         content:
@@ -1211,6 +1389,8 @@ components:
     Subscription:
       type: object
       properties:
+        verified: { type: boolean }
+        status: { type: string }
         id:
           type: integer
         subscriberId:
@@ -1285,6 +1465,8 @@ components:
     StreakInfo:
       type: object
       properties:
+        syncPending: { type: boolean }
+        syncError: { type: ["string", "null"] }
         userId:
           type: integer
         currentStreak:
@@ -1356,6 +1538,10 @@ components:
     FeedSummary:
       type: object
       properties:
+        totalPendingHistoricalPosts:
+          type: integer
+        totalOnChainPosts:
+          type: ["integer", "null"]
         totalPosts:
           type: integer
         totalLikes:
@@ -1413,6 +1599,8 @@ components:
     Comment:
       type: object
       properties:
+        parentCommentId:
+          type: ["integer", "null"]
         id:
           type: integer
         postId:
@@ -1496,6 +1684,8 @@ components:
     CreateCommentBody:
       type: object
       properties:
+        parentCommentId:
+          type: ["integer", "null"]
         content:
           type: string
       required:

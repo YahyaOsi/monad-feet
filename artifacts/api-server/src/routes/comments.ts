@@ -28,6 +28,9 @@ router.get("/posts/:postId/comments", async (req, res): Promise<void> => {
   if (isNaN(postId)) { res.status(400).json({ error: "Invalid post id" }); return; }
   const [post] = await db.select().from(postsTable).where(eq(postsTable.id, postId));
   if (!post) { res.status(404).json({ error: "Post not found" }); return; }
+  if (!post.chainVerifiedAt && await viewerId(req) !== post.authorId) {
+    res.status(404).json({ error: "Post is not published." }); return;
+  }
   if (post.isPaid && !await canReadCreator(await viewerId(req), post.authorId)) {
     res.status(403).json({ error: "Verified subscription required" }); return;
   }
@@ -36,6 +39,7 @@ router.get("/posts/:postId/comments", async (req, res): Promise<void> => {
     .select({
       id: commentsTable.id,
       postId: commentsTable.postId,
+      parentCommentId: commentsTable.parentCommentId,
       authorId: commentsTable.authorId,
       content: commentsTable.content,
       createdAt: commentsTable.createdAt,
@@ -67,13 +71,24 @@ router.post("/posts/:postId/comments", async (req, res): Promise<void> => {
 
   const [post] = await db.select().from(postsTable).where(eq(postsTable.id, postId));
   if (!post) { res.status(404).json({ error: "Post not found" }); return; }
+  if (!post.chainVerifiedAt) { res.status(409).json({ error: "Publish the post on Monad before commenting." }); return; }
 
   if (post.isPaid && !await canReadCreator(author.id, post.authorId)) {
     res.status(403).json({ error: "Verified subscription required" }); return;
   }
+  const parentCommentId = req.body?.parentCommentId ?? null;
+  if (parentCommentId !== null) {
+    if (!Number.isSafeInteger(parentCommentId) || parentCommentId <= 0) {
+      res.status(400).json({ error: "Choose a valid comment to reply to" }); return;
+    }
+    const [parent] = await db.select().from(commentsTable).where(eq(commentsTable.id, parentCommentId));
+    if (!parent || parent.postId !== postId) {
+      res.status(400).json({ error: "This comment does not belong to this post" }); return;
+    }
+  }
   const [comment] = await db
     .insert(commentsTable)
-    .values({ postId, authorId: author.id, content })
+    .values({ postId, authorId: author.id, content, parentCommentId })
     .returning();
 
   if (post.authorId !== author.id && (await shouldNotify(post.authorId, "comment"))) {
@@ -89,9 +104,20 @@ router.post("/posts/:postId/comments", async (req, res): Promise<void> => {
     });
   }
 
+  if (parentCommentId !== null) {
+    const [parent] = await db.select().from(commentsTable).where(eq(commentsTable.id, parentCommentId));
+    if (parent && parent.authorId !== author.id && parent.authorId !== post.authorId && await shouldNotify(parent.authorId, "comment")) {
+      await db.insert(notificationsTable).values({
+        userId: parent.authorId, type: "like", title: "New reply to your comment",
+        body: `${author.name ?? author.username ?? "Someone"} replied to your comment`,
+        actorId: author.id, resourceId: post.id, resourceType: "post", read: false,
+      });
+    }
+  }
   res.status(201).json({
     id: comment.id,
     postId: comment.postId,
+    parentCommentId: comment.parentCommentId,
     authorId: comment.authorId,
     content: comment.content,
     createdAt: comment.createdAt,
@@ -118,7 +144,12 @@ router.delete("/comments/:commentId", async (req, res): Promise<void> => {
   const canDelete = comment.authorId === author.id || post?.authorId === author.id;
   if (!canDelete) { res.status(403).json({ error: "Forbidden" }); return; }
 
-  await db.delete(commentsTable).where(and(eq(commentsTable.id, commentId)));
+  // Keep other people's replies when a parent is removed.
+  await db.transaction(async (tx) => {
+    await tx.update(commentsTable).set({ parentCommentId: comment.parentCommentId })
+      .where(eq(commentsTable.parentCommentId, commentId));
+    await tx.delete(commentsTable).where(and(eq(commentsTable.id, commentId)));
+  });
   res.sendStatus(204);
 });
 

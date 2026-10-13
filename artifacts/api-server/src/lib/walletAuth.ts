@@ -4,6 +4,7 @@ import { and, eq, gt } from "drizzle-orm";
 import { createPublicClient, defineChain, http } from "viem";
 import { db, usersTable, verifiedRegistrationsTable, walletChallengesTable, walletSessionsTable } from "@workspace/db";
 import { COOKIE_NAME, SESSION_SECONDS, CHAIN_ID, tokenHash, normalizeWallet, expectedOrigin, readCookie, challengeUsable, identityMismatch } from "./walletAuthRules";
+import { hasChogNft } from "./chog";
 export { COOKIE_NAME, SESSION_SECONDS, CHALLENGE_MS, CHAIN_ID, tokenHash,
   normalizeWallet, expectedOrigin, challengeMessage, readCookie, addressValid } from "./walletAuthRules";
 
@@ -52,6 +53,7 @@ function isNumericPathId(value: string | undefined): boolean {
 
 function isPublicShareRead(req: Parameters<RequestHandler>[0]): boolean {
   if (req.method !== "GET") return false;
+  if (req.path === "/badges") return typeof req.query.userId === "string" && isNumericPathId(req.query.userId);
   if (req.path === "/posts") {
     const authorId = req.query.authorId;
     const numericId = typeof authorId === "string" && /^[0-9]+$/.test(authorId)
@@ -133,14 +135,26 @@ export const protectApi: RequestHandler = async (req, res, next) => {
   if (wallet && publicShareRead) {
     const [registered] = await db.select().from(usersTable).where(eq(usersTable.walletAddress, wallet));
     allowPublicIdentity = !!registered && await hasVerifiedRegistration(registered);
+    if (allowPublicIdentity && registered?.admissionMethod === "chog") {
+      try { allowPublicIdentity = await hasChogNft(wallet); } catch { allowPublicIdentity = false; }
+    }
   }
   if (wallet && (!publicShareRead || allowPublicIdentity)) req.headers["x-wallet-address"] = wallet;
-  if (wallet && !isPublic && req.path !== "/auth/register" && req.path !== "/auth/registration/prepare" && req.path !== "/invites/validate" &&
+  if (wallet && !isPublic && req.path !== "/auth/register" && req.path !== "/auth/nft-access" && req.path !== "/auth/registration/prepare" && req.path !== "/invites/validate" &&
       !(req.path === "/users/me" && req.method === "GET")) {
     const [registered] = await db.select().from(usersTable).where(eq(usersTable.walletAddress, wallet));
     if (!registered) { res.status(403).json({ error: "Registration required" }); return; }
     if (!await hasVerifiedRegistration(registered)) {
       res.status(403).json({ error: "Verified on-chain registration required. Existing accounts require explicit receipt-verified migration." }); return;
+    }
+    if (registered.admissionMethod === "chog") {
+      try {
+        if (!await hasChogNft(wallet)) {
+          res.status(403).json({ error: "Hold a CHOG Genesis NFT in your admission wallet to access member features.", code: "CHOG_REQUIRED" }); return;
+        }
+      } catch {
+        res.status(503).json({ error: "CHOG ownership verification unavailable. Retry shortly." }); return;
+      }
     }
   }
 

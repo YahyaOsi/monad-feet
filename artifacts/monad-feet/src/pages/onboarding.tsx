@@ -32,6 +32,7 @@ export default function Onboarding() {
   const [txState, setTxState] = useState<TxState>("idle");
   const [recoveryHash, setRecoveryHash] = useState("");
   const [pending, setPending] = useState(false);
+  const [chogHolder, setChogHolder] = useState(false);
   const busy = useRef(false);
   const generation = useRef(0);
 
@@ -54,6 +55,7 @@ export default function Onboarding() {
     setInviteError("");
     setRecoveryHash("");
     setInviteCode("");
+    setChogHolder(false);
     setUsername("");
     setName("");
     setBio("");
@@ -77,6 +79,23 @@ export default function Onboarding() {
   if (isLoading) return <div className="min-h-[100dvh] flex items-center justify-center text-muted-foreground" role="status">Loading...</div>;
   if (!isConnected) return <Redirect to="/" />;
   if (user) return <Redirect to={postLoginPath(window.location.search) ?? "/feed"} />;
+
+  const handleCheckNft = async () => {
+    if (busy.current || !address || session.phase !== "verified") return;
+    busy.current = true; setPending(true); setInviteError("");
+    const id = generation.current;
+    try {
+      const result = await customFetch<{ chogHolder: boolean }>("/api/auth/nft-access", {
+        method: "GET", credentials: "include", responseType: "json", headers: { "x-wallet-address": address },
+      });
+      if (id !== generation.current) return;
+      setChogHolder(result.chogHolder);
+      if (result.chogHolder) { setInviteCode(""); setStep(2); }
+      else setInviteError("No CHOG Genesis NFT was found in this wallet. Use an invite code or hold the NFT and retry.");
+    } catch (error) {
+      if (id === generation.current) setInviteError(registrationError(error));
+    } finally { if (id === generation.current) { busy.current = false; setPending(false); } }
+  };
 
   const handleValidate = async () => {
     if (!inviteCode.trim() || busy.current) return;
@@ -102,7 +121,7 @@ export default function Onboarding() {
 
   const handleRegister = async () => {
     if (busy.current || !name.trim() || !/^[a-z0-9_]{3,32}$/.test(username.trim()) ||
-        !address || !inviteCode.trim() || session.phase !== "verified") return;
+        !address || (!inviteCode.trim() && !chogHolder && !recoveryHash) || session.phase !== "verified") return;
     busy.current = true;
     setPending(true);
     const id = generation.current;
@@ -199,8 +218,13 @@ export default function Onboarding() {
                     ) : "Verify Code"}
                   </Button>
                   <p className="text-center text-xs text-muted-foreground">
-                    No code yet? Invite codes come from the Monad Feet team. NFT access is planned for 10 October 2026.
+                    Join with an unused invite or a CHOG Genesis NFT in your wallet. Monad Feet NFT admission is not available yet; its mint is coming soon.
                   </p>
+                  <Button variant="outline" className="w-full" onClick={() => void handleCheckNft()} disabled={pending || session.phase !== "verified"}>
+                    {pending ? "Checking ownership…" : "Join with CHOG NFT"}
+                  </Button>
+                  <p className="text-xs text-muted-foreground text-center">CHOG access is checked on Monad Mainnet. NFT-admitted accounts need to keep a CHOG NFT in this wallet. Registration still requires a network transaction and gas.</p>
+                  <a className="text-xs text-primary underline text-center block" href="https://opensea.io/collection/chog-genesis" target="_blank" rel="noopener noreferrer">View CHOG Genesis collection</a>
                 </>
             </div>
           ) : (
@@ -228,7 +252,7 @@ export default function Onboarding() {
                     placeholder="satoshi"
                   />
                 </div>
-                <p className="text-xs text-muted-foreground">3–32 letters, numbers or underscores.</p>
+                <p className="text-xs text-muted-foreground">3 to 32 letters, numbers or underscores.</p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="bio">Bio <span className="text-muted-foreground font-normal">(optional)</span></Label>
@@ -241,7 +265,7 @@ export default function Onboarding() {
                 />
               </div>
 
-              {/* On-chain status indicator */}
+              {/* Onchain status indicator */}
               {contractDeployed && (
                 <div className="rounded-lg border border-violet-200 bg-violet-50 dark:border-violet-800 dark:bg-violet-950/40 px-4 py-3 flex items-start gap-3">
                   {txState === "idle" && (
@@ -276,7 +300,7 @@ export default function Onboarding() {
               <Button
                 className="w-full"
                 onClick={handleRegister}
-                disabled={!name.trim() || !/^[a-z0-9_]{3,32}$/.test(username.trim()) || !inviteCode.trim() || isRegistering || session.phase !== "verified"}
+                disabled={!name.trim() || !/^[a-z0-9_]{3,32}$/.test(username.trim()) || (!inviteCode.trim() && !chogHolder && !recoveryHash) || isRegistering || session.phase !== "verified"}
               >
                 {isRegistering ? (
                   <><Loader2 className="h-4 w-4 mr-2 animate-spin" />

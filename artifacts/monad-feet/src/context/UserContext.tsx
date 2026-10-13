@@ -139,7 +139,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
         signal: controller.signal,
       });
       if (!isCurrent(id, signingAddress) || controller.signal.aborted) return;
-      if (!challenge.message) throw new Error("The server did not return a sign-in challenge.");
+      if (!challenge.message) throw new Error("The server did not return a sign in challenge.");
       const signature = await signMessageAsync({ message: challenge.message });
       if (!isCurrent(id, signingAddress) || controller.signal.aborted) return;
       const verified = await authRequest<{ walletAddress: string }>("verify", {
@@ -161,7 +161,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       setSession({ address: signingAddress, phase: "verified" });
     } catch (error) {
       if (controller.signal.aborted || !isCurrent(id, signingAddress)) return;
-      setSession({ address: signingAddress, phase: "error", error: `Sign-in failed: ${errorMessage(error)}` });
+      setSession({ address: signingAddress, phase: "error", error: `Sign in failed: ${errorMessage(error)}` });
     }
   }, [session.phase, signMessageAsync]);
 

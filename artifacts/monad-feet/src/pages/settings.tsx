@@ -142,13 +142,12 @@ export default function Settings() {
         <p className="text-muted-foreground">Your profile, wallet and creator price.</p>
       </div>
 
-      <AnalyticsPrivacySettings />
 
-      {/* On-chain Status */}
+      {/* Onchain Status */}
       <Card className={`border ${onChainRegistered ? "border-green-200 bg-green-50/30" : "border-muted"}`}>
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
-            <Link2 className="h-4 w-4 text-violet-600" /> On-Chain Status
+            <Link2 className="h-4 w-4 text-violet-600" /> Onchain Status
           </CardTitle>
           <CardDescription>Your status on Monad</CardDescription>
         </CardHeader>
@@ -157,7 +156,7 @@ export default function Settings() {
           {!CONTRACT_DEPLOYED ? (
             <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
               <AlertCircle className="h-4 w-4 flex-shrink-0" />
-              On-chain features are not live yet.
+              Onchain features are not live yet.
             </div>
           ) : chainLoading ? (
             <div className="text-sm text-muted-foreground">Checking chain status...</div>
@@ -169,11 +168,11 @@ export default function Settings() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-muted rounded-lg p-3 text-center">
-                  <p className="text-xs text-muted-foreground">On-chain Streak</p>
+                  <p className="text-xs text-muted-foreground">Onchain Streak</p>
                   <p className="text-xl font-bold text-orange-500">{onChainStreak}d</p>
                 </div>
                 <div className="bg-muted rounded-lg p-3 text-center">
-                  <p className="text-xs text-muted-foreground">On-chain Points</p>
+                  <p className="text-xs text-muted-foreground">Onchain Points</p>
                   <p className="text-xl font-bold text-primary">{onChainPoints}</p>
                 </div>
               </div>
@@ -181,7 +180,7 @@ export default function Settings() {
           ) : (
             <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted rounded-lg px-3 py-2">
               <AlertCircle className="h-4 w-4 flex-shrink-0" />
-              Not yet registered on-chain. Re-register or contact support.
+              Not yet registered onchain. Register again or contact support.
             </div>
           )}
 
@@ -373,6 +372,7 @@ export default function Settings() {
           )}
         </CardContent>
       </Card>
+      <AnalyticsPrivacySettings />
     </div>
   );
 }

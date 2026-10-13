@@ -1,6 +1,8 @@
 import { useState, useRef } from "react";
 import { Link } from "wouter";
 import { useUser } from "@/context/UserContext";
+import { usePostPublication } from "@/hooks/usePostPublication";
+import { PublicationRecovery } from "@/components/post/PublicationRecovery";
 import { useListSubscriptions, useListPrivatePosts } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -52,7 +54,7 @@ function ChainSubBadge({ subscriber, creator, txHash }: {
   if (isSubOnChain) {
     return (
       <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-200">
-        <CheckCircle2 className="h-2.5 w-2.5" /> On-chain
+        <CheckCircle2 className="h-2.5 w-2.5" /> On chain
       </span>
     );
   }
@@ -88,12 +90,15 @@ function PrivatePostImage({ src }: { src: string }) {
 
 function CreatePrivatePostDialog({ creatorId, onCreated }: { creatorId: number; onCreated: () => void }) {
   const { user } = useUser();
+  const publication = usePostPublication();
+  const postingLock = useRef(false);
   const [open, setOpen] = useState(false);
   const [content, setContent] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [step, setStep] = useState<CreateStep>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [recoveryHash, setRecoveryHash] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
@@ -115,15 +120,20 @@ function CreatePrivatePostDialog({ creatorId, onCreated }: { creatorId: number; 
   };
 
   const handleCreate = async () => {
-    if (!imageFile || !user) return;
+    if ((!imageFile && !publication.draft) || !user || postingLock.current) return;
+    postingLock.current = true;
     setError(null);
     try {
+      if (publication.draft) {
+        setStep("saving");
+        await publication.publish(undefined, recoveryHash);
+      } else {
       setStep("uploading");
       const wallet = localStorage.getItem("mf_wallet_address") ?? "";
       const urlRes = await fetch(`${BASE}/api/storage/uploads/request-url`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-wallet-address": wallet },
-        body: JSON.stringify({ name: imageFile.name, size: imageFile.size, contentType: imageFile.type }),
+        body: JSON.stringify({ name: imageFile!.name, size: imageFile!.size, contentType: imageFile!.type }),
       });
        if (!urlRes.ok) {
          const body = await urlRes.json().catch(() => null);
@@ -133,22 +143,15 @@ function CreatePrivatePostDialog({ creatorId, onCreated }: { creatorId: number; 
 
        const uploadRes = await fetch(uploadURL, {
         method: "PUT",
-        headers: { "Content-Type": imageFile.type },
+        headers: { "Content-Type": imageFile!.type },
         body: imageFile,
       });
        if (!uploadRes.ok) throw new Error("Image upload failed. Please try again.");
       const imageUrl = `${BASE}/api/storage${objectPath}`;
 
       setStep("saving");
-      const postRes = await fetch(`${BASE}/api/private-posts`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-wallet-address": wallet },
-        body: JSON.stringify({ content: content.trim() || "", imageUrl, creatorWalletAddress: user.walletAddress }),
-      });
-       if (!postRes.ok) {
-         const body = await postRes.json().catch(() => null);
-         throw new Error(body?.error ?? "Failed to create post");
-       }
+      await publication.publish({ content: content.trim(), imageUrl, isPaid: true });
+      }
 
       queryClient.invalidateQueries({ queryKey: getListPrivatePostsQueryKey({ creatorId }) });
       onCreated();
@@ -159,31 +162,33 @@ function CreatePrivatePostDialog({ creatorId, onCreated }: { creatorId: number; 
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to post");
       setStep("error");
-    }
+    } finally { postingLock.current = false; }
   };
 
-  const isPosting = step === "uploading" || step === "saving";
+  const isPosting = publication.busy || step === "uploading" || step === "saving";
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) { clearImage(); setContent(""); setError(null); setStep("idle"); }}}>
+    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o && !postingLock.current && !publication.busy) { clearImage(); setContent(""); setError(null); setRecoveryHash(""); setStep("idle"); }}}>
       <DialogTrigger asChild>
         <Button size="sm" className="gap-2">
           <Plus className="h-4 w-4" /> New Private Post
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="w-[calc(100%-2rem)] min-w-0 sm:max-w-lg max-h-[90dvh] overflow-y-auto [overflow-wrap:anywhere]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Lock className="h-4 w-4" /> Create Exclusive Post
           </DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 pt-2">
-          {imagePreview ? (
+        <div className="min-w-0 space-y-4 pt-2">
+          <PublicationRecovery draft={publication.draft} busy={isPosting} onDiscard={publication.discard}
+            onError={setError} transactionHash={recoveryHash} onTransactionHashChange={setRecoveryHash} />
+          {(publication.draft?.imageUrl || imagePreview) ? (
             <div className="relative rounded-xl overflow-hidden bg-muted aspect-video">
-              <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
-              <button onClick={clearImage} className="absolute top-2 right-2 bg-black/60 text-white rounded-full p-1 hover:bg-black/80">
+              <img src={publication.draft?.imageUrl || imagePreview!} alt="Preview" className="w-full h-full object-cover" />
+              {!publication.draft && <button onClick={clearImage} className="absolute top-2 right-2 bg-black/60 text-white rounded-full p-1 hover:bg-black/80">
                 <X className="h-4 w-4" />
-              </button>
+              </button>}
             </div>
           ) : (
             <button
@@ -204,23 +209,24 @@ function CreatePrivatePostDialog({ creatorId, onCreated }: { creatorId: number; 
 
           <Textarea
             placeholder="Write your exclusive content… (optional)"
-            value={content}
+            value={publication.draft?.content ?? content}
             onChange={(e) => setContent(e.target.value)}
             className="min-h-[80px] resize-none"
           />
 
           <div className="flex items-center gap-2 text-xs text-muted-foreground bg-primary/5 rounded-lg px-3 py-2">
             <Lock className="h-3.5 w-3.5 text-primary flex-shrink-0" />
-            Only your subscribers will see this post
+            Only verified subscribers can read exclusive content. Publishing requires a successful Monad transaction and gas. The registry records authorship, post ID and a commitment, not the private image or caption. Rejection leaves a private draft unpublished. Published posts cannot be deleted.
           </div>
 
            {error && <p role="alert" data-testid="status-private-post-error" className="text-sm text-destructive">{error}</p>}
+          {!imageFile && !publication.draft && <p className="text-xs text-muted-foreground">Select the required image to enable publishing. Caption is optional.</p>}
 
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setOpen(false)} disabled={isPosting}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={!imageFile || isPosting} className="gap-2">
+            <Button variant="outline" onClick={() => setOpen(false)}>{isPosting ? "Close" : "Cancel"}</Button>
+            <Button onClick={handleCreate} disabled={(!imageFile && !publication.draft) || isPosting} className="gap-2">
               {isPosting && <Loader2 className="h-4 w-4 animate-spin" />}
-              {step === "uploading" ? "Uploading…" : step === "saving" ? "Saving…" : "Post Exclusively"}
+              {step === "uploading" ? "Uploading…" : step === "saving" ? "Confirming on Monad…" : publication.draft ? "Resume publication" : "Publish exclusively on Monad"}
             </Button>
           </div>
         </div>
@@ -230,10 +236,16 @@ function CreatePrivatePostDialog({ creatorId, onCreated }: { creatorId: number; 
 }
 
 function PrivatePosts({ creatorId, isCreator }: { creatorId: number; isCreator: boolean }) {
-  const [refresh, setRefresh] = useState(0);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: posts, isLoading } = useListPrivatePosts({ creatorId }, {
-    query: { enabled: creatorId > 0, queryKey: [getListPrivatePostsQueryKey({ creatorId }), refresh] as any }
+  const { user } = useUser();
+  const params = { creatorId };
+  const { data: rawPosts, isLoading, isError, refetch } = useListPrivatePosts(params, {
+    query: { enabled: creatorId > 0, queryKey: [...getListPrivatePostsQueryKey(params), user?.id ?? "guest"] },
+    request: { credentials: "include" },
+  });
+  // Only show posts that belong to the selected creator.
+  const posts = rawPosts?.filter((p) => {
+    const cid = (p as typeof p & { creatorId?: number }).creatorId;
+    return cid === undefined || cid === creatorId;
   });
 
   if (isLoading) {
@@ -243,12 +255,22 @@ function PrivatePosts({ creatorId, isCreator }: { creatorId: number; isCreator: 
       </div>
     );
   }
+  if (isError) {
+    return (
+      <Card>
+        <CardContent className="py-10 text-center space-y-3" role="alert">
+          <p className="text-sm text-destructive">Could not load private posts for this creator.</p>
+          <Button variant="outline" size="sm" onClick={() => void refetch()} data-testid="button-retry-private-posts">Retry</Button>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <div className="space-y-4">
       {isCreator && (
         <div className="flex justify-end">
-          <CreatePrivatePostDialog creatorId={creatorId} onCreated={() => setRefresh(r => r + 1)} />
+          <CreatePrivatePostDialog creatorId={creatorId} onCreated={() => void refetch()} />
         </div>
       )}
 
@@ -264,7 +286,7 @@ function PrivatePosts({ creatorId, isCreator }: { creatorId: number; isCreator: 
         </Card>
       ) : (
         posts.map((post) => (
-          <Card key={post.id} className="border-primary/20 bg-primary/5 overflow-hidden">
+          <Card key={`${(post as typeof post & { source?: string }).source ?? "private"}:${post.id}`} className="border-primary/20 bg-primary/5 overflow-hidden">
             <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between">
               <div className="flex items-center gap-3">
                 <Avatar className="h-9 w-9">
@@ -279,10 +301,13 @@ function PrivatePosts({ creatorId, isCreator }: { creatorId: number; isCreator: 
                 </div>
               </div>
               <Badge variant="secondary" className="gap-1 text-xs bg-primary/10 text-primary border-primary/20">
-                <Lock className="h-3 w-3" /> Subscriber Only
+                <Lock className="h-3 w-3" /> {(post as typeof post & { publicationConfirmed?: boolean }).publicationConfirmed === false ? "Unpublished history" : "Subscriber Only"}
               </Badge>
             </CardHeader>
             <CardContent className="px-4 pb-4 pt-2 space-y-3">
+              {(post as typeof post & { publicationConfirmed?: boolean }).publicationConfirmed === false && (
+                <p className="text-xs text-muted-foreground">Private historical record, not a verified publication. Only you can see it; subscribers cannot. New exclusive posts require a successful Monad transaction.</p>
+              )}
               {post.content && <p className="whitespace-pre-wrap text-sm leading-relaxed">{post.content}</p>}
               {post.imageUrl && (
                 <PrivatePostImage key={post.imageUrl} src={post.imageUrl} />
@@ -303,8 +328,11 @@ export default function PrivateFeed() {
   const { data: subscriptions, isLoading: subsLoading } = useListSubscriptions();
 
   const activeSubs = subscriptions ?? [];
-  const activeCreatorId = selectedCreatorId ?? activeSubs[0]?.creatorId ?? 0;
-  const selectedSub = activeSubs.find((s) => s.creatorId === activeCreatorId) ?? activeSubs[0];
+  const isCreatorSelf = !!user && (user.subscriptionPrice != null || selectedCreatorId === user.id);
+  const selectable = (id: number | null) => id !== null && (activeSubs.some((s) => s.creatorId === id) || (isCreatorSelf && id === user?.id));
+  const activeCreatorId = selectable(selectedCreatorId)
+    ? (selectedCreatorId as number)
+    : activeSubs[0]?.creatorId ?? (isCreatorSelf && user ? user.id : 0);
 
   // Creator can see their own private posts (for posting)
   const isCreatorOfSelected = user?.id === activeCreatorId;
@@ -334,17 +362,17 @@ export default function PrivateFeed() {
         </div>
       </div>
 
-      {activeSubs.length === 0 ? (
+      {activeSubs.length === 0 && !isCreatorSelf ? (
         <Card className="border-dashed bg-muted/30">
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
             <Crown className="h-12 w-12 text-muted-foreground mb-4 opacity-50" />
             <h2 className="text-xl font-semibold mb-2">No Subscriptions Yet</h2>
             <p className="text-muted-foreground max-w-sm mb-4 text-sm">
               Subscribe to creators from their profile to unlock exclusive private content. MON is sent
-              directly to their wallet on-chain.
+              directly to their wallet on chain.
             </p>
             <p className="text-xs text-muted-foreground/60">
-              Visit a creator's profile → click Subscribe → sign the on-chain transaction.
+              Open a creator profile, tap Subscribe, then sign in your wallet.
             </p>
           </CardContent>
         </Card>
@@ -352,9 +380,30 @@ export default function PrivateFeed() {
         <div className="grid md:grid-cols-[280px_1fr] gap-6 items-start">
           {/* Creator sidebar */}
           <div className="space-y-2">
+            {isCreatorSelf && user && (
+              <button
+                onClick={() => setSelectedCreatorId(user.id)}
+                data-testid="button-select-own-private"
+                className={`w-full text-left rounded-xl border p-3 mb-3 transition-all flex items-center gap-3 ${
+                  activeCreatorId === user.id ? "border-primary/40 bg-primary/5 shadow-sm" : "border-border hover:border-primary/20 hover:bg-muted/30"
+                }`}
+              >
+                <Avatar className="h-10 w-10 flex-shrink-0">
+                  <AvatarImage src={user.avatarUrl ?? ""} />
+                  <AvatarFallback className="text-xs">{user.name?.slice(0, 2).toUpperCase() ?? "ME"}</AvatarFallback>
+                </Avatar>
+                <div className="min-w-0">
+                  <p className="font-semibold text-sm">My exclusive posts</p>
+                  <p className="text-xs text-muted-foreground">What your subscribers see</p>
+                </div>
+              </button>
+            )}
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-1 mb-3">
               Your Subscriptions
             </p>
+            {activeSubs.length === 0 && (
+              <p className="px-1 text-xs text-muted-foreground">No active subscriptions yet.</p>
+            )}
             {activeSubs.map((sub) => {
               const isActive = sub.creatorId === activeCreatorId;
               return (
@@ -417,7 +466,7 @@ export default function PrivateFeed() {
           {/* Posts panel */}
           <div>
             {activeCreatorId > 0 ? (
-              <PrivatePosts creatorId={activeCreatorId} isCreator={isCreatorOfSelected} />
+              <PrivatePosts key={activeCreatorId} creatorId={activeCreatorId} isCreator={isCreatorOfSelected} />
             ) : (
               <Card>
                 <CardContent className="py-12 text-center text-muted-foreground">

@@ -41,7 +41,7 @@ export function CommunityRewards() {
   return <Card className="rounded-2xl">
     <CardHeader>
       <CardTitle className="flex items-center gap-2"><SiX className="h-4 w-4" /> Community on X</CardTitle>
-      <CardDescription>Self-report completed actions to earn points. X activity is not verified.</CardDescription>
+      <CardDescription>Self report completed actions to earn points. X activity is not verified.</CardDescription>
     </CardHeader>
     <CardContent className="space-y-3">
       <p className="text-xs text-muted-foreground">Follow, like, comment and notifications: 5 points each, once per account. Write a post: 10 points once per UTC day. X tasks give points only, not invite codes. Resets at 00:00 UTC.</p>

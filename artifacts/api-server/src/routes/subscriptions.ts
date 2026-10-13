@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { randomUUID } from "node:crypto";
-import { bindNewImage, canReadCreator } from "../lib/contentPrivacy";
-import { eq, and } from "drizzle-orm";
+import { bindNewImage, canReadCreator, verifiedCreatorIds } from "../lib/contentPrivacy";
+import { eq, and, desc, isNotNull } from "drizzle-orm";
 import { createPublicClient, decodeEventLog, decodeFunctionData, encodeFunctionData, http, parseAbi, parseEther } from "viem";
 import type { Transaction, TransactionReceipt } from "viem";
 import { checkMilestones } from "../milestones";
@@ -11,6 +11,7 @@ import {
   subscriptionQuotesTable,
   usersTable,
   privatePostsTable,
+  postsTable,
   badgesTable,
   notificationsTable,
   notificationPreferencesTable,
@@ -135,7 +136,8 @@ router.get("/subscriptions", async (req, res): Promise<void> => {
     .leftJoin(usersTable, eq(usersTable.id, subscriptionsTable.creatorId))
     .where(eq(subscriptionsTable.subscriberId, user.id));
 
-  res.json(subs.map((s) => ({ ...s, pricePerMonth: Number(s.pricePerMonth) })));
+  const verified = await verifiedCreatorIds(user.id);
+  res.json(subs.filter(s => verified.has(s.creatorId)).map((s) => ({ ...s, verified: true, status: "active", pricePerMonth: Number(s.pricePerMonth) })));
 });
 
 router.post("/subscriptions/quote", async (req, res): Promise<void> => {
@@ -361,38 +363,22 @@ router.get("/private-posts", async (req, res): Promise<void> => {
     })
     .from(privatePostsTable)
     .leftJoin(usersTable, eq(usersTable.id, privatePostsTable.creatorId))
-    .where(eq(privatePostsTable.creatorId, creatorId));
-  res.json(posts);
+    .where(eq(privatePostsTable.creatorId, creatorId)).orderBy(desc(privatePostsTable.createdAt));
+  const paidPosts = await db.select({
+    id: postsTable.id, content: postsTable.content, imageUrl: postsTable.imageUrl,
+    onChainTxHash: postsTable.onChainTxHash,
+    creatorId: postsTable.authorId, createdAt: postsTable.createdAt,
+    creatorName: usersTable.name, creatorUsername: usersTable.username, creatorAvatarUrl: usersTable.avatarUrl,
+  }).from(postsTable).leftJoin(usersTable, eq(usersTable.id, postsTable.authorId))
+    .where(and(eq(postsTable.authorId, creatorId), eq(postsTable.isPaid, true), isNotNull(postsTable.chainVerifiedAt)));
+  res.json([
+    ...(currentUser.id === creatorId ? posts.map(p => ({ ...p, source: "private", publicationConfirmed: false })) : []),
+    ...paidPosts.map(p => ({ ...p, source: "post", publicationConfirmed: true })),
+  ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()));
 });
 
 router.post("/private-posts", async (req, res): Promise<void> => {
-  const parsed = CreatePrivatePostBody.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
-  const { content, imageUrl, creatorWalletAddress } = parsed.data;
-
-  if (!imageUrl) {
-    res.status(400).json({ error: "An image is required for every post." });
-    return;
-  }
-
-  const creator = await getUserByWallet(creatorWalletAddress);
-  if (!creator) { res.status(404).json({ error: "Creator not found" }); return; }
-  try { await bindNewImage(imageUrl, creator.id, "private"); }
-  catch (err) { res.status(400).json({ error: (err as Error).message }); return; }
-  const [post] = await db
-    .insert(privatePostsTable)
-    .values({ content: content ?? "", imageUrl, creatorId: creator.id })
-    .returning();
-  res.status(201).json({
-    id: post.id,
-    content: post.content,
-    imageUrl: post.imageUrl,
-    creatorId: post.creatorId,
-    creatorName: creator.name,
-    creatorUsername: creator.username,
-    creatorAvatarUrl: creator.avatarUrl,
-    createdAt: post.createdAt,
-  });
+  res.status(405).json({ error: "Exclusive posts also require a signed Monad transaction. Use /posts/prepare and receipt-verified /posts publication." });
 });
 
 export default router;

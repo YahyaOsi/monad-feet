@@ -44,6 +44,38 @@ export interface FeetGameHistory {
   claims: FeetGameHistoryClaimsItem[];
 }
 
+export type ChainEventsEventsItem = {
+  id: string;
+  kind: string;
+  label: string;
+  sublabel: string;
+  txHash: string;
+  at: string;
+};
+
+export interface ChainEvents {
+  updatedAt: string;
+  latestBlock: string;
+  events: ChainEventsEventsItem[];
+}
+
+export type DailyBonusStatusTask = {
+  id: string;
+  title: string;
+  points: number;
+  target: number;
+  href: string;
+};
+
+export interface DailyBonusStatus {
+  utcDay: string;
+  nextResetAt: string;
+  progress: number;
+  eligible: boolean;
+  claimed: boolean;
+  task: DailyBonusStatusTask;
+}
+
 export type FeetGameStateActionsItem = {
   id: number;
   name: string;
@@ -52,6 +84,13 @@ export type FeetGameStateActionsItem = {
   count: number;
   remaining: number;
   nextPoints: number;
+  dailyRewards: number[];
+  doublingPurchases: number[];
+  totalPurchases?: number;
+  /** @nullable */
+  inviteEvery?: number | null;
+  /** @nullable */
+  purchasesUntilInvite?: number | null;
 };
 
 export interface FeetGameState {
@@ -186,6 +225,9 @@ export interface ValidateInviteResponse {
 }
 
 export interface Post {
+  isPaid?: boolean;
+  isSubscribedToAuthor?: boolean;
+  publicationConfirmed?: boolean;
   id: number;
   content: string;
   /** @nullable */
@@ -212,6 +254,8 @@ export interface PostsPage {
 }
 
 export interface CreatePostBody {
+  postId?: number;
+  txHash?: string;
   content: string;
   /** @nullable */
   imageUrl?: string | null;
@@ -219,12 +263,29 @@ export interface CreatePostBody {
   isPaid?: boolean;
 }
 
+export interface PostDraft {
+  postId: number;
+  contentUri: string;
+  content: string;
+  imageUrl: string;
+  isPaid: boolean;
+}
+
 export interface LikeResponse {
   likeCount: number;
   likedByMe: boolean;
 }
 
+export type PrivatePostSource =
+  (typeof PrivatePostSource)[keyof typeof PrivatePostSource];
+
+export const PrivatePostSource = {
+  private: "private",
+  post: "post",
+} as const;
+
 export interface PrivatePost {
+  source?: PrivatePostSource;
   id: number;
   content: string;
   /** @nullable */
@@ -247,6 +308,8 @@ export interface CreatePrivatePostBody {
 }
 
 export interface Subscription {
+  verified?: boolean;
+  status?: string;
   id: number;
   subscriberId: number;
   creatorId: number;
@@ -283,6 +346,9 @@ export interface UpdateSubscriptionPriceBody {
 }
 
 export interface StreakInfo {
+  syncPending?: boolean;
+  /** @nullable */
+  syncError?: string | null;
   userId: number;
   currentStreak: number;
   longestStreak: number;
@@ -316,6 +382,9 @@ export interface WalletBalance {
 }
 
 export interface FeedSummary {
+  totalPendingHistoricalPosts?: number;
+  /** @nullable */
+  totalOnChainPosts?: number | null;
   totalPosts: number;
   totalLikes: number;
   totalUsers: number;
@@ -343,6 +412,8 @@ export interface LeaderboardEntry {
 }
 
 export interface Comment {
+  /** @nullable */
+  parentCommentId?: number | null;
   id: number;
   postId: number;
   authorId: number;
@@ -385,6 +456,8 @@ export interface TrendingResponse {
 }
 
 export interface CreateCommentBody {
+  /** @nullable */
+  parentCommentId?: number | null;
   content: string;
 }
 
@@ -436,6 +509,31 @@ export type VerifyAuthChallenge200 = {
   walletAddress: string;
 };
 
+export type RecoverPostBody = {
+  /** @minimum 1 */
+  postId: number;
+};
+
+export type RecoverPost200 = {
+  anchored: boolean;
+  /** @nullable */
+  txHash: string | null;
+};
+
+export type PreparePostBody = {
+  content?: string;
+  imageUrl?: string;
+  isPaid?: boolean;
+  legacyPostId?: number;
+};
+
+export type GetNftAccess200 = {
+  chogHolder: boolean;
+  collection: string;
+  chainId: number;
+  monadFeetNftAvailable: boolean;
+};
+
 export type ListPostsParams = {
   /**
    * @nullable
@@ -450,6 +548,10 @@ export type ListPostsParams = {
 
 export type ListPrivatePostsParams = {
   creatorId: number;
+};
+
+export type ListBadgesParams = {
+  userId?: number;
 };
 
 export type GetLeaderboardParams = {

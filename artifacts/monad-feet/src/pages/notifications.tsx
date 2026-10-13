@@ -1,4 +1,5 @@
 import { formatDistanceToNow } from "date-fns";
+import { Link, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
@@ -7,7 +8,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import {
   Bell, Heart, Users, Award, Info, BellOff, CheckCheck,
-  FileText, Zap, TrendingUp, Star, BarChart3
+  FileText, Zap, TrendingUp, Star, BarChart3, Share2, ChevronRight
 } from "lucide-react";
 import { useNotifications } from "@/hooks/useNotifications";
 import type {
@@ -37,6 +38,29 @@ function parseDigest(body: string): DigestStats | null {
   } catch {
     return null;
   }
+}
+
+const PUBLIC_APP_URL = (import.meta.env.VITE_PUBLIC_APP_URL as string | undefined)?.trim() || "";
+
+function buildDigestTweet(stats: DigestStats): string {
+  const highlights: { score: number; text: string }[] = [];
+  if (stats.peakRank !== null && stats.peakRank <= 10) highlights.push({ score: 100 - stats.peakRank, text: `hit #${stats.peakRank} on the leaderboard` });
+  else if (stats.peakRank !== null) highlights.push({ score: 5, text: `climbed to #${stats.peakRank} on the leaderboard` });
+  if (stats.likesEarned > 0) highlights.push({ score: stats.likesEarned, text: `earned ${stats.likesEarned} like${stats.likesEarned === 1 ? "" : "s"}` });
+  if (stats.newSubscribers > 0) highlights.push({ score: stats.newSubscribers * 10, text: `picked up ${stats.newSubscribers} new subscriber${stats.newSubscribers === 1 ? "" : "s"}` });
+  if (stats.currentStreak > 1) highlights.push({ score: stats.currentStreak * 3, text: `kept a ${stats.currentStreak} day streak alive` });
+  if (stats.postsThisWeek > 0) highlights.push({ score: stats.postsThisWeek * 2, text: `shared ${stats.postsThisWeek} post${stats.postsThisWeek === 1 ? "" : "s"}` });
+  const top = highlights.sort((a, b) => b.score - a.score).slice(0, 3).map((h) => h.text);
+  const body = top.length
+    ? `My week on @MonadFeet: I ${top.length > 1 ? `${top.slice(0, -1).join(", ")} and ${top[top.length - 1]}` : top[0]}. Now sitting at ${stats.totalPoints.toLocaleString()} points.`
+    : `Building my streak on @MonadFeet. Now sitting at ${stats.totalPoints.toLocaleString()} points.`;
+  const invitation = " What will you post first? Join us on @MonadFeet";
+  return `${body}${invitation}${PUBLIC_APP_URL ? ` ${PUBLIC_APP_URL}` : ""}`;
+}
+
+function shareDigest(stats: DigestStats) {
+  const url = `https://x.com/intent/tweet?text=${encodeURIComponent(buildDigestTweet(stats))}`;
+  window.open(url, "_blank", "noopener,noreferrer");
 }
 
 function DigestCard({ stats, createdAt }: { stats: DigestStats; createdAt: string }) {
@@ -80,7 +104,7 @@ function DigestCard({ stats, createdAt }: { stats: DigestStats; createdAt: strin
     chips.push({
       icon: <TrendingUp className="h-3.5 w-3.5" />,
       label: "Peak rank",
-      value: `${rankEmoji ?? ""}#${stats.peakRank}`,
+      value: rankEmoji ?? `#${stats.peakRank}`,
       color: "text-emerald-600 bg-emerald-50 border-emerald-100",
     });
   }
@@ -98,7 +122,7 @@ function DigestCard({ stats, createdAt }: { stats: DigestStats; createdAt: strin
           </p>
         </div>
       </div>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
         {chips.map((chip) => (
           <div
             key={chip.label}
@@ -112,6 +136,16 @@ function DigestCard({ stats, createdAt }: { stats: DigestStats; createdAt: strin
           </div>
         ))}
       </div>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        className="gap-2"
+        onClick={(e) => { e.stopPropagation(); shareDigest(stats); }}
+        data-testid="button-share-digest"
+      >
+        <Share2 className="h-3.5 w-3.5" /> Share my week on X
+      </Button>
     </div>
   );
 }
@@ -134,7 +168,7 @@ export default function Notifications() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 min-w-0">
         <div className="flex items-center gap-3">
           <div className="p-2 bg-primary/10 text-primary rounded-lg">
             <Bell className="h-6 w-6" />
@@ -152,7 +186,7 @@ export default function Notifications() {
             onClick={() => { void markAllRead().catch(() => {}); }}
             disabled={isSaving}
             data-testid="button-notifications-read-all"
-            className="gap-2"
+            className="gap-2 self-start sm:self-auto shrink-0 max-w-full"
           >
             <CheckCheck className="h-4 w-4" /> Mark all read
           </Button>
@@ -248,7 +282,7 @@ export default function Notifications() {
                   <PrefRow
                     icon={<BarChart3 className="h-4 w-4 text-primary" />}
                     label="Weekly Digest"
-                    description="Your personal stats every Sunday, posts, likes, rank, and streak"
+                    description="Your stats every Sunday: posts, likes, rank, and streak"
                     enabled={prefs.systemEnabled}
                     disabled={isSaving}
                     onToggle={() => togglePref("systemEnabled")}
@@ -284,6 +318,7 @@ function NotifList({
   saving: boolean;
   onMarkRead: (id: number) => Promise<void>;
 }) {
+  const [, navigate] = useLocation();
   if (failed && !notifs) return null;
   if (loading) {
     return (
@@ -308,64 +343,76 @@ function NotifList({
     <div className="space-y-2">
       {notifs.map((n) => {
         const digest = parseDigest(n.body);
+        const postHref = n.resourceType === "post" && n.resourceId != null && String(n.resourceId) !== "" ? `/post/${n.resourceId}` : null;
+        const profileHref = n.actorId != null ? `/profile/${n.actorId}` : null;
+        const open = () => {
+          if (!n.read) void onMarkRead(n.id).catch(() => {});
+          if (postHref) navigate(postHref);
+        };
+        const avatar = n.actorAvatarUrl || profileHref ? (
+          <Avatar className="h-8 w-8">
+            <AvatarImage src={n.actorAvatarUrl ?? ""} />
+            <AvatarFallback>{n.actorName?.slice(0, 2).toUpperCase() ?? "??"}</AvatarFallback>
+          </Avatar>
+        ) : (
+          <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center">
+            {NOTIF_ICONS[n.type] ?? <Bell className="h-4 w-4" />}
+          </div>
+        );
         return (
-          <button
+          <div
             key={n.id}
-            onClick={() => { if (!n.read) void onMarkRead(n.id).catch(() => {}); }}
-            disabled={saving}
+            role="button"
+            tabIndex={0}
+            aria-disabled={saving}
+            onClick={open}
+            onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); open(); } }}
             data-testid={`button-notification-read-${n.id}`}
-            className={`w-full text-left rounded-lg border transition-colors p-4 flex items-start gap-3 ${
-              n.read
-                ? "bg-background border-border/50"
-                : "bg-primary/5 border-primary/20"
+            className={`w-full text-left rounded-lg border transition-colors p-4 flex items-start gap-3 cursor-pointer hover:border-primary/40 ${
+              n.read ? "bg-background border-border/50" : "bg-primary/5 border-primary/20"
             }`}
           >
-            {/* Avatar / icon */}
             {!digest && (
               <div className="flex-shrink-0 mt-0.5">
-                {n.actorAvatarUrl ? (
-                  <Avatar className="h-8 w-8">
-                    <AvatarImage src={n.actorAvatarUrl} />
-                    <AvatarFallback>{n.actorName?.slice(0, 2).toUpperCase() ?? "??"}</AvatarFallback>
-                  </Avatar>
-                ) : (
-                  <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center">
-                    {NOTIF_ICONS[n.type] ?? <Bell className="h-4 w-4" />}
-                  </div>
-                )}
+                {profileHref ? (
+                  <Link href={profileHref} onClick={(e) => e.stopPropagation()} aria-label={`Open ${n.actorName ?? "user"} profile`} data-testid={`link-notification-actor-avatar-${n.id}`}>
+                    {avatar}
+                  </Link>
+                ) : avatar}
               </div>
             )}
 
-            {/* Content */}
             <div className="flex-1 min-w-0">
               {digest ? (
-                /* ── Digest card ── */
                 <DigestCard stats={digest} createdAt={n.createdAt} />
               ) : (
-                /* ── Regular notification ── */
                 <>
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-medium">{n.title}</p>
                     {!n.read && <span className="h-2 w-2 rounded-full bg-primary flex-shrink-0" />}
                   </div>
+                  {profileHref && n.actorName && (
+                    <Link href={profileHref} onClick={(e) => e.stopPropagation()} className="text-xs font-semibold text-primary hover:underline" data-testid={`link-notification-actor-${n.id}`}>
+                      {n.actorName}{n.actorUsername ? ` @${n.actorUsername}` : ""}
+                    </Link>
+                  )}
                   <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{n.body}</p>
                   <p className="text-xs text-muted-foreground/60 mt-1">
                     {formatDistanceToNow(new Date(n.createdAt), { addSuffix: true })}
+                    {postHref && <span className="ml-2 text-primary">View post</span>}
                   </p>
                 </>
               )}
             </div>
 
-            {/* Unread dot for digest */}
-            {digest && !n.read && (
-              <span className="flex-shrink-0 h-2 w-2 rounded-full bg-primary mt-1" />
-            )}
-
-            {/* Type icon for regular */}
+            {digest && !n.read && <span className="flex-shrink-0 h-2 w-2 rounded-full bg-primary mt-1" />}
             {!digest && (
-              <div className="flex-shrink-0">{NOTIF_ICONS[n.type]}</div>
+              <div className="flex-shrink-0 flex items-center gap-1">
+                {NOTIF_ICONS[n.type]}
+                {postHref && <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+              </div>
             )}
-          </button>
+          </div>
         );
       })}
     </div>

@@ -1,11 +1,15 @@
 import { Router, type IRouter } from "express";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db, streaksTable, usersTable, badgesTable, chainRewardClaimsTable } from "@workspace/db";
+import { hasChogNft } from "../lib/chog";
 import { nanoid } from "nanoid";
 import { checkMilestones } from "../milestones";
-import { dailyCheckinPoints, utcDay, previousUtcDay } from "../reward-rules";
+import { utcDay } from "../reward-rules";
 import { REGISTRY } from "../lib/chainConfig";
-import { verifyRewardReceipt, InvalidReceiptError, safeNumber } from "../lib/gameChain";
+import { verifyRewardReceipt, InvalidReceiptError } from "../lib/gameChain";
+import { grantEarlyBetaBadges } from "../lib/earlyBeta";
+import { saveVerifiedCheckin } from "../lib/checkinClaims";
+import { recoverLatestCheckin } from "../lib/checkinRecovery";
 
 const router: IRouter = Router();
 
@@ -27,14 +31,10 @@ function isToday(date: Date): boolean {
   return utcDay(date) === utcDay(new Date());
 }
 
-function isYesterday(date: Date): boolean {
-  return utcDay(date) === previousUtcDay(new Date());
-}
-
 router.get("/streak", async (req, res): Promise<void> => {
   const walletAddress = getWalletAddress(req);
   if (!walletAddress) {
-    res.status(400).json({ error: "Missing x-wallet-address header" });
+    res.status(400).json({ error: "Please connect your wallet and sign in" });
     return;
   }
 
@@ -44,13 +44,29 @@ router.get("/streak", async (req, res): Promise<void> => {
     return;
   }
 
-  const [streak] = await db
+  let [streak] = await db
     .select()
     .from(streaksTable)
     .where(eq(streaksTable.userId, user.id));
 
+  let syncPending = false;
+  try {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        recoverLatestCheckin(user, streak?.lastCheckin ?? null),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Check in sync is still running")), 10_000); }),
+      ]);
+    } finally { if (timer) clearTimeout(timer); }
+    [streak] = await db.select().from(streaksTable).where(eq(streaksTable.userId, user.id));
+  } catch (error) {
+    syncPending = true;
+    req.log.warn({ err: error, userId: user.id }, "Check in recovery could not finish");
+  }
   if (!streak) {
     res.json({
+      syncPending,
+      syncError: syncPending ? "Could not sync your latest check in. Please retry." : null,
       userId: user.id,
       currentStreak: 0,
       longestStreak: 0,
@@ -66,6 +82,8 @@ router.get("/streak", async (req, res): Promise<void> => {
   const checkedInToday = streak.lastCheckin ? isToday(new Date(streak.lastCheckin)) : false;
 
   res.json({
+    syncPending,
+    syncError: syncPending ? "Could not sync your latest check in. Please retry." : null,
     userId: user.id,
     currentStreak: streak.currentStreak,
     longestStreak: streak.longestStreak,
@@ -80,7 +98,7 @@ router.get("/streak", async (req, res): Promise<void> => {
 router.post("/streak/checkin", async (req, res): Promise<void> => {
   const walletAddress = getWalletAddress(req);
   if (!walletAddress) {
-    res.status(400).json({ error: "Missing x-wallet-address header" });
+    res.status(400).json({ error: "Please connect your wallet and sign in" });
     return;
   }
 
@@ -100,67 +118,14 @@ router.post("/streak/checkin", async (req, res): Promise<void> => {
   let verified;
   try {
     verified = previousClaim
-      ? { timestamp: BigInt(Math.floor(previousClaim.blockTimestamp.getTime() / 1000)) }
+      ? { timestamp: BigInt(Math.floor(previousClaim.blockTimestamp.getTime() / 1000)), streak: 0 }
       : await verifyRewardReceipt("checkin", txHash, user.walletAddress);
   }
   catch (e) {
-    res.status(e instanceof InvalidReceiptError ? 422 : 503).json({ error: e instanceof InvalidReceiptError ? e.message : "Monad check-in verification unavailable; retry this hash, not the payment" }); return;
+    res.status(e instanceof InvalidReceiptError ? 422 : 503).json({ error: e instanceof InvalidReceiptError ? e.message : "Could not verify your check in. Retry this hash. Do not pay again." }); return;
   }
 
-  const updated = await db.transaction(async (tx) => {
-  await tx.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.id, user.id)).for("update");
-  const [claimed] = await tx.select().from(chainRewardClaimsTable).where(and(
-    eq(chainRewardClaimsTable.contractAddress, REGISTRY.toLowerCase()), eq(chainRewardClaimsTable.txHash, txHash),
-  ));
-  let [streak] = await tx
-    .select()
-    .from(streaksTable)
-    .where(eq(streaksTable.userId, user.id)).for("update");
-
-  if (!streak) {
-    [streak] = await tx
-      .insert(streaksTable)
-      .values({ userId: user.id })
-      .returning();
-  }
-
-  if (claimed) {
-    if (claimed.userId !== user.id || claimed.kind !== "checkin") throw new Error("Transaction already claimed");
-    return streak;
-  }
-  const now = new Date(safeNumber(verified.timestamp) * 1000);
-  const lastCheckin = streak.lastCheckin ? new Date(streak.lastCheckin) : null;
-
-  // Preserve chronology when receipts are submitted late, and never credit a UTC day twice.
-  if (lastCheckin && utcDay(lastCheckin) >= utcDay(now)) {
-    await tx.insert(chainRewardClaimsTable).values({
-      contractAddress: REGISTRY.toLowerCase(), txHash, userId: user.id, kind: "checkin",
-      pointsAwarded: 0, inviteCodes: [], blockTimestamp: now,
-    });
-    return streak;
-  }
-
-  const isConsecutive = lastCheckin ? utcDay(lastCheckin) === previousUtcDay(now) : false;
-  const newStreak = isConsecutive ? streak.currentStreak + 1 : 1;
-  const newLongest = Math.max(newStreak, streak.longestStreak);
-  const pointsEarned = dailyCheckinPoints(newStreak, user.nftHolder);
-  // App check-in bonuses remain separate from the contract's 5/10/20 chain points.
-  await tx.insert(chainRewardClaimsTable).values({
-    contractAddress: REGISTRY.toLowerCase(), txHash, userId: user.id, kind: "checkin",
-    pointsAwarded: pointsEarned, inviteCodes: [], blockTimestamp: now,
-  });
-  const [saved] = await tx
-    .update(streaksTable)
-    .set({
-      currentStreak: newStreak,
-      longestStreak: newLongest,
-      totalPoints: sql`${streaksTable.totalPoints} + ${pointsEarned}`,
-      lastCheckin: now,
-      ...(txHash ? { lastCheckinTxHash: txHash } : {}),
-    })
-    .where(eq(streaksTable.userId, user.id)).returning();
-  return saved;
-  });
+  const updated = await saveVerifiedCheckin(user, txHash, verified);
 
   await checkMilestones(user.id);
   const [finalStreak] = await db.select().from(streaksTable).where(eq(streaksTable.userId, user.id));
@@ -180,17 +145,24 @@ router.post("/streak/checkin", async (req, res): Promise<void> => {
 
 router.get("/badges", async (req, res): Promise<void> => {
   const walletAddress = getWalletAddress(req);
-  if (!walletAddress) {
-    res.status(400).json({ error: "Missing x-wallet-address header" });
+  const publicUserId = req.query.userId === undefined ? null : Number(req.query.userId);
+  if (publicUserId !== null && (!Number.isSafeInteger(publicUserId) || publicUserId <= 0)) {
+    res.status(400).json({ error: "Choose a valid profile" }); return;
+  }
+  if (!walletAddress && publicUserId === null) {
+    res.status(400).json({ error: "Please connect your wallet and sign in" });
     return;
   }
 
-  const user = await getUserByWallet(walletAddress);
+  const user = publicUserId !== null
+    ? (await db.select().from(usersTable).where(eq(usersTable.id, publicUserId)))[0]
+    : await getUserByWallet(walletAddress!);
   if (!user) {
     res.status(404).json({ error: "User not found" });
     return;
   }
 
+  await grantEarlyBetaBadges(user.id);
   const badges = await db
     .select({
       id: badgesTable.id,
@@ -206,8 +178,10 @@ router.get("/badges", async (req, res): Promise<void> => {
     .leftJoin(usersTable, eq(usersTable.id, badgesTable.creatorId))
     .where(eq(badgesTable.userId, user.id));
 
-  res.json(
-    badges.map((b) => ({
+  let chogHolder = false;
+  try { chogHolder = await hasChogNft(user.walletAddress); }
+  catch { res.status(503).json({ error: "Current holder badges could not be verified. Please retry." }); return; }
+  const formatted = badges.map((b) => ({
       id: b.id,
       userId: b.userId,
       badgeType: b.badgeType,
@@ -216,8 +190,12 @@ router.get("/badges", async (req, res): Promise<void> => {
       creatorId: b.creatorId,
       creatorName: b.creatorName,
       earnedAt: b.earnedAt,
-    }))
-  );
+    }));
+  res.json([...formatted, ...(chogHolder ? [{
+    id: -user.id, userId: user.id, badgeType: "chog_holder", label: "ChogNFT holder badge",
+    description: "Currently holds a CHOG Genesis NFT on Monad Mainnet. Rechecked against the collection.",
+    creatorId: null, creatorName: null, earnedAt: user.createdAt,
+  }] : [])]);
 });
 
 export { nanoid };

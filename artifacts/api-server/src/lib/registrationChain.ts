@@ -17,7 +17,7 @@ type CallFrame = {
 // Relayed/delegated wallets have a different outer transaction sender. Prove
 // the actual EVM CALL sender, never infer it from a calldata substring or event
 // alone. Trace data comes only from our server's chain RPC, never the client.
-function tracedRegistrationInputs(trace: CallFrame, tx: { from: string; to: string | null; input: string; value: bigint }, wallet: string): `0x${string}`[] {
+export function tracedRegistrationInputs(trace: CallFrame, tx: { from: string; to: string | null; input: string; value: bigint }, wallet: string): `0x${string}`[] {
   if (!trace || trace.type !== "CALL" || trace.from?.toLowerCase() !== tx.from.toLowerCase() ||
       trace.to?.toLowerCase() !== tx.to?.toLowerCase() || trace.input !== tx.input ||
       !trace.value || BigInt(trace.value) !== tx.value || trace.error != null) return [];

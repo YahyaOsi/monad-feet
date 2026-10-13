@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Link, useLocation } from "wouter";
 import { ToastAction } from "@/components/ui/toast";
 import { useUser } from "@/context/UserContext";
+import { PointsDisclosure } from "@/components/PointsDisclosure";
 import { useAccount } from "wagmi";
 import {
   Settings, LogOut, Link2, X, ChevronDown, ChevronUp, Menu
@@ -76,8 +77,15 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     if (!user) return;
     fetchDmUnread();
     fetchMutedIds();
-    const interval = setInterval(() => { fetchDmUnread(); fetchMutedIds(); }, 60_000);
-    return () => clearInterval(interval);
+    const refresh = () => {
+      if (document.visibilityState === "visible" && navigator.onLine) { fetchDmUnread(); fetchMutedIds(); }
+    };
+    const interval = setInterval(refresh, 60_000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", refresh);
+    };
   }, [user?.id, fetchDmUnread, fetchMutedIds]);
 
   useEffect(() => {
@@ -269,7 +277,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 </span>
               )}
             </div>
-            <p className="text-sm text-sidebar-foreground/70">Invite-only community</p>
+            <p className="text-sm text-sidebar-foreground/70">Invites and CHOG holder access</p>
             {onlineCount > 0 && (
               <p className="text-xs text-green-600 font-medium mt-1 flex items-center gap-1">
                 <span className="relative flex h-1.5 w-1.5">
@@ -355,7 +363,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             <div className="flex items-center gap-2 text-xs text-amber-800">
               <Link2 className="h-3.5 w-3.5 flex-shrink-0 text-amber-600" />
               <span>
-                On-chain features are not live yet. Your activity is saved in the app for now.
+                Onchain features are not live yet. Your activity is saved in the app for now.
               </span>
             </div>
             <button onClick={() => setBannerDismissed(true)} aria-label="Dismiss notice" className="flex-shrink-0 text-amber-500 hover:text-amber-700">
@@ -363,7 +371,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             </button>
           </div>
         )}
-        <div className="p-4 pb-28 md:p-8 max-w-4xl mx-auto">{children}</div>
+        <div className="p-4 pb-28 md:p-8 max-w-4xl mx-auto min-w-0">{children}<PointsDisclosure /></div>
       </main>
 
       {/* Mobile bottom nav, primary only */}

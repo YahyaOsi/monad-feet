@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useParams, useLocation } from "wouter";
 import { useUser } from "@/context/UserContext";
 import { useGetPost } from "@workspace/api-client-react";
@@ -8,12 +8,13 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
   ArrowLeft, Heart, ExternalLink, Loader2, Link2, Shield,
-  MessageSquare, Share2, Check, Trash2, Send, Lock
+  MessageSquare, Share2, Check, Trash2, Send, Lock, Reply
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useAccount } from "wagmi";
 import { useOnChainPostLikeCount, useIsPostLikedOnChain } from "@/lib/useOnChain";
 import { useContractActions } from "@/lib/useContractActions";
+import { usePostLike } from "@/hooks/usePostLike";
 import { CONTRACT_DEPLOYED } from "@/lib/contract";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetPostQueryKey, getListPostsQueryKey } from "@workspace/api-client-react";
@@ -30,7 +31,27 @@ type Comment = {
   authorAvatarUrl?: string | null;
   content: string;
   createdAt: string;
+  parentCommentId?: number | null;
 };
+
+type CommentNodeData = Comment & { children: CommentNodeData[] };
+
+function buildTree(list: Comment[]): CommentNodeData[] {
+  const byId = new Map<number, CommentNodeData>();
+  for (const c of list) byId.set(c.id, { ...c, children: [] });
+  const roots: CommentNodeData[] = [];
+  for (const node of byId.values()) {
+    const parent = node.parentCommentId != null ? byId.get(node.parentCommentId) : undefined;
+    if (parent && parent !== node) parent.children.push(node); else roots.push(node);
+  }
+  const byNewest = (a: CommentNodeData, b: CommentNodeData) => +new Date(b.createdAt) - +new Date(a.createdAt);
+  const byOldest = (a: CommentNodeData, b: CommentNodeData) => +new Date(a.createdAt) - +new Date(b.createdAt);
+  const sortDeep = (nodes: CommentNodeData[]) => { for (const n of nodes) { n.children.sort(byOldest); sortDeep(n.children); } };
+  roots.sort(byNewest); sortDeep(roots);
+  return roots;
+}
+
+const MAX_INDENT_DEPTH = 4;
 
 async function fetchComments(postId: number, isSignedIn: boolean): Promise<Comment[]> {
   const res = await fetch(`${BASE}/api/posts/${postId}/comments`, {
@@ -40,12 +61,12 @@ async function fetchComments(postId: number, isSignedIn: boolean): Promise<Comme
   return res.json();
 }
 
-async function postComment(postId: number, content: string): Promise<Comment | null> {
+async function postComment(postId: number, content: string, parentCommentId: number | null = null): Promise<Comment | null> {
   const wallet = localStorage.getItem("mf_wallet_address") ?? "";
   const res = await fetch(`${BASE}/api/posts/${postId}/comments`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-wallet-address": wallet },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, parentCommentId }),
   });
   if (!res.ok) return null;
   return res.json();
@@ -67,7 +88,6 @@ export default function PostDetail({ promptLogin }: { promptLogin: () => void })
   const viewerScope = user ? `${user.id}:${user.walletAddress.toLowerCase()}` : "guest";
   const { address } = useAccount();
   const queryClient = useQueryClient();
-  const { contractDeployed, likePostOnChain } = useContractActions();
 
   const { data: post, isLoading, isError: postError, error: postQueryError } = useGetPost(postId, {
     query: {
@@ -77,12 +97,7 @@ export default function PostDetail({ promptLogin }: { promptLogin: () => void })
     request: { credentials: user ? "include" : "omit" },
   });
 
-  const { data: chainLikeCount } = useOnChainPostLikeCount(postId);
-  const { data: chainLikedByMe } = useIsPostLikedOnChain(postId, address);
-
-  const [liking, setLiking] = useState(false);
-  const [optimisticLiked, setOptimisticLiked] = useState<boolean | null>(null);
-  const [optimisticCount, setOptimisticCount] = useState<number | null>(null);
+  const { isLiked, likeCount, usingChainCount, liking, handleLikeToggle } = usePostLike(post, promptLogin, !!(post?.isPaid && !post?.isSubscribedToAuthor));
   const [copied, setCopied] = useState(false);
   const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
 
@@ -92,6 +107,24 @@ export default function PostDetail({ promptLogin }: { promptLogin: () => void })
   const [submitting, setSubmitting] = useState(false);
   const [loadingComments, setLoadingComments] = useState(false);
   const [commentsError, setCommentsError] = useState<string | null>(null);
+  const canLoadComments = !!post && !(post.isPaid && !post.isSubscribedToAuthor);
+  useEffect(() => {
+    let cancelled = false;
+    setComments(null); setCommentsLoaded(false); setCommentsError(null);
+    if (!canLoadComments) return;
+    async function refresh(initial = false) {
+      if (initial) setLoadingComments(true);
+      try {
+        const data = await fetchComments(postId, !!user);
+        if (!cancelled) { setComments(data); setCommentsLoaded(true); setCommentsError(null); }
+      } catch (error) {
+        if (!cancelled) setCommentsError(error instanceof Error ? error.message : "Comments unavailable.");
+      } finally { if (!cancelled) setLoadingComments(false); }
+    }
+    void refresh(true);
+    const timer = setInterval(() => { void refresh(); }, 15_000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [postId, viewerScope, canLoadComments]);
 
   usePageMetadata(
     post ? `Post by @${post.authorUsername ?? post.authorName ?? "creator"} on Monad Feet` : "Monad Feet post",
@@ -99,61 +132,6 @@ export default function PostDetail({ promptLogin }: { promptLogin: () => void })
       ? "An exclusive post on Monad Feet. Visit the creator profile to learn more."
       : (post?.content || "A public post on Monad Feet."),
   );
-
-  const isLiked = optimisticLiked !== null
-    ? optimisticLiked
-    : (CONTRACT_DEPLOYED && chainLikedByMe !== undefined ? chainLikedByMe : (post?.likedByMe ?? false));
-
-  const likeCount = optimisticCount !== null
-    ? optimisticCount
-    : (CONTRACT_DEPLOYED && chainLikeCount !== undefined ? Number(chainLikeCount) : (post?.likeCount ?? 0));
-
-  const handleLikeToggle = async () => {
-    if (!user) { promptLogin(); return; }
-    if (liking || !post || ((post as typeof post & { isPaid?: boolean; isSubscribedToAuthor?: boolean }).isPaid && !(post as typeof post & { isSubscribedToAuthor?: boolean }).isSubscribedToAuthor)) return;
-    setLiking(true);
-    const wasLiked = isLiked;
-
-    if (!wasLiked) {
-      setOptimisticLiked(true);
-      setOptimisticCount(likeCount + 1);
-      let txHash: string | null = null;
-      if (contractDeployed) {
-        try { txHash = await likePostOnChain(post.id); } catch { /* skip */ }
-      }
-      try {
-        const wallet = localStorage.getItem("mf_wallet_address") ?? "";
-        const response = await fetch(`${BASE}/api/posts/${post.id}/like`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-wallet-address": wallet },
-          body: JSON.stringify({ txHash }),
-        });
-        if (!response.ok) throw new Error(`Like failed (HTTP ${response.status}).`);
-        queryClient.invalidateQueries({ queryKey: getGetPostQueryKey(post.id) });
-        queryClient.invalidateQueries({ queryKey: getListPostsQueryKey() });
-      } catch {
-        setOptimisticLiked(wasLiked);
-        setOptimisticCount(likeCount);
-      }
-    } else {
-      setOptimisticLiked(false);
-      setOptimisticCount(Math.max(0, likeCount - 1));
-      try {
-        const wallet = localStorage.getItem("mf_wallet_address") ?? "";
-        const response = await fetch(`${BASE}/api/posts/${post.id}/like`, {
-          method: "DELETE",
-          headers: { "x-wallet-address": wallet },
-        });
-        if (!response.ok) throw new Error(`Unlike failed (HTTP ${response.status}).`);
-        queryClient.invalidateQueries({ queryKey: getGetPostQueryKey(post.id) });
-        queryClient.invalidateQueries({ queryKey: getListPostsQueryKey() });
-      } catch {
-        setOptimisticLiked(wasLiked);
-        setOptimisticCount(likeCount);
-      }
-    }
-    setLiking(false);
-  };
 
   const handleShare = async () => {
     const url = `${window.location.origin}${window.location.pathname}`;
@@ -169,7 +147,7 @@ export default function PostDetail({ promptLogin }: { promptLogin: () => void })
   };
 
   const loadComments = async () => {
-    if (commentsLoaded || loadingComments) return;
+    if ((commentsLoaded && !commentsError) || loadingComments) return;
     setLoadingComments(true);
     setCommentsError(null);
     try {
@@ -195,10 +173,23 @@ export default function PostDetail({ promptLogin }: { promptLogin: () => void })
     setSubmitting(false);
   };
 
+  const handleReply = async (parentId: number, text: string): Promise<boolean> => {
+    if (!user) { promptLogin(); return false; }
+    const created = await postComment(postId, text, parentId);
+    if (!created) return false;
+    setComments((prev) => [...(prev ?? []), { ...created, parentCommentId: created.parentCommentId ?? parentId }]);
+    return true;
+  };
+
   const handleDeleteComment = async (commentId: number) => {
     if (!user) { promptLogin(); return; }
     await deleteComment(commentId);
-    setComments((prev) => (prev ?? []).filter((c) => c.id !== commentId));
+    // Replies are promoted by the server, so reload instead of pruning locally.
+    try {
+      setComments(await fetchComments(postId, !!user));
+    } catch {
+      setComments((prev) => (prev ?? []).filter((c) => c.id !== commentId));
+    }
   };
 
   if (isLoading) {
@@ -217,7 +208,6 @@ export default function PostDetail({ promptLogin }: { promptLogin: () => void })
   if (!post) return <div className="py-12 text-center">Post not found.</div>;
 
   const isChainVerified = !!post.onChainTxHash;
-  const usingChainCount = CONTRACT_DEPLOYED && chainLikeCount !== undefined;
   const initials = post.authorName?.slice(0, 2).toUpperCase() ?? "??";
   const locked = (post as typeof post & { isPaid?: boolean; isSubscribedToAuthor?: boolean }).isPaid
     && !(post as typeof post & { isSubscribedToAuthor?: boolean }).isSubscribedToAuthor;
@@ -294,12 +284,11 @@ export default function PostDetail({ promptLogin }: { promptLogin: () => void })
               variant="ghost"
               size="sm"
               onClick={handleLikeToggle}
-              disabled={liking}
+              disabled={liking || !post.onChainTxHash}
               className={`gap-1.5 rounded-full ${isLiked ? "text-red-500 hover:text-red-600 hover:bg-red-50" : "text-muted-foreground"}`}
             >
-              {liking ? <Loader2 className="h-4 w-4 animate-spin" /> : (
-                <Heart className={`h-4 w-4 ${isLiked ? "fill-current" : ""}`} />
-              )}
+              <Heart className={`h-4 w-4 ${isLiked ? "fill-current" : ""}`} />
+              {liking && <Loader2 className="h-3 w-3 animate-spin" />}
               <span className="font-semibold">{likeCount}</span>
             </Button>
             {usingChainCount && (
@@ -325,14 +314,14 @@ export default function PostDetail({ promptLogin }: { promptLogin: () => void })
             className="gap-1.5 rounded-full text-muted-foreground hover:text-foreground"
           >
             {copied ? <Check className="h-4 w-4 text-green-500" /> : <Share2 className="h-4 w-4" />}
-            {copied ? "Copied!" : "Share"}
+            {copied ? "Copied" : "Share"}
           </Button>
         </CardFooter>}
         {locked && (
           <CardFooter className="p-4 border-t border-border/50 bg-muted/20 flex justify-end">
             <Button variant="ghost" size="sm" onClick={handleShare} className="gap-1.5">
               {copied ? <Check className="h-4 w-4 text-green-500" /> : <Share2 className="h-4 w-4" />}
-              {copied ? "Copied!" : "Share"}
+              {copied ? "Copied" : "Share"}
             </Button>
           </CardFooter>
         )}
@@ -397,59 +386,141 @@ export default function PostDetail({ promptLogin }: { promptLogin: () => void })
             <Card>
               <CardContent className="py-10 text-center text-muted-foreground">
                 <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                <p className="text-sm">No comments yet. Be the first!</p>
+                <p className="text-sm">No comments yet. Start the conversation.</p>
               </CardContent>
             </Card>
           ) : (
             <div className="space-y-3">
-              {(comments ?? []).map((comment) => (
-                <Card key={comment.id}>
-                  <CardContent className="p-4">
-                    <div className="flex gap-3">
-                      <Link href={`/profile/${comment.authorId}`}>
-                        <Avatar className="h-8 w-8 flex-shrink-0 cursor-pointer">
-                          <AvatarImage src={comment.authorAvatarUrl ?? ""} />
-                          <AvatarFallback className="text-xs bg-primary/10 text-primary">
-                            {comment.authorName?.slice(0, 2).toUpperCase() ?? "??"}
-                          </AvatarFallback>
-                        </Avatar>
-                      </Link>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <Link href={`/profile/${comment.authorId}`} className="font-semibold text-sm hover:underline">
-                            {comment.authorName}
-                          </Link>
-                          <span className="text-xs text-muted-foreground">
-                            {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true })}
-                          </span>
-                        </div>
-                        <p className="text-sm text-foreground/90 whitespace-pre-wrap">{comment.content}</p>
-                      </div>
-                      {user && (user.id === comment.authorId || user.id === post.authorId) && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-muted-foreground hover:text-destructive flex-shrink-0"
-                          onClick={() => handleDeleteComment(comment.id)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
+              {buildTree(comments ?? []).map((node) => (
+                <CommentNode
+                  key={node.id}
+                  node={node}
+                  depth={0}
+                  canDelete={(c) => !!user && (user.id === c.authorId || user.id === post.authorId)}
+                  onDelete={handleDeleteComment}
+                  onReply={handleReply}
+                  signedIn={!!user}
+                  promptLogin={promptLogin}
+                />
               ))}
             </div>
           )}
         </div>
       )}
 
-      {!locked && (!commentsLoaded || commentsError) && (
+      {!locked && commentsError && (
         <Button variant="outline" className="w-full gap-2" onClick={loadComments} disabled={loadingComments}>
           {loadingComments ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquare className="h-4 w-4" />}
-          {loadingComments ? "Loading comments…" : commentsError ? "Retry loading comments" : "Load Comments"}
+          {loadingComments ? "Loading comments…" : "Retry loading comments"}
         </Button>
       )}
+    </div>
+  );
+}
+
+function CommentNode({ node, depth, canDelete, onDelete, onReply, signedIn, promptLogin }: {
+  node: CommentNodeData;
+  depth: number;
+  canDelete: (c: Comment) => boolean;
+  onDelete: (id: number) => void;
+  onReply: (parentId: number, text: string) => Promise<boolean>;
+  signedIn: boolean;
+  promptLogin: () => void;
+}) {
+  const [replying, setReplying] = useState(false);
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const indent = depth > 0 && depth <= MAX_INDENT_DEPTH;
+
+  const send = async () => {
+    if (!text.trim() || sending) return;
+    setSending(true); setFailed(false);
+    const ok = await onReply(node.id, text.trim());
+    setSending(false);
+    if (ok) { setText(""); setReplying(false); } else setFailed(true);
+  };
+
+  return (
+    <div className={indent ? "ml-3 sm:ml-5 border-l-2 border-primary/15 pl-3 sm:pl-4" : ""} data-testid={`comment-${node.id}`}>
+      <div className={depth === 0 ? "rounded-xl border bg-card p-4" : "py-2"}>
+        <div className="flex gap-3">
+          <Link href={`/profile/${node.authorId}`}>
+            <Avatar className={`${depth === 0 ? "h-8 w-8" : "h-7 w-7"} flex-shrink-0 cursor-pointer`}>
+              <AvatarImage src={node.authorAvatarUrl ?? ""} />
+              <AvatarFallback className="text-xs bg-primary/10 text-primary">
+                {node.authorName?.slice(0, 2).toUpperCase() ?? "??"}
+              </AvatarFallback>
+            </Avatar>
+          </Link>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
+              <Link href={`/profile/${node.authorId}`} className="font-semibold text-sm hover:underline">{node.authorName}</Link>
+              <span className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(node.createdAt), { addSuffix: true })}</span>
+            </div>
+            <p className="text-sm text-foreground/90 whitespace-pre-wrap break-words">{node.content}</p>
+            <div className="mt-1.5 flex items-center gap-3 text-xs">
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 font-medium text-muted-foreground hover:text-primary"
+                onClick={() => (signedIn ? setReplying((r) => !r) : promptLogin())}
+                data-testid={`button-reply-${node.id}`}
+              >
+                <Reply className="h-3.5 w-3.5" /> Reply
+              </button>
+              {node.children.length > 0 && (
+                <button
+                  type="button"
+                  className="font-medium text-muted-foreground hover:text-primary"
+                  onClick={() => setCollapsed((c) => !c)}
+                  data-testid={`button-toggle-replies-${node.id}`}
+                >
+                  {collapsed ? `Show ${node.children.length} ${node.children.length === 1 ? "reply" : "replies"}` : "Hide replies"}
+                </button>
+              )}
+            </div>
+            {replying && (
+              <div className="mt-2 space-y-2">
+                <Textarea
+                  autoFocus
+                  placeholder={`Reply to ${node.authorName ?? "this comment"}`}
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  className="min-h-[60px] resize-none text-sm"
+                  onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void send(); }}
+                  data-testid={`input-reply-${node.id}`}
+                />
+                {failed && <p className="text-xs text-destructive" role="alert">Reply did not post. Try again.</p>}
+                <div className="flex justify-end gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => { setReplying(false); setText(""); }}>Cancel</Button>
+                  <Button size="sm" className="gap-1.5" onClick={() => void send()} disabled={!text.trim() || sending} data-testid={`button-send-reply-${node.id}`}>
+                    {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />} Reply
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+          {canDelete(node) && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:text-destructive flex-shrink-0"
+              onClick={() => onDelete(node.id)}
+              data-testid={`button-delete-comment-${node.id}`}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          )}
+        </div>
+        {!collapsed && node.children.length > 0 && (
+          <div className="mt-2">
+            {node.children.map((child) => (
+              <CommentNode key={child.id} node={child} depth={depth + 1} canDelete={canDelete} onDelete={onDelete} onReply={onReply} signedIn={signedIn} promptLogin={promptLogin} />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

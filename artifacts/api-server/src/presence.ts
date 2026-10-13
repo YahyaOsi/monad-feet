@@ -147,7 +147,7 @@ export async function checkAndNotifyTrending(
 }
 
 export function setupPresence(server: HttpServer): void {
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 4096, perMessageDeflate: false });
 
   server.on("upgrade", async (request: IncomingMessage, socket, head) => {
     const rawUrl = request.url ?? "";
@@ -190,6 +190,10 @@ export function setupPresence(server: HttpServer): void {
 
   wss.on("connection", (ws: ExtWS, user: typeof usersTable.$inferSelect, cookie: string | undefined) => {
     const { id: userId, walletAddress, name, username, avatarUrl } = user;
+    if (clients.size >= 1024 || [...clients.values()].filter(c => c.userId === userId).length >= 8) {
+      ws.close(1013, "Connection limit reached");
+      return;
+    }
 
     ws.__isAlive = true;
     ws.__cookie = cookie;
@@ -212,7 +216,10 @@ export function setupPresence(server: HttpServer): void {
 
     ws.on("pong", () => { ws.__isAlive = true; });
 
+    let messageWindow = Date.now(), messageCount = 0;
     ws.on("message", (raw) => {
+      if (Date.now() - messageWindow >= 1000) { messageWindow = Date.now(); messageCount = 0; }
+      if (++messageCount > 10) { ws.close(1008, "Message rate exceeded"); return; }
       try {
         const msg = JSON.parse(String(raw)) as { type?: string };
         if (msg.type === "ping") {

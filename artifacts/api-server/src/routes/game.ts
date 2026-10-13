@@ -5,6 +5,7 @@ import { ClaimGameBody } from "@workspace/api-zod";
 import { CHAIN_ID, REGISTRY, TREASURY, GAME_ENABLED, GAME_DISABLED_REASON } from "../lib/chainConfig";
 import { gameRpc, gameAbi, checkGameDeployment, gameActionState, safeNumber, verifyRewardReceipt, InvalidReceiptError } from "../lib/gameChain";
 import { gameClaimKey as claimKey, gameAward as award, saveVerifiedGameReward } from "../lib/gameRewards";
+import { gameInviteEvery, inferGameAction } from "../lib/gameInviteRules";
 
 const router: IRouter = Router();
 const contractAddress = REGISTRY.toLowerCase();
@@ -21,13 +22,21 @@ router.get("/game", async (req, res): Promise<void> => {
       gameRpc.readContract({ address: REGISTRY, abi: gameAbi, functionName: "users", args: [wallet as `0x${string}`], blockNumber: block.number }),
     ]);
     const day = block.timestamp / 86400n;
+    const [account] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.walletAddress, wallet));
+    const claims = account ? await db.select({ action: chainRewardClaimsTable.actionType, points: chainRewardClaimsTable.pointsAwarded })
+      .from(chainRewardClaimsTable).where(and(eq(chainRewardClaimsTable.userId, account.id),
+        eq(chainRewardClaimsTable.contractAddress, contractAddress), eq(chainRewardClaimsTable.kind, "game"))) : [];
     res.json({
       contractAddress: REGISTRY, treasuryAddress: TREASURY, chainId: CHAIN_ID,
       enabled: GAME_ENABLED, disabledReason: GAME_ENABLED ? "" : GAME_DISABLED_REASON,
       registered: user[0], utcDay: new Date(safeNumber(day) * 86400000).toISOString().slice(0, 10),
       nextResetAt: new Date(safeNumber(day + 1n) * 86400000).toISOString(),
       totalPurchases: safeNumber(state[4]), purchasesUntilInvite: 5 - Number(state[4] % 5n),
-      actions: gameActionState(day, state), onChainPoints: safeNumber(user[5]),
+      actions: gameActionState(day, state).map(action => {
+        const totalPurchases = claims.filter(c => (c.action ?? inferGameAction(c.points)) === action.id).length;
+        const inviteEvery = gameInviteEvery(action.id);
+        return { ...action, totalPurchases, inviteEvery, purchasesUntilInvite: inviteEvery ? inviteEvery - totalPurchases % inviteEvery : null };
+      }), onChainPoints: safeNumber(user[5]),
       currentStreak: safeNumber(user[6]), longestStreak: safeNumber(user[7]),
       checkedInToday: user[8] > 0n && user[8] / 86400n === day,
     });

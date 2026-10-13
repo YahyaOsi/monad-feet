@@ -55,6 +55,12 @@ export async function installMonadFeetFixtures(context, origin) {
           id: index + 1, name, priceMon: prices[index],
           basePoints: [5, 7, 15][index], count: 0, remaining: 10,
           nextPoints: [5, 7, 15][index],
+          dailyRewards: [
+            [5, 5, 5, 10, 10, 10, 10, 20, 20, 40],
+            [7, 14, 14, 28, 28, 56, 56, 112, 112, 224],
+            [15, 30, 60, 60, 120, 240, 240, 480, 960, 1920],
+          ][index],
+          doublingPurchases: [[4, 8, 10], [2, 4, 6, 8, 10], [2, 3, 5, 6, 8, 9, 10]][index],
         })),
       });
     }

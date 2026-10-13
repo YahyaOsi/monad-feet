@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq, sql } from "drizzle-orm";
 import { db, postLikesTable, usersTable } from "@workspace/db";
+import { reconcilePostProofs } from "../lib/socialChain";
 
 const router: IRouter = Router();
 
@@ -16,6 +17,7 @@ async function getUserByWallet(wallet: string) {
 }
 
 router.get("/trending", async (req, res): Promise<void> => {
+  await reconcilePostProofs();
   const walletAddress = getWalletAddress(req);
   const currentUser = walletAddress ? await getUserByWallet(walletAddress) : null;
 
@@ -32,19 +34,20 @@ router.get("/trending", async (req, res): Promise<void> => {
       u.name                 AS "authorName",
       u.username             AS "authorUsername",
       u.avatar_url           AS "authorAvatarUrl",
-      COUNT(DISTINCT pl.id)::int                                              AS "likeCount",
-      COUNT(DISTINCT rpl.id)::int                                             AS "recentLikes",
+      COUNT(DISTINCT pl.user_id)::int                                         AS "likeCount",
+      COUNT(DISTINCT rpl.user_id)::int                                        AS "recentLikes",
       ROUND(
-        (COUNT(DISTINCT rpl.id)::float /
+        (COUNT(DISTINCT rpl.user_id)::float /
          GREATEST(1.0, 1.0 + 0.3 * EXTRACT(EPOCH FROM (NOW() - p.created_at)) / 3600.0)
         )::numeric, 4
       )::float                                                                AS "velocity"
     FROM posts p
     LEFT JOIN users u   ON u.id = p.author_id
-    LEFT JOIN post_likes pl  ON pl.post_id  = p.id
+    LEFT JOIN post_likes pl  ON pl.post_id  = p.id AND pl.chain_verified_at IS NOT NULL
     LEFT JOIN post_likes rpl ON rpl.post_id = p.id
+                            AND rpl.chain_verified_at IS NOT NULL
                             AND rpl.created_at > NOW() - INTERVAL '24 hours'
-    WHERE p.created_at > NOW() - INTERVAL '7 days'
+    WHERE p.created_at > NOW() - INTERVAL '7 days' AND p.chain_verified_at IS NOT NULL
     GROUP BY p.id, u.name, u.username, u.avatar_url
     ORDER BY "velocity" DESC, "likeCount" DESC
     LIMIT 30

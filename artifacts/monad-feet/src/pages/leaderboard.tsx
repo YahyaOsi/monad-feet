@@ -40,13 +40,13 @@ async function fetchLeaderboard(period: Period): Promise<LeaderEntry[]> {
 // ── My Rank Card ─────────────────────────────────────────────────
 
 function rankLabel(rank: number): { emoji: string; label: string; color: string; bg: string; border: string } {
-  if (rank === 1) return { emoji: "1st", label: "1st Place",   color: "text-yellow-700", bg: "bg-yellow-50",  border: "border-yellow-300" };
-  if (rank === 2) return { emoji: "2nd", label: "2nd Place",   color: "text-slate-600",  bg: "bg-slate-50",   border: "border-slate-300" };
-  if (rank === 3) return { emoji: "3rd", label: "3rd Place",   color: "text-amber-700",  bg: "bg-amber-50",   border: "border-amber-300" };
-  if (rank <= 10) return { emoji: "🏆", label: "Top 10",      color: "text-violet-700", bg: "bg-violet-50",  border: "border-violet-300" };
-  if (rank <= 25) return { emoji: "⭐", label: "Top 25",      color: "text-primary",    bg: "bg-primary/5",  border: "border-primary/30" };
+  if (rank === 1) return { emoji: "1st", label: "1st Place",   color: "text-yellow-700 dark:text-yellow-300", bg: "bg-yellow-50 dark:bg-yellow-500/15",  border: "border-yellow-300 dark:border-yellow-400/40" };
+  if (rank === 2) return { emoji: "2nd", label: "2nd Place",   color: "text-slate-600 dark:text-slate-200",  bg: "bg-slate-50 dark:bg-slate-400/15",   border: "border-slate-300 dark:border-slate-300/40" };
+  if (rank === 3) return { emoji: "3rd", label: "3rd Place",   color: "text-amber-700 dark:text-orange-300",  bg: "bg-amber-50 dark:bg-orange-500/15",   border: "border-amber-300 dark:border-orange-400/40" };
+  if (rank <= 10) return { emoji: "Top", label: "Top 10",      color: "text-violet-700 dark:text-violet-200", bg: "bg-violet-50 dark:bg-violet-500/20",  border: "border-violet-300 dark:border-violet-400/40" };
+  if (rank <= 25) return { emoji: "Top", label: "Top 25",      color: "text-primary",    bg: "bg-primary/5",  border: "border-primary/30" };
   if (rank <= 50) return { emoji: "Top", label: "Top 50",      color: "text-orange-700", bg: "bg-orange-50",  border: "border-orange-300" };
-  return                 { emoji: "📈", label: `Rank #${rank}`, color: "text-foreground", bg: "bg-muted/40",  border: "border-border" };
+  return                 { emoji: "#", label: `Rank #${rank}`, color: "text-foreground", bg: "bg-muted/40",  border: "border-border" };
 }
 
 function rankMessage(rank: number, totalUsers: number): string {
@@ -71,7 +71,7 @@ function MyRankCard({ myRank, period }: { myRank: MyRank; period: Period }) {
         </CardTitle>
       </CardHeader>
       <CardContent className="px-4 pb-4">
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-3 sm:gap-4 min-w-0">
           {/* Avatar */}
           <Avatar className={`h-14 w-14 border-4 ${border} shadow-md flex-shrink-0`}>
             <AvatarImage src={myRank.avatarUrl ?? ""} />
@@ -89,13 +89,13 @@ function MyRankCard({ myRank, period }: { myRank: MyRank; period: Period }) {
                 {label}
               </span>
             </div>
-            <p className="text-xs text-muted-foreground mt-0.5 truncate">
+            <p className="text-xs text-muted-foreground mt-0.5 break-words [overflow-wrap:anywhere]">
               @{myRank.username} · out of {myRank.totalUsers.toLocaleString()} members
             </p>
           </div>
 
           {/* Stats */}
-          <div className="flex gap-3 flex-shrink-0">
+          <div className="flex flex-wrap gap-3 w-full sm:w-auto min-w-0">
             <div className="text-center">
               <div className="flex items-center gap-0.5 justify-center mb-0.5">
                 <Star className="h-3 w-3 text-primary" />
@@ -126,13 +126,14 @@ function MyRankCard({ myRank, period }: { myRank: MyRank; period: Period }) {
           </div>
         </div>
 
-        <p className={`text-xs mt-3 font-medium ${color} bg-white/60 rounded-lg px-3 py-2 border ${border}`}>
+        <p className={`text-xs mt-3 font-medium ${color} bg-white/60 dark:bg-white/5 rounded-lg px-3 py-2 border ${border}`}>
           {rankMessage(myRank.rank, myRank.totalUsers)}
         </p>
+        <p className="text-xs text-muted-foreground mt-2">Points measure current app activities, not tokens. Rank is a leaderboard position, not a confirmed reward. Future token plans do not promise a reward, date or conversion rate.</p>
 
         {period === "weekly" && (
           <p className="text-[10px] text-muted-foreground mt-2 text-center">
-            * Points are all-time; activity in the selected period breaks ties.
+            * Points are all time; activity in the selected period breaks ties.
           </p>
         )}
       </CardContent>
@@ -144,20 +145,20 @@ function MyRankCard({ myRank, period }: { myRank: MyRank; period: Period }) {
 
 function getRankStyle(rank: number): { row: string; badge: string } {
   if (rank === 1) return {
-    row: "bg-yellow-50/80 border-l-4 border-yellow-400",
-    badge: "text-yellow-600 bg-yellow-100 border border-yellow-300",
+    row: "bg-yellow-50/80 dark:bg-yellow-500/10 border-l-4 border-yellow-400 dark:border-yellow-400",
+    badge: "text-yellow-700 bg-yellow-100 border border-yellow-300 dark:text-yellow-200 dark:bg-yellow-500/20 dark:border-yellow-400/50",
   };
   if (rank === 2) return {
-    row: "bg-slate-50/80 border-l-4 border-slate-400",
-    badge: "text-slate-600 bg-slate-100 border border-slate-300",
+    row: "bg-slate-50/80 dark:bg-slate-300/10 border-l-4 border-slate-400 dark:border-slate-300",
+    badge: "text-slate-600 bg-slate-100 border border-slate-300 dark:text-slate-100 dark:bg-slate-300/20 dark:border-slate-300/50",
   };
   if (rank === 3) return {
-    row: "bg-amber-50/80 border-l-4 border-amber-500",
-    badge: "text-amber-700 bg-amber-100 border border-amber-300",
+    row: "bg-amber-50/80 dark:bg-orange-500/10 border-l-4 border-amber-500 dark:border-orange-400",
+    badge: "text-amber-700 bg-amber-100 border border-amber-300 dark:text-orange-200 dark:bg-orange-500/20 dark:border-orange-400/50",
   };
   if (rank <= 10) return {
-    row: "bg-violet-50/40 border-l-4 border-violet-300",
-    badge: "text-violet-600 bg-violet-100 border border-violet-200",
+    row: "bg-violet-50/40 dark:bg-violet-500/10 border-l-4 border-violet-300 dark:border-violet-400/70",
+    badge: "text-violet-600 bg-violet-100 border border-violet-200 dark:text-violet-100 dark:bg-violet-500/25 dark:border-violet-400/50",
   };
   return {
     row: "hover:bg-muted/40",
@@ -219,7 +220,7 @@ function PodiumSlot({
         </div>
       </Link>
       <div className="text-center">
-        <p className="text-xs font-semibold leading-tight truncate max-w-[72px]">
+        <p className="text-xs font-semibold leading-tight break-words [overflow-wrap:anywhere] max-w-full">
           {entry.name ?? "Anonymous"}
         </p>
         {isCurrentUser && (
@@ -258,7 +259,7 @@ function LeaderRow({ entry, isCurrentUser }: { entry: LeaderEntry; isCurrentUser
         </div>
         <Link href={`/profile/${entry.userId}`}>
           <div className="relative flex-shrink-0">
-            <Avatar className={`h-9 w-9 cursor-pointer ring-2 ${isCurrentUser ? "ring-primary" : entry.rank <= 3 ? "ring-yellow-300" : entry.rank <= 10 ? "ring-violet-300" : "ring-transparent"} hover:ring-primary/40 transition-all`}>
+            <Avatar className={`h-9 w-9 cursor-pointer ring-2 ${isCurrentUser ? "ring-primary" : entry.rank <= 3 ? "ring-yellow-300 dark:ring-yellow-400/60" : entry.rank <= 10 ? "ring-violet-300 dark:ring-violet-400/60" : "ring-transparent"} hover:ring-primary/40 transition-all`}>
               <AvatarImage src={entry.avatarUrl ?? ""} />
               <AvatarFallback className="bg-primary/10 text-primary font-semibold text-xs">
                 {entry.name?.slice(0, 2).toUpperCase() ?? "??"}
@@ -273,7 +274,7 @@ function LeaderRow({ entry, isCurrentUser }: { entry: LeaderEntry; isCurrentUser
         </Link>
         <div className="min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">
-            <Link href={`/profile/${entry.userId}`} className="font-semibold text-sm hover:underline truncate max-w-[120px]">
+            <Link href={`/profile/${entry.userId}`} className="font-semibold text-sm hover:underline break-words [overflow-wrap:anywhere]">
               {entry.name ?? "Anonymous"}
             </Link>
             {isCurrentUser && (
@@ -286,7 +287,7 @@ function LeaderRow({ entry, isCurrentUser }: { entry: LeaderEntry; isCurrentUser
             )}
           </div>
           <div className="flex items-center gap-2 mt-0.5">
-            <span className="text-xs text-muted-foreground truncate">@{entry.username}</span>
+            <span className="text-xs text-muted-foreground break-all">@{entry.username}</span>
             {entry.currentStreak > 0 && (
               <span className="text-xs text-orange-600 font-medium flex items-center gap-0.5 flex-shrink-0">
                 <Flame className="h-3 w-3" />{entry.currentStreak}d

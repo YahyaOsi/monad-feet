@@ -23,7 +23,7 @@ export type ClaimRow = FeetGameHistoryClaimsItem;
 
 const scope = (wallet?: string) => wallet?.toLowerCase() ?? "signed-out";
 
-/** Game state scoped to the signed-in wallet so another account's cache never shows. */
+/** Game state scoped to the signed in wallet so another account's cache never shows. */
 export function useGameState(wallet?: string) {
   return useGetGame({
     query: {

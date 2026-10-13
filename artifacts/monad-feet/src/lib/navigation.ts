@@ -28,7 +28,7 @@ export function getAppNavigation({
     { label: "Wallet", href: "/wallet", icon: Wallet },
     { label: "Leaderboard", href: "/leaderboard", icon: Trophy },
     { label: "Messages", href: "/messages", icon: MessageCircle, badge: dmUnreadCount, badgeVariant: "red" },
-    { label: "On-Chain", href: "/chain", icon: Link2 },
+    { label: "Onchain", href: "/chain", icon: Link2 },
   ];
   return { primaryNav, secondaryNav };
 }

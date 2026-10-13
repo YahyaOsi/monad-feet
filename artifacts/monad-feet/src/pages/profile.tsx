@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams } from "wouter";
 import { useUser } from "@/context/UserContext";
-import { useGetUser, useListPosts, useListBadges, useGetCreatorSubscriptionPrice, useGetCreatorAnalytics, useUpdateMe } from "@workspace/api-client-react";
+import { useGetUser, useListPosts, useListBadges, useGetCreatorSubscriptionPrice, useGetCreatorAnalytics, useUpdateMe, useListSubscriptions, getListSubscriptionsQueryKey } from "@workspace/api-client-react";
 import { useContractActions } from "@/lib/useContractActions";
 import { useSubscriptionPayment } from "@/lib/useSubscriptionPayment";
 import { Slider } from "@/components/ui/slider";
@@ -116,16 +116,21 @@ export default function Profile({ promptLogin }: { promptLogin: () => void }) {
 
   const toggleBlock = async () => {
     if (!currentUser) { promptLogin(); return; }
+    if (!isBlocked && !window.confirm("Block this member? Direct messages between you will be stopped. This does not delete posts or on-chain records. You can unblock them from this profile.")) return;
     setBlockLoading(true);
     const wallet = localStorage.getItem("mf_wallet_address") ?? "";
     try {
       const method = isBlocked ? "DELETE" : "POST";
-      await fetch(`${BASE}/api/users/block/${userId}`, {
+      const response = await fetch(`${BASE}/api/users/block/${userId}`, {
         method,
         headers: { "x-wallet-address": wallet, "Content-Type": "application/json" },
       });
+      if (!response.ok) throw new Error("Blocking could not be updated. Please retry.");
       setIsBlocked((b) => !b);
-    } catch { /* ignore */ } finally {
+      toast({ title: isBlocked ? "Member unblocked" : "Member blocked", description: isBlocked ? "Direct messages are available again." : "Direct messages are stopped. Use Unblock here to reverse this." });
+    } catch (error) {
+      toast({ variant: "destructive", title: "Block not updated", description: error instanceof Error ? error.message : "Please retry." });
+    } finally {
       setBlockLoading(false);
     }
   };
@@ -159,12 +164,30 @@ export default function Profile({ promptLogin }: { promptLogin: () => void }) {
       return [...byId.values()];
     });
   }, [postsPage, userId]);
-  const { data: badges } = useListBadges({
+  const badgeParams = { userId };
+  const { data: badges } = useListBadges(badgeParams, {
     query: {
-      enabled: isOwnProfile,
-      queryKey: [...getListBadgesQueryKey(), viewerScope],
+      enabled: Number.isSafeInteger(userId) && userId > 0,
+      queryKey: [...getListBadgesQueryKey(badgeParams), viewerScope],
+    },
+    request: { credentials: currentUser ? "include" : "omit" },
+  });
+  const { data: mySubs } = useListSubscriptions({
+    query: {
+      enabled: !!currentUser && !isOwnProfile,
+      queryKey: [...getListSubscriptionsQueryKey(), viewerScope],
     },
   });
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => { const t = setInterval(() => setNowTick(Date.now()), 60_000); return () => clearInterval(t); }, []);
+  const activeSub = (mySubs ?? []).find((s) => {
+    if (s.creatorId !== userId) return false;
+    const ext = s as typeof s & { status?: string | null; verified?: boolean | null };
+    const statusOk = !ext.status || ext.status.toUpperCase() === "ACTIVE";
+    const verifiedOk = ext.verified === undefined || ext.verified === null ? !!s.txHash : ext.verified;
+    return statusOk && verifiedOk && new Date(s.expiresAt).getTime() > nowTick;
+  });
+  const subDaysLeft = activeSub ? Math.max(0, Math.ceil((new Date(activeSub.expiresAt).getTime() - nowTick) / 86_400_000)) : 0;
   const { data: subPrice, isLoading: subPriceLoading, isError: subPriceError } = useGetCreatorSubscriptionPrice(userId, {
     query: { enabled: !isOwnProfile && !!userId, queryKey: getGetCreatorSubscriptionPriceQueryKey(userId) },
   });
@@ -300,6 +323,7 @@ export default function Profile({ promptLogin }: { promptLogin: () => void }) {
     try {
       if (!await paySubscription(userId)) { setSubState("idle"); return; }
       queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(userId) });
+      queryClient.invalidateQueries({ queryKey: getListSubscriptionsQueryKey() });
       setSubState("done");
     } catch (e: unknown) {
       setSubError((e as Error).message ?? "Subscription failed");
@@ -339,7 +363,7 @@ export default function Profile({ promptLogin }: { promptLogin: () => void }) {
             </Avatar>
             <div className="w-full">
               <div className="flex items-center justify-center gap-2 flex-wrap">
-                <h1 className="text-2xl font-bold">{profile.name}</h1>
+                <h1 className="text-2xl font-bold max-w-full break-words [overflow-wrap:anywhere]">{profile.name}</h1>
                 {CONTRACT_DEPLOYED && !chainLoading && onChainRegistered && (
                   <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200">
                     <Shield className="h-2.5 w-2.5" /> Verified on Monad
@@ -356,7 +380,7 @@ export default function Profile({ promptLogin }: { promptLogin: () => void }) {
                   </span>
                 )}
               </div>
-              <p className="text-muted-foreground font-medium">@{profile.username}</p>
+              <p className="text-muted-foreground font-medium break-all">@{profile.username}</p>
             </div>
 
             <Button variant="outline" size="sm" className="gap-2" onClick={() => void shareProfile()}>
@@ -367,6 +391,16 @@ export default function Profile({ promptLogin }: { promptLogin: () => void }) {
             {!isOwnProfile && (
               <div className="flex flex-col items-center gap-2">
                 <div className="flex items-center justify-center gap-2 flex-wrap">
+                  {activeSub ? (
+                    <span
+                      className="inline-flex h-9 items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 text-sm font-medium text-green-700"
+                      data-testid="status-subscription-active"
+                      title={`Access until ${format(new Date(activeSub.expiresAt), "MMM d, yyyy")}`}
+                    >
+                      <CheckCircle2 className="h-4 w-4" />
+                      {subDaysLeft <= 1 ? "Subscribed, ends today" : `Subscribed, ${subDaysLeft} days left`}
+                    </span>
+                  ) : (
                   <Button
                     onClick={() => void handleSubscribe()}
                      disabled={!hasValidSubPrice || paidSubscriptionsBlocked || isSubPending || subState === "done"}
@@ -383,6 +417,7 @@ export default function Profile({ promptLogin }: { promptLogin: () => void }) {
                     )}
                     {subLabel()}
                   </Button>
+                  )}
                   <Button
                     variant="outline"
                     className="gap-2"
@@ -409,7 +444,7 @@ export default function Profile({ promptLogin }: { promptLogin: () => void }) {
                 </div>
                  {isSubscribedOnChain && (
                   <p className="text-xs text-green-600 flex items-center gap-1">
-                     <Link2 className="h-3 w-3" /> Registry reports an active on-chain subscription (site access requires a verified receipt)
+                     <Link2 className="h-3 w-3" /> Registry reports an active onchain subscription (site access requires a verified receipt)
                   </p>
                 )}
                 {paidSubscriptionsBlocked && (
@@ -417,9 +452,14 @@ export default function Profile({ promptLogin }: { promptLogin: () => void }) {
                      Payments are paused. No MON will be charged until the contract and treasury checks pass.
                   </p>
                 )}
-                 {!paidSubscriptionsBlocked && hasValidSubPrice && (
+                 {activeSub && (
+                   <p className="text-xs text-muted-foreground" data-testid="text-subscription-expiry">
+                     Access ends {format(new Date(activeSub.expiresAt), "MMM d, yyyy")}. You can renew after it ends.
+                   </p>
+                 )}
+                 {!activeSub && !paidSubscriptionsBlocked && hasValidSubPrice && (
                    <p className="max-w-xs text-center text-xs text-muted-foreground">
-                     30 days of access. The configured split is intended to send 88% to the creator and 12% to the treasury. Source verification is incomplete. Check the contract and MON amount before signing.
+                     Subscribe to enjoy this creator’s exclusive content for 30 days.
                    </p>
                  )}
                 {subError && <p className="text-xs text-destructive">{subError}</p>}
@@ -484,7 +524,7 @@ export default function Profile({ promptLogin }: { promptLogin: () => void }) {
                 rel="noopener noreferrer"
                 className="flex items-center gap-1 text-violet-600 hover:text-violet-800 transition-colors text-xs"
               >
-                <Link2 className="h-3 w-3" /> On-chain registration
+                <Link2 className="h-3 w-3" /> Onchain registration
                 <ExternalLink className="h-3 w-3" />
               </a>
             )}
@@ -516,7 +556,7 @@ export default function Profile({ promptLogin }: { promptLogin: () => void }) {
               {onChainStreakFromChain !== null ? onChainStreakFromChain : profile.currentStreak}
             </p>
             {onChainStreakFromChain !== null && (
-              <p className="text-[10px] text-violet-600 font-semibold mt-0.5">on-chain</p>
+              <p className="text-[10px] text-violet-600 font-semibold mt-0.5">onchain</p>
             )}
           </CardContent>
         </Card>
@@ -530,7 +570,7 @@ export default function Profile({ promptLogin }: { promptLogin: () => void }) {
               {onChainPointsFromChain !== null ? onChainPointsFromChain : profile.streakPoints}
             </p>
             {onChainPointsFromChain !== null && (
-              <p className="text-[10px] text-violet-600 font-semibold mt-0.5">on-chain</p>
+              <p className="text-[10px] text-violet-600 font-semibold mt-0.5">onchain</p>
             )}
           </CardContent>
         </Card>
@@ -566,7 +606,7 @@ export default function Profile({ promptLogin }: { promptLogin: () => void }) {
                   <TrendingUp className="h-3 w-3 text-green-500" /> Total Revenue
                 </div>
                 <p className="text-2xl font-bold text-green-600">{analytics.totalRevenueMon.toFixed(2)}</p>
-                <p className="text-[10px] text-muted-foreground">MON all-time</p>
+                <p className="text-[10px] text-muted-foreground">MON all time</p>
               </div>
               <div className="bg-background rounded-xl p-3 text-center border">
                 <div className="flex items-center justify-center gap-1 text-xs text-muted-foreground mb-1">
@@ -636,7 +676,7 @@ export default function Profile({ promptLogin }: { promptLogin: () => void }) {
         </Card>
       )}
 
-      {isOwnProfile && badges && badges.length > 0 && (
+      {badges && badges.length > 0 && (
         <div className="space-y-4">
           <h3 className="font-semibold text-lg">Badges</h3>
           <div className="flex flex-wrap gap-2">
@@ -731,7 +771,7 @@ export default function Profile({ promptLogin }: { promptLogin: () => void }) {
             <div>
               <p className="text-xs font-medium text-muted-foreground mb-2">Quick presets</p>
               <div className="flex flex-wrap gap-2">
-                {[10, 50, 100, 250, 500, 1000, 5000].map((p) => (
+                {[10, 50, 100, 250, 500, 1000, 5000, 8000].map((p) => (
                   <button
                     key={p}
                     onClick={() => setPriceValue(p)}
@@ -872,7 +912,7 @@ export default function Profile({ promptLogin }: { promptLogin: () => void }) {
           {editStep === "done" && (
             <div className="flex items-center gap-2 text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
               <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" />
-              Profile saved{contractDeployed ? " & anchored on-chain" : ""}!
+              Profile saved{contractDeployed ? " & anchored onchain" : ""}!
             </div>
           )}
 

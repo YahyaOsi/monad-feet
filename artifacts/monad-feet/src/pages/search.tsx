@@ -177,7 +177,7 @@ function PostCard({ post, query }: { post: PostResult; query: string }) {
             </span>
             {post.onChainTxHash && CONTRACT_DEPLOYED && (
               <span className="text-[9px] font-bold text-violet-700 bg-violet-50 border border-violet-200 px-1 rounded">
-                On-chain
+                Onchain
               </span>
             )}
           </div>

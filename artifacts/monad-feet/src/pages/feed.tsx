@@ -1,14 +1,14 @@
 import { useState, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useUser } from "@/context/UserContext";
-import { useListPosts, useGetFeedSummary, useCreatePost } from "@workspace/api-client-react";
+import { useListPosts } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { PostCard } from "@/components/post/PostCard";
 import {
-  Plus, Users, Heart, MessageSquare, ImageIcon, X, Loader2,
+  Plus, ImageIcon, X, Loader2,
   Link2, CheckCircle2, Flame, TrendingUp, ArrowUp, Zap, Crown, Lock
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -17,6 +17,8 @@ import { useContractActions } from "@/lib/useContractActions";
 import { useActivityFeed } from "@/hooks/usePresence";
 import { trackProductEvent } from "@/lib/analytics";
 import type { Post } from "@workspace/api-client-react";
+import { usePostPublication } from "@/hooks/usePostPublication";
+import { PublicationRecovery } from "@/components/post/PublicationRecovery";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -39,15 +41,6 @@ async function uploadToGCS(uploadURL: string, file: File): Promise<void> {
   if (!res.ok) throw new Error("Upload failed");
 }
 
-async function anchorPostOnDB(postId: number, txHash: string): Promise<void> {
-  const wallet = localStorage.getItem("mf_wallet_address") ?? "";
-  await fetch(`${BASE}/api/posts/${postId}/anchor`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json", "x-wallet-address": wallet },
-    body: JSON.stringify({ txHash }),
-  });
-}
-
 type PostStep = "idle" | "uploading" | "saving" | "signing" | "done" | "error";
 type SortMode = "latest" | "top";
 
@@ -55,9 +48,9 @@ export default function Feed() {
   const { user } = useUser();
   const queryClient = useQueryClient();
   const { data: feedPage, isLoading: feedLoading } = useListPosts({});
-  const { data: summary } = useGetFeedSummary();
-  const createPost = useCreatePost();
-  const { contractDeployed, createPostOnChain } = useContractActions();
+  const { contractDeployed } = useContractActions();
+  const publication = usePostPublication();
+  const postingLock = useRef(false);
 
   const [isComposeOpen, setIsComposeOpen] = useState(false);
   const [content, setContent] = useState("");
@@ -65,6 +58,7 @@ export default function Feed() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [postStep, setPostStep] = useState<PostStep>("idle");
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [recoveryHash, setRecoveryHash] = useState("");
   const [isExclusive, setIsExclusive] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>("latest");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -90,7 +84,7 @@ export default function Feed() {
   }));
 
   const sortedPosts = sortMode === "top"
-    ? [...enrichedPosts].sort((a, b) => (b.likeCount ?? 0) - (a.likeCount ?? 0))
+    ? [...enrichedPosts].sort((a, b) => (b.likeCount ?? 0) - (a.likeCount ?? 0) || Date.parse(b.createdAt) - Date.parse(a.createdAt) || b.id - a.id)
     : enrichedPosts;
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -111,32 +105,27 @@ export default function Feed() {
   };
 
   const handleCreatePost = async () => {
-    if (!imageFile || !user) return;
+    if ((!imageFile && !publication.draft) || !user || postingLock.current) return;
+    postingLock.current = true;
     setUploadError(null);
     try {
-      setPostStep("uploading");
-      const { uploadURL, objectPath } = await requestUploadUrl(imageFile);
-      await uploadToGCS(uploadURL, imageFile);
-      const imageUrl = `${BASE}/api/storage${objectPath}`;
-
-      setPostStep("saving");
-      const post = await createPost.mutateAsync({
-        data: { content: content.trim() || "", imageUrl, authorWalletAddress: user.walletAddress, isPaid: isExclusive },
-      });
-      if (!isExclusive) trackProductEvent("public_post_created");
-
-      if (contractDeployed && post?.id) {
+      if (publication.draft) {
         setPostStep("signing");
-        try {
-          const contentUri = `mf:${post.id}:${objectPath}`;
-          const txHash = await createPostOnChain(post.id, contentUri);
-          if (txHash) await anchorPostOnDB(post.id, txHash);
-        } catch { /* user declined */ }
+        await publication.publish(undefined, recoveryHash);
+      } else {
+        setPostStep("uploading");
+        const { uploadURL, objectPath } = await requestUploadUrl(imageFile!);
+        await uploadToGCS(uploadURL, imageFile!);
+        const imageUrl = `${BASE}/api/storage${objectPath}`;
+        setPostStep("signing");
+        await publication.publish({ content: content.trim(), imageUrl, isPaid: isExclusive });
       }
+      if (!(publication.draft?.isPaid ?? isExclusive)) trackProductEvent("public_post_created");
 
       setPostStep("done");
       setIsComposeOpen(false);
       setContent("");
+      setRecoveryHash("");
       clearImage();
       queryClient.invalidateQueries({ queryKey: getListPostsQueryKey() });
       queryClient.invalidateQueries({ queryKey: getGetFeedSummaryQueryKey() });
@@ -144,21 +133,22 @@ export default function Feed() {
     } catch (e) {
       setUploadError(e instanceof Error ? e.message : "Failed to post. Please try again.");
       setPostStep("error");
-    }
+    } finally { postingLock.current = false; }
   };
 
   const handleOpenChange = (open: boolean) => {
     setIsComposeOpen(open);
-    if (!open) { clearImage(); setContent(""); setUploadError(null); setPostStep("idle"); setIsExclusive(false); }
+    if (!open && !postingLock.current && !publication.busy) { clearImage(); setContent(""); setUploadError(null); setRecoveryHash(""); setPostStep("idle"); setIsExclusive(false); }
   };
 
-  const isPosting = postStep === "uploading" || postStep === "saving" || postStep === "signing";
+  const isPosting = publication.busy || postStep === "uploading" || postStep === "saving" || postStep === "signing";
+  const displayedExclusive = publication.draft?.isPaid ?? isExclusive;
 
   const postButtonLabel = () => {
     if (postStep === "uploading") return "Uploading image...";
     if (postStep === "saving") return "Saving post...";
-    if (postStep === "signing") return "Sign on Monad...";
-    return contractDeployed ? "Post & Sign on Monad" : "Post";
+    if (postStep === "signing" || publication.busy) return "Checking publication...";
+    return publication.draft ? "Resume publication" : "Publish on Monad";
   };
 
   return (
@@ -182,43 +172,10 @@ export default function Feed() {
         </div>
       </div>
 
-      {summary && (
-        <div className="grid grid-cols-3 gap-4">
-          <Card className="bg-primary/5 border-none shadow-none">
-            <CardContent className="p-4 flex items-center gap-4">
-              <div className="p-3 bg-primary/10 rounded-full text-primary">
-                <MessageSquare className="h-5 w-5" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Total Posts</p>
-                <p className="text-2xl font-bold">{summary.totalPosts}</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="bg-primary/5 border-none shadow-none">
-            <CardContent className="p-4 flex items-center gap-4">
-              <div className="p-3 bg-primary/10 rounded-full text-primary">
-                <Heart className="h-5 w-5" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Total Likes</p>
-                <p className="text-2xl font-bold">{summary.totalLikes}</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="bg-primary/5 border-none shadow-none">
-            <CardContent className="p-4 flex items-center gap-4">
-              <div className="p-3 bg-primary/10 rounded-full text-primary">
-                <Users className="h-5 w-5" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Active Today</p>
-                <p className="text-2xl font-bold">{summary.activeToday}</p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
+      {publication.draft && <Card><CardContent className="p-4 space-y-2">
+        <p className="text-sm">You have a pending publication. Resume it using its original transaction.</p>
+        <Button size="sm" onClick={() => setIsComposeOpen(true)}>Resume pending post</Button>
+      </CardContent></Card>}
 
       {/* Sort toggle */}
       <div className="flex items-center gap-2 border-b border-border pb-2">
@@ -248,6 +205,9 @@ export default function Feed() {
       </div>
 
       {/* ── New posts banner ── */}
+      <p className="text-xs text-muted-foreground">
+        {sortMode === "top" ? "Top ranks the loaded posts by verified recorded likes, with newer posts first when counts tie." : "Latest sorts by the app creation date, newest first."}
+      </p>
       {pendingCount > 0 && (
         <button
           onClick={handleFlushPending}
@@ -292,25 +252,28 @@ export default function Feed() {
           </Button>
           </DialogTrigger>
         </div>, document.body)}
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="w-[calc(100%-2rem)] min-w-0 sm:max-w-lg max-h-[90dvh] overflow-y-auto [overflow-wrap:anywhere]">
           <DialogHeader>
             <DialogTitle>Create a Post</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 pt-2">
+          <div className="min-w-0 space-y-4 pt-2">
+            <PublicationRecovery draft={publication.draft} busy={isPosting} onDiscard={publication.discard}
+              onError={setUploadError} transactionHash={recoveryHash} onTransactionHashChange={setRecoveryHash} />
             <div>
-              {imagePreview ? (
+              {(publication.draft?.imageUrl || imagePreview) ? (
                 <div className="relative rounded-xl overflow-hidden bg-muted aspect-video">
-                  <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
-                  <button
+                  <img src={publication.draft?.imageUrl || imagePreview!} alt="Preview" className="w-full h-full object-cover" />
+                  {!publication.draft && <button
                     onClick={clearImage}
                     className="absolute top-2 right-2 bg-black/60 text-white rounded-full p-1 hover:bg-black/80 transition-colors"
                   >
                     <X className="h-4 w-4" />
-                  </button>
+                  </button>}
                 </div>
               ) : (
                 <button
                   type="button"
+                  disabled={isPosting || !!publication.draft}
                   onClick={() => fileInputRef.current?.click()}
                   className="w-full rounded-xl border-2 border-dashed border-border hover:border-primary/50 bg-muted/30 hover:bg-primary/5 transition-colors aspect-video flex flex-col items-center justify-center gap-3 cursor-pointer"
                 >
@@ -319,16 +282,17 @@ export default function Feed() {
                   </div>
                   <div className="text-center">
                     <p className="font-semibold text-sm">Add an image</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">Required, click to browse</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Image required. Select an image file; caption is optional.</p>
                   </div>
                 </button>
               )}
-              <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileSelect} />
+              <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileSelect} disabled={isPosting || !!publication.draft} />
             </div>
 
             <Textarea
               placeholder="Add a caption... (optional)"
-              value={content}
+              value={publication.draft?.content ?? content}
+              disabled={isPosting || !!publication.draft}
               onChange={(e) => setContent(e.target.value)}
               className="min-h-[80px] resize-none"
             />
@@ -336,53 +300,55 @@ export default function Feed() {
             {/* Exclusive post toggle */}
             <button
               type="button"
+              disabled={isPosting || !!publication.draft}
               onClick={() => setIsExclusive((v) => !v)}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border-2 transition-all text-sm font-medium ${
-                isExclusive
+                displayedExclusive
                   ? "border-amber-400 bg-amber-50 text-amber-800"
                   : "border-border bg-muted/30 text-muted-foreground hover:border-primary/30 hover:bg-muted/50"
               }`}
             >
-              <div className={`p-1.5 rounded-lg ${isExclusive ? "bg-amber-200 text-amber-700" : "bg-muted text-muted-foreground"}`}>
-                {isExclusive ? <Lock className="h-4 w-4" /> : <Crown className="h-4 w-4" />}
+              <div className={`p-1.5 rounded-lg ${displayedExclusive ? "bg-amber-200 text-amber-700" : "bg-muted text-muted-foreground"}`}>
+                {displayedExclusive ? <Lock className="h-4 w-4" /> : <Crown className="h-4 w-4" />}
               </div>
               <div className="flex-1 text-left">
-                <p className="font-semibold leading-tight">{isExclusive ? "Exclusive post" : "Make exclusive"}</p>
+                <p className="font-semibold leading-tight">{displayedExclusive ? "Exclusive post" : "Make exclusive"}</p>
                 <p className="text-xs font-normal mt-0.5 opacity-75">
-                  {isExclusive
+                  {displayedExclusive
                     ? "Only verified subscribers can see this post; others see a locked preview"
                     : "All followers see this, toggle to restrict to subscribers only"}
                 </p>
               </div>
-              <div className={`h-5 w-9 rounded-full transition-all flex-shrink-0 ${isExclusive ? "bg-amber-500" : "bg-muted-foreground/30"}`}>
-                <div className={`h-5 w-5 rounded-full bg-white shadow transition-transform ${isExclusive ? "translate-x-4" : "translate-x-0"}`} />
+              <div className={`h-5 w-9 rounded-full transition-all flex-shrink-0 ${displayedExclusive ? "bg-amber-500" : "bg-muted-foreground/30"}`}>
+                <div className={`h-5 w-5 rounded-full bg-white shadow transition-transform ${displayedExclusive ? "translate-x-4" : "translate-x-0"}`} />
               </div>
             </button>
 
             {contractDeployed && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-lg px-3 py-2">
                 <Link2 className="h-3.5 w-3.5 text-primary flex-shrink-0" />
-                This post will be anchored on <strong>Monad</strong>, your wallet will prompt for a signature.
+                Approving the wallet transaction records your authorship, post ID and content commitment on Monad Mainnet. Network gas is required. Images and captions are stored by the app, not fully on-chain. Rejection or failure leaves the draft unpublished. A published post cannot be deleted by anyone.
               </div>
             )}
 
             {postStep === "signing" && (
               <div className="flex items-center gap-2 text-xs text-violet-700 bg-violet-50 rounded-lg px-3 py-2">
                 <Loader2 className="h-3.5 w-3.5 animate-spin flex-shrink-0" />
-                Check your wallet, sign the transaction to anchor this post on Monad…
+                Checking your publication on Monad. If already confirmed, no new signature is needed. You can close this window safely; your draft is kept.
               </div>
             )}
 
-            {uploadError && <p role="alert" data-testid="status-post-error" className="text-sm text-destructive">{uploadError}</p>}
+            {uploadError && <p role="alert" data-testid="status-post-error" className="min-w-0 break-words text-sm text-destructive">{uploadError}</p>}
 
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={isPosting}>Cancel</Button>
-              <Button onClick={handleCreatePost} disabled={!imageFile || isPosting}>
+              <Button variant="outline" onClick={() => handleOpenChange(false)}>{isPosting ? "Close" : "Cancel"}</Button>
+              <Button onClick={handleCreatePost} disabled={(!imageFile && !publication.draft) || isPosting || !contractDeployed}>
                 {isPosting
                   ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />{postButtonLabel()}</>
                   : postButtonLabel()}
               </Button>
             </div>
+            {!imageFile && !publication.draft && <p className="text-xs text-muted-foreground">Publishing is unavailable until you select the required image.</p>}
           </div>
         </DialogContent>
       </Dialog>

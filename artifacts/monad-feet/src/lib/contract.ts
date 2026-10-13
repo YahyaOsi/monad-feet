@@ -18,7 +18,7 @@ export const GAME_ENABLED = true;
 export const EXPECTED_RUNTIME_CODE_HASH =
   "0x0e57820b5da0dce2e9154720eb1fcfccaf7cf80e0578ec190b8d53c0fd331678" as const;
 
-/** On-chain playFeetGame action ids (match backend actions[].id). */
+/** Onchain playFeetGame action ids (match backend actions[].id). */
 export const GAME_ACTION_IDS = [1, 2, 3] as const;
 
 // eth_getCode and the selectors/read calls were checked on chain 143.

@@ -1,5 +1,6 @@
 import type { Request, RequestHandler } from "express";
-import { and, eq, gt, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, sql } from "drizzle-orm";
+import { privacyRequirements } from "./privacyRequirements";
 import { db, mediaObjectsTable, postsTable, privatePostsTable, usersTable, subscriptionsTable, subscriptionPaymentsTable } from "@workspace/db";
 
 export async function viewerId(req: Request): Promise<number | null> {
@@ -53,7 +54,16 @@ export function mediaKey(value: string): string {
 }
 
 type Evidence = { owners: Set<number>; private: boolean; public: boolean; trustedOwner?: number; binding?: string };
-export async function mediaEvidence(): Promise<Map<string, Evidence>> {
+let evidenceInFlight: Promise<Map<string, Evidence>> | null = null;
+export function mediaEvidence(): Promise<Map<string, Evidence>> {
+  // Coalesce simultaneous reads only. Never cache authorization across requests
+  // after the read finishes: a content binding or subscription may have changed.
+  if (!evidenceInFlight) {
+    evidenceInFlight = readMediaEvidence().finally(() => { evidenceInFlight = null; });
+  }
+  return evidenceInFlight;
+}
+async function readMediaEvidence(): Promise<Map<string, Evidence>> {
   const map = new Map<string, Evidence>();
   function add(url: string | null, owner: number, privateRef: boolean, publicRef: boolean) {
     if (!url) return;
@@ -93,14 +103,14 @@ export function mayReadMedia(e: Evidence | undefined, viewer: number | null, sub
 
 // A single conditional UPDATE arbitrates concurrent conflicting bindings.
 // Provenance cannot be claimed from user metadata or a legacy URL.
-export async function bindNewImage(url: string, ownerId: number, visibility: "public" | "private"): Promise<void> {
+export async function assertImageBinding(url: string, ownerId: number, visibility: "public" | "private"): Promise<string | null> {
   const path = canonicalObjectPath(url);
   if (!path) {
     // Public remote images remain supported, but cannot alias private references.
     const key = mediaKey(url);
     if (visibility === "public" && /^https:\/\//.test(url) && !url.includes("storage.googleapis.com") &&
         !key.startsWith("/objects/") && !key.startsWith("/api/storage/") &&
-        !(await mediaEvidence()).get(key)?.private) return;
+        !(await mediaEvidence()).get(key)?.private) return null;
     throw new Error("Use a newly uploaded managed image for this content");
   }
   const evidence = (await mediaEvidence()).get(path);
@@ -108,6 +118,12 @@ export async function bindNewImage(url: string, ownerId: number, visibility: "pu
       (visibility === "public" ? evidence.private : evidence.public)) {
     throw new Error("Image ownership or visibility conflicts with this use");
   }
+  return path;
+}
+
+export async function bindNewImage(url: string, ownerId: number, visibility: "public" | "private"): Promise<void> {
+  const path = await assertImageBinding(url, ownerId, visibility);
+  if (!path) return;
   const rows = await db.update(mediaObjectsTable).set({ visibility })
     .where(and(eq(mediaObjectsTable.objectPath, path), eq(mediaObjectsTable.ownerId, ownerId),
       sql`${mediaObjectsTable.visibility} in ('unbound', ${visibility})`)).returning();
@@ -129,18 +145,28 @@ export const privateResponses: RequestHandler = (req, res, next) => {
   res.vary("Cookie");
   const send = res.json.bind(res);
   res.json = ((body: unknown) => {
+    const required = privacyRequirements(body);
+    // Health, counts, mutation acknowledgements and errors contain no fields
+    // this sanitizer can transform. Keep their no-store policy without scans.
+    if (!required.needed) return send(body);
     void (async () => {
       const viewer = await viewerId(req);
       const subscribed = viewer === null ? new Set<number>() : await verifiedCreatorIds(viewer);
-      const evidence = await mediaEvidence();
-      const posts = await db.select({ id: postsTable.id, author: postsTable.authorId, isPaid: postsTable.isPaid }).from(postsTable);
+      const evidence = required.media ? await mediaEvidence() : new Map<string, Evidence>();
+      const posts = required.postIds.length ? await db.select({ id: postsTable.id, author: postsTable.authorId, isPaid: postsTable.isPaid, confirmed: postsTable.chainVerifiedAt })
+        .from(postsTable).where(inArray(postsTable.id, required.postIds)) : [];
+      const unpublished = new Map(posts.filter(p => !p.confirmed).map(p => [p.id, p.author]));
+      const hidden = Symbol("unpublished");
       const liveIds = new Set(posts.map(p => p.id));
       const paidAuthors = new Map(posts.filter(p => p.isPaid).map(p => [p.id, p.author]));
       const allowed = (owner: number) => viewer === owner || subscribed.has(owner);
       function clean(value: unknown): unknown {
-        if (Array.isArray(value)) return value.map(clean);
+        if (Array.isArray(value)) return value.map(clean).filter(v => v !== hidden);
         if (!value || typeof value !== "object" || value instanceof Date) return value;
         const row = { ...(value as Record<string, unknown>) };
+        if (typeof row.authorId === "number" && typeof row.id === "number" && !("postId" in row) &&
+          unpublished.has(row.id) && viewer !== unpublished.get(row.id)) return hidden;
+        if (row.source === "private" && typeof row.creatorId === "number" && viewer !== row.creatorId) return hidden;
         const owner = typeof row.authorId === "number" && typeof row.id === "number" && !("postId" in row)
           ? paidAuthors.get(row.id) : undefined;
         if (owner !== undefined) {
@@ -152,7 +178,8 @@ export const privateResponses: RequestHandler = (req, res, next) => {
         }
         if (row.resourceType === "post" && typeof row.resourceId === "number") {
           const author = paidAuthors.get(row.resourceId);
-          if (!liveIds.has(row.resourceId) || (author !== undefined && !allowed(author))) {
+          if (!liveIds.has(row.resourceId) || (unpublished.has(row.resourceId) && viewer !== unpublished.get(row.resourceId)) ||
+            (author !== undefined && !allowed(author))) {
             row.body = "Activity on an unavailable or exclusive post"; row.title = "Post activity";
           }
         }
@@ -162,11 +189,13 @@ export const privateResponses: RequestHandler = (req, res, next) => {
             const path = canonicalObjectPath(imageKey);
             const e = evidence.get(imageKey);
             if ((path || e?.private) && !mayReadMedia(e, viewer, subscribed)) row[key] = null;
-          } else row[key] = clean(val);
+          } else { const cleaned = clean(val); row[key] = cleaned === hidden ? null : cleaned; }
         }
         return row;
       }
-      send(clean(body));
+      const result = clean(body);
+      if (result === hidden) { res.status(404); send({ error: "Post is not published" }); }
+      else send(result);
     })().catch(err => { req.log.error({ err }, "Privacy response failed"); res.status(503); send({ error: "Content authorization unavailable" }); });
     return res;
   }) as typeof res.json;

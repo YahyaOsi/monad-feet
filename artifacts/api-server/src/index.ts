@@ -5,6 +5,8 @@ import { setupPresence } from "./presence";
 import { scheduleWeeklyDigest } from "./weekly-digest";
 import { pool } from "@workspace/db";
 import { bootstrapInvite } from "./lib/bootstrapInvite";
+import { grantEarlyBetaBadges } from "./lib/earlyBeta";
+import { ensurePublicationSchema } from "./lib/publicationSchema";
 
 const rawPort = process.env["PORT"];
 
@@ -25,19 +27,20 @@ const server = http.createServer(app);
 // Attach WebSocket presence server
 setupPresence(server);
 
-// Schedule weekly digest (runs every Sunday midnight)
-scheduleWeeklyDigest().catch((e) =>
-  logger.error({ e }, "Failed to schedule weekly digest"),
-);
-
 async function start() {
-  if (process.env.NODE_ENV === "production") {
-    if (await bootstrapInvite(pool)) {
-      logger.info("Initial team invitation created. Retrieve privately from the production database.");
-    }
-  }
+  // Production schema is applied by Publish, never by every autoscale instance.
+  if (process.env.NODE_ENV !== "production") await ensurePublicationSchema();
   server.listen(port, () => {
     logger.info({ port }, "Server listening");
+    // Autoscale health must not wait on database maintenance or digest reports.
+    const maintenance = setTimeout(() => {
+      void grantEarlyBetaBadges().catch(error => logger.error({ error }, "Early beta maintenance failed"));
+      void scheduleWeeklyDigest().catch(error => logger.error({ error }, "Digest scheduling failed"));
+      if (process.env.NODE_ENV === "production") {
+        void bootstrapInvite(pool).catch(error => logger.error({ error }, "Invitation bootstrap failed"));
+      }
+    }, 5_000);
+    maintenance.unref();
   });
 }
 

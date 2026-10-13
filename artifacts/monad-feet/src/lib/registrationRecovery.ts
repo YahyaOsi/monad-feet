@@ -36,7 +36,7 @@ export async function recoverRegistration(options: {
     options.assertCurrent();
     const hash = await options.send((hash) => options.save(hash));
     options.assertCurrent();
-    if (!isRegistrationHash(hash)) throw new Error("On-chain registration is unavailable.");
+    if (!isRegistrationHash(hash)) throw new Error("Onchain registration is unavailable.");
     return hash;
   } catch (error) {
     options.assertCurrent();

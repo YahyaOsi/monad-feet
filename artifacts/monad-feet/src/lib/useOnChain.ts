@@ -16,7 +16,7 @@ const BASE_OPTS = {
   chainId: MONAD_MAINNET_CHAIN_ID,
 } as const;
 
-/** Total registered users on-chain */
+/** Total registered users onchain */
 export function useContractUserCount() {
   return useReadContract({
     ...BASE_OPTS,
@@ -25,7 +25,7 @@ export function useContractUserCount() {
   });
 }
 
-/** Total posts anchored on-chain */
+/** Total posts anchored onchain */
 export function useContractPostCount() {
   return useReadContract({
     ...BASE_OPTS,
@@ -34,7 +34,7 @@ export function useContractPostCount() {
   });
 }
 
-/** Read on-chain UserInfo struct for a wallet address */
+/** Read onchain UserInfo struct for a wallet address */
 export function useOnChainUser(address?: `0x${string}`) {
   return useReadContract({
     ...BASE_OPTS,
@@ -44,7 +44,7 @@ export function useOnChainUser(address?: `0x${string}`) {
   });
 }
 
-/** On-chain like count for a post (authoritative) */
+/** Onchain like count for a post (authoritative) */
 export function useOnChainPostLikeCount(postId: number) {
   return useReadContract({
     ...BASE_OPTS,
@@ -54,7 +54,7 @@ export function useOnChainPostLikeCount(postId: number) {
   });
 }
 
-/** Whether a user has liked a post on-chain */
+/** Whether a user has liked a post onchain */
 export function useIsPostLikedOnChain(postId: number, userAddress?: `0x${string}`) {
   return useReadContract({
     ...BASE_OPTS,
@@ -64,7 +64,7 @@ export function useIsPostLikedOnChain(postId: number, userAddress?: `0x${string}
   });
 }
 
-/** Whether a subscription is active on-chain */
+/** Whether a subscription is active onchain */
 export function useIsSubscribedOnChain(
   subscriber?: `0x${string}`,
   creator?: `0x${string}`
@@ -77,7 +77,7 @@ export function useIsSubscribedOnChain(
   });
 }
 
-/** Subscription expiry timestamp (unix seconds) on-chain */
+/** Subscription expiry timestamp (unix seconds) onchain */
 export function useSubscriptionExpiry(
   subscriber?: `0x${string}`,
   creator?: `0x${string}`

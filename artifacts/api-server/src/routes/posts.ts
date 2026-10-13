@@ -1,8 +1,9 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, sql, and, lt, inArray } from "drizzle-orm";
+import { eq, desc, sql, and, lt, inArray, isNotNull, or } from "drizzle-orm";
 import {
   db,
   postsTable,
+  postDraftsTable,
   postLikesTable,
   usersTable,
   streaksTable,
@@ -13,6 +14,7 @@ import {
 } from "@workspace/db";
 import {
   CreatePostBody,
+  RecoverPostBody,
   ListPostsQueryParams,
   GetPostParams,
   DeletePostParams,
@@ -22,7 +24,10 @@ import {
 import { nanoid } from "nanoid";
 import { broadcastActivity, checkAndNotifyTrending } from "../presence";
 import { checkMilestones } from "../milestones";
-import { bindNewImage, verifiedCreatorIds, preservePrivateBinding } from "../lib/contentPrivacy";
+import { assertImageBinding, bindNewImage, verifiedCreatorIds, canonicalObjectPath } from "../lib/contentPrivacy";
+import { verifySocialReceipt, chainHasLike, postCommitment, reconcilePostProofs } from "../lib/socialChain";
+import { recoverPostReceipt } from "../lib/postRecovery";
+import { InvalidReceiptError } from "../lib/gameChain";
 
 const router: IRouter = Router();
 
@@ -53,20 +58,31 @@ async function getSubscribedAuthorIds(currentUserId: number): Promise<Set<number
 }
 
 router.get("/posts", async (req, res): Promise<void> => {
+  await reconcilePostProofs();
   const query = ListPostsQueryParams.safeParse(req.query);
   if (!query.success) { res.status(400).json({ error: query.error.message }); return; }
   if (query.data.authorId !== undefined &&
       (!Number.isSafeInteger(query.data.authorId) || query.data.authorId < 1 || query.data.authorId > 2_147_483_647)) {
     res.status(400).json({ error: "Invalid author id" }); return;
   }
-  const limit = query.data.limit ?? 20;
+  const requestedLimit = query.data.limit ?? 20;
+  if (!Number.isSafeInteger(requestedLimit) || requestedLimit < 1) {
+    res.status(400).json({ error: "Page size must be a positive integer." }); return;
+  }
+  const limit = Math.min(requestedLimit, 100);
   const cursor = query.data.cursor ?? null;
   const authorFilter = query.data.authorId === undefined
     ? undefined
     : eq(postsTable.authorId, query.data.authorId);
   const walletAddress = getWalletAddress(req);
   const currentUser = walletAddress ? await getUserByWallet(walletAddress) : null;
-  const whereClause = and(authorFilter, cursor ? lt(postsTable.id, cursor) : undefined);
+  const publicationFilter = currentUser && currentUser.id === query.data.authorId ? undefined : isNotNull(postsTable.chainVerifiedAt);
+  const cursorPost = cursor ? (await db.select({ createdAt: postsTable.createdAt }).from(postsTable).where(eq(postsTable.id, cursor)))[0] : null;
+  if (cursor && !cursorPost) { res.status(400).json({ error: "Unknown post cursor" }); return; }
+  const whereClause = and(authorFilter, publicationFilter, cursorPost ? or(
+    lt(postsTable.createdAt, cursorPost.createdAt),
+    and(eq(postsTable.createdAt, cursorPost.createdAt), lt(postsTable.id, cursor!)),
+  ) : undefined);
 
   const posts = await db
     .select({
@@ -75,21 +91,22 @@ router.get("/posts", async (req, res): Promise<void> => {
       imageUrl: postsTable.imageUrl,
       authorId: postsTable.authorId,
       onChainTxHash: postsTable.onChainTxHash,
+      chainVerifiedAt: postsTable.chainVerifiedAt,
       isPaid: postsTable.isPaid,
       createdAt: postsTable.createdAt,
       authorName: usersTable.name,
       authorUsername: usersTable.username,
       authorAvatarUrl: usersTable.avatarUrl,
       authorNftHolder: usersTable.nftHolder,
-      likeCount: sql<number>`(select count(*) from post_likes where post_id = ${postsTable.id})::int`,
+      likeCount: sql<number>`(select count(distinct user_id) from post_likes where post_id = ${postsTable.id} and chain_verified_at is not null)::int`,
     })
     .from(postsTable)
     .leftJoin(usersTable, eq(usersTable.id, postsTable.authorId))
     .where(whereClause)
-    .orderBy(desc(postsTable.id))
+    .orderBy(desc(postsTable.createdAt), desc(postsTable.id))
     .limit(limit);
 
-  const total = await db.select({ count: sql<number>`count(*)::int` }).from(postsTable).where(authorFilter);
+  const total = await db.select({ count: sql<number>`count(*)::int` }).from(postsTable).where(and(authorFilter, publicationFilter));
   const postIds = posts.map((p) => p.id);
   let likedByMe: number[] = [];
   let subscribedAuthorIds = new Set<number>();
@@ -98,7 +115,7 @@ router.get("/posts", async (req, res): Promise<void> => {
     const likes = await db
       .select({ postId: postLikesTable.postId })
       .from(postLikesTable)
-      .where(eq(postLikesTable.userId, currentUser.id));
+      .where(and(eq(postLikesTable.userId, currentUser.id), isNotNull(postLikesTable.chainVerifiedAt)));
     likedByMe = likes.map((l) => l.postId);
     subscribedAuthorIds = await getSubscribedAuthorIds(currentUser.id);
   }
@@ -107,6 +124,8 @@ router.get("/posts", async (req, res): Promise<void> => {
   res.json({
     posts: posts.map((p) => ({
       ...p,
+      publicationConfirmed: !!p.chainVerifiedAt,
+      onChainTxHash: p.chainVerifiedAt ? p.onChainTxHash : null,
       likedByMe: likedByMe.includes(p.id),
       isSubscribedToAuthor:
         currentUser?.id === p.authorId || subscribedAuthorIds.has(p.authorId),
@@ -116,25 +135,104 @@ router.get("/posts", async (req, res): Promise<void> => {
   });
 });
 
+router.post("/posts/recover", async (req, res): Promise<void> => {
+  const wallet = getWalletAddress(req);
+  const author = wallet ? await getUserByWallet(wallet) : null;
+  if (!author) { res.status(401).json({ error: "Signed member session required." }); return; }
+  const parsed = RecoverPostBody.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: "A valid post ID is required." }); return; }
+  const [draft] = await db.select().from(postDraftsTable).where(eq(postDraftsTable.id, parsed.data.postId));
+  if (!draft || draft.authorId !== author.id) { res.status(403).json({ error: "Prepare an owned draft first." }); return; }
+  try {
+    const [historical] = await db.select().from(postsTable).where(and(eq(postsTable.id, draft.id), eq(postsTable.authorId, author.id)));
+    const path = historical?.imageUrl ? canonicalObjectPath(historical.imageUrl) : null;
+    res.json(await recoverPostReceipt(draft.id, author.walletAddress, draft.contentUri, undefined, undefined,
+      draft.createdAt, path ? `mf:${draft.id}:${path}` : undefined, historical?.createdAt));
+  } catch (error) {
+    req.log.warn({ postId: draft.id, reason: error instanceof Error ? error.name : "unknown" }, "Post recovery unavailable");
+    res.status(error instanceof InvalidReceiptError ? 409 : 503).json({
+      error: error instanceof InvalidReceiptError ? error.message :
+        "Couldn't retrieve the original Monad receipt right now. Your draft is safe. Retry, or paste the confirmed transaction hash from your wallet. No new transaction was requested.",
+    });
+  }
+});
+
+router.post("/posts/prepare", async (req, res): Promise<void> => {
+  const wallet = getWalletAddress(req);
+  const author = wallet ? await getUserByWallet(wallet) : null;
+  if (!author) { res.status(401).json({ error: "Signed member session required." }); return; }
+  let content = typeof req.body?.content === "string" ? req.body.content.trim() : "";
+  let imageUrl = typeof req.body?.imageUrl === "string" ? req.body.imageUrl : "";
+  let isPaid = req.body?.isPaid === true;
+  let id = Number(req.body?.legacyPostId);
+  if (Number.isSafeInteger(id) && id > 0) {
+    const [legacy] = await db.select().from(postsTable).where(eq(postsTable.id, id));
+    if (!legacy || legacy.authorId !== author.id) { res.status(403).json({ error: "This pending post is not yours." }); return; }
+    if (legacy.chainVerifiedAt) { res.status(409).json({ error: "Post is already published." }); return; }
+    content = legacy.content; imageUrl = legacy.imageUrl ?? ""; isPaid = legacy.isPaid;
+  } else {
+    try { await assertImageBinding(imageUrl, author.id, isPaid ? "private" : "public"); }
+    catch (error) { res.status(400).json({ error: error instanceof Error ? error.message : "Upload an owned image first." }); return; }
+    const allocated = await db.execute(sql`select nextval(pg_get_serial_sequence('posts', 'id'))::int as id`);
+    id = Number((allocated as unknown as { rows: { id: number }[] }).rows[0].id);
+  }
+  if (!imageUrl || content.length > 10_000 || !Number.isSafeInteger(id) || id <= 0) {
+    res.status(400).json({ error: "An image is required; caption must be at most 10,000 characters." }); return;
+  }
+  const contentUri = postCommitment(id, author.walletAddress, content, imageUrl, isPaid);
+  const [draft] = await db.insert(postDraftsTable).values({ id, authorId: author.id, content, imageUrl, isPaid, contentUri })
+    .onConflictDoNothing().returning();
+  const saved = draft ?? (await db.select().from(postDraftsTable).where(eq(postDraftsTable.id, id)))[0];
+  if (!saved || saved.authorId !== author.id) { res.status(409).json({ error: "Draft belongs to another member." }); return; }
+  res.json({ postId: saved.id, contentUri: saved.contentUri, content: saved.content, imageUrl: saved.imageUrl, isPaid: saved.isPaid });
+});
+
 router.post("/posts", async (req, res): Promise<void> => {
   const parsed = CreatePostBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
 
-  const { content, imageUrl, authorWalletAddress, isPaid } = parsed.data;
-
-  if (!imageUrl) {
-    res.status(400).json({ error: "An image is required for every post." });
-    return;
+  const { authorWalletAddress } = parsed.data;
+  if (getWalletAddress(req)?.toLowerCase() !== authorWalletAddress.toLowerCase()) {
+    res.status(403).json({ error: "Author must match the signed wallet session." }); return;
   }
-
   const author = await getUserByWallet(authorWalletAddress);
   if (!author) { res.status(404).json({ error: "Author not found" }); return; }
-  try { await bindNewImage(imageUrl, author.id, isPaid ? "private" : "public"); }
+  const postId = parsed.data.postId;
+  const txHash = parsed.data.txHash;
+  if (!postId || !txHash) { res.status(400).json({ error: "Prepare a draft and confirm its Monad transaction before publishing." }); return; }
+  const [existing] = await db.select().from(postsTable).where(eq(postsTable.id, postId));
+  if (existing?.chainVerifiedAt && existing.authorId === author.id && existing.onChainTxHash?.toLowerCase() === txHash.toLowerCase()) {
+    res.status(200).json({ ...existing, publicationConfirmed: true }); return;
+  }
+  const [draft] = await db.select().from(postDraftsTable).where(eq(postDraftsTable.id, postId));
+  if (!draft || draft.authorId !== author.id) { res.status(403).json({ error: "Prepare an owned draft first." }); return; }
+  if (existing && existing.authorId !== author.id) { res.status(409).json({ error: "Post id is already in use." }); return; }
+   try {
+     try { await verifySocialReceipt("post", txHash, author.walletAddress, postId, draft.contentUri); }
+     catch (error) {
+       // Historical publications used a managed-image URI rather than the new
+       // content hash. Only an existing owned record may use that exact proof.
+       const path = existing?.imageUrl ? canonicalObjectPath(existing.imageUrl) : null;
+       if (!(error instanceof InvalidReceiptError) || !existing || !path) throw error;
+       await verifySocialReceipt("post", txHash, author.walletAddress, postId, `mf:${postId}:${path}`);
+     }
+   }
+  catch (err) {
+     const invalid = err instanceof InvalidReceiptError;
+     req.log.warn({ postId, error: err instanceof Error ? err.name : "unknown",
+       reason: invalid ? (err as Error).message : "RPC verification unavailable" }, "Publication receipt rejected");
+     res.status(invalid ? 422 : 503).json({ error: invalid
+       ? "This transaction does not match the post. Finish publishing to check its original Monad receipt. No new signature is needed for an already confirmed post."
+       : "Monad receipt verification is temporarily unavailable. Your draft and transaction are kept. Retry without signing again." }); return;
+  }
+  const { content, imageUrl, isPaid } = draft;
+  try { if (!existing) await bindNewImage(imageUrl, author.id, isPaid ? "private" : "public"); }
   catch (err) { res.status(400).json({ error: (err as Error).message }); return; }
 
   const [post] = await db
     .insert(postsTable)
-    .values({ content: content ?? "", imageUrl, authorId: author.id, isPaid: isPaid ?? false })
+    .values({ id: postId, content, imageUrl, authorId: author.id, isPaid, onChainTxHash: txHash.toLowerCase(), chainVerifiedAt: new Date() })
+    .onConflictDoUpdate({ target: postsTable.id, set: { onChainTxHash: txHash.toLowerCase(), chainVerifiedAt: new Date() } })
     .returning();
 
   const payload = {
@@ -146,7 +244,8 @@ router.post("/posts", async (req, res): Promise<void> => {
     authorUsername: author.username,
     authorAvatarUrl: author.avatarUrl,
     authorNftHolder: author.nftHolder,
-    onChainTxHash: null as string | null,
+    onChainTxHash: post.onChainTxHash,
+    publicationConfirmed: true,
     isPaid: post.isPaid,
     isSubscribedToAuthor: true,
     likeCount: 0,
@@ -165,6 +264,7 @@ router.post("/posts", async (req, res): Promise<void> => {
 });
 
 router.get("/posts/:postId", async (req, res): Promise<void> => {
+  await reconcilePostProofs();
   const rawId = Array.isArray(req.params.postId) ? req.params.postId[0] : req.params.postId;
   const params = GetPostParams.safeParse({ postId: rawId });
   if (!params.success) { res.status(400).json({ error: "Invalid post id" }); return; }
@@ -180,18 +280,20 @@ router.get("/posts/:postId", async (req, res): Promise<void> => {
       authorId: postsTable.authorId,
       createdAt: postsTable.createdAt,
       onChainTxHash: postsTable.onChainTxHash,
+      chainVerifiedAt: postsTable.chainVerifiedAt,
       isPaid: postsTable.isPaid,
       authorName: usersTable.name,
       authorUsername: usersTable.username,
       authorAvatarUrl: usersTable.avatarUrl,
       authorNftHolder: usersTable.nftHolder,
-      likeCount: sql<number>`(select count(*) from post_likes where post_id = ${postsTable.id})::int`,
+      likeCount: sql<number>`(select count(distinct user_id) from post_likes where post_id = ${postsTable.id} and chain_verified_at is not null)::int`,
     })
     .from(postsTable)
     .leftJoin(usersTable, eq(usersTable.id, postsTable.authorId))
     .where(eq(postsTable.id, params.data.postId));
 
   if (!post) { res.status(404).json({ error: "Post not found" }); return; }
+  if (!post.chainVerifiedAt && currentUser?.id !== post.authorId) { res.status(404).json({ error: "Post is not published." }); return; }
 
   let likedByMe = false;
   let isSubscribedToAuthor = false;
@@ -199,7 +301,7 @@ router.get("/posts/:postId", async (req, res): Promise<void> => {
     const [like] = await db
       .select()
       .from(postLikesTable)
-      .where(and(eq(postLikesTable.postId, post.id), eq(postLikesTable.userId, currentUser.id)));
+      .where(and(eq(postLikesTable.postId, post.id), eq(postLikesTable.userId, currentUser.id), isNotNull(postLikesTable.chainVerifiedAt)));
     likedByMe = !!like;
     if (currentUser.id === post.authorId) {
       isSubscribedToAuthor = true;
@@ -208,26 +310,11 @@ router.get("/posts/:postId", async (req, res): Promise<void> => {
       isSubscribedToAuthor = subs.has(post.authorId);
     }
   }
-  res.json({ ...post, likedByMe, isSubscribedToAuthor });
+  res.json({ ...post, onChainTxHash: post.chainVerifiedAt ? post.onChainTxHash : null, publicationConfirmed: !!post.chainVerifiedAt, likedByMe, isSubscribedToAuthor });
 });
 
 router.delete("/posts/:postId", async (req, res): Promise<void> => {
-  const rawId = Array.isArray(req.params.postId) ? req.params.postId[0] : req.params.postId;
-  const params = DeletePostParams.safeParse({ postId: rawId });
-  if (!params.success) { res.status(400).json({ error: "Invalid post id" }); return; }
-
-  const walletAddress = getWalletAddress(req);
-  const currentUser = walletAddress ? await getUserByWallet(walletAddress) : null;
-  if (!currentUser) { res.status(401).json({ error: "Unauthorized" }); return; }
-
-  const [post] = await db.select().from(postsTable).where(eq(postsTable.id, params.data.postId));
-  if (!post) { res.status(404).json({ error: "Post not found" }); return; }
-  if (post.authorId !== currentUser.id) { res.status(403).json({ error: "Forbidden" }); return; }
-
-  if (post.isPaid && post.imageUrl) await preservePrivateBinding(post.imageUrl, post.authorId);
-  await db.delete(postLikesTable).where(eq(postLikesTable.postId, post.id));
-  await db.delete(postsTable).where(eq(postsTable.id, post.id));
-  res.sendStatus(204);
+  res.status(405).json({ error: "Post deletion is disabled for everyone. Published posts and their on-chain records are permanent." });
 });
 
 router.post("/posts/:postId/like", async (req, res): Promise<void> => {
@@ -242,20 +329,33 @@ router.post("/posts/:postId/like", async (req, res): Promise<void> => {
   const [post] = await db.select().from(postsTable).where(eq(postsTable.id, params.data.postId));
   if (!post) { res.status(404).json({ error: "Post not found" }); return; }
 
-  const [existing] = await db
-    .select()
-    .from(postLikesTable)
-    .where(and(eq(postLikesTable.postId, params.data.postId), eq(postLikesTable.userId, currentUser.id)));
-
+  if (!post.chainVerifiedAt) { res.status(409).json({ error: "This post must be confirmed on Monad before it can receive likes." }); return; }
   const likeTxHash = typeof req.body?.txHash === "string" ? req.body.txHash : null;
+  try {
+    if (likeTxHash) await verifySocialReceipt("like", likeTxHash, currentUser.walletAddress, post.id);
+    else if (!await chainHasLike(post.id, currentUser.walletAddress)) {
+      res.status(422).json({ error: "Confirm the like transaction on Monad first." }); return;
+    }
+  } catch {
+    res.status(422).json({ error: "Like is not confirmed on Monad. No off-chain like was saved." }); return;
+  }
 
-  if (!existing) {
-    await db.insert(postLikesTable).values({
-      postId: params.data.postId,
-      userId: currentUser.id,
-      ...(likeTxHash ? { onChainTxHash: likeTxHash } : {}),
-    });
+  const createdLike = await db.transaction(async tx => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`like:${post.id}:${currentUser.id}`}, 0))`);
+    const [existing] = await tx.select().from(postLikesTable)
+      .where(and(eq(postLikesTable.postId, post.id), eq(postLikesTable.userId, currentUser.id)));
+    if (existing) {
+      await tx.update(postLikesTable).set({ chainVerifiedAt: new Date(), ...(likeTxHash ? { onChainTxHash: likeTxHash } : {}) })
+        .where(and(eq(postLikesTable.postId, post.id), eq(postLikesTable.userId, currentUser.id)));
+      return false;
+    }
+    await tx.insert(postLikesTable).values({ postId: post.id, userId: currentUser.id,
+      chainVerifiedAt: new Date(),
+      ...(likeTxHash ? { onChainTxHash: likeTxHash } : {}) });
+    return true;
+  });
 
+  if (createdLike) {
     if (post.authorId !== currentUser.id && (await shouldNotify(post.authorId, "like"))) {
       await db.insert(notificationsTable).values({
         userId: post.authorId,
@@ -273,7 +373,7 @@ router.post("/posts/:postId/like", async (req, res): Promise<void> => {
   // Like streak
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  if (!existing) await db.transaction(async (tx) => {
+  if (createdLike) await db.transaction(async (tx) => {
   const [streak] = await tx.select().from(streaksTable).where(eq(streaksTable.userId, currentUser.id)).for("update");
   if (streak) {
     const lastLike = streak.lastLikeDate ? new Date(streak.lastLikeDate) : null;
@@ -311,9 +411,9 @@ router.post("/posts/:postId/like", async (req, res): Promise<void> => {
   });
 
   const [countRow] = await db
-    .select({ count: sql<number>`count(*)::int` })
+    .select({ count: sql<number>`count(distinct user_id)::int` })
     .from(postLikesTable)
-    .where(eq(postLikesTable.postId, params.data.postId));
+    .where(and(eq(postLikesTable.postId, params.data.postId), isNotNull(postLikesTable.chainVerifiedAt)));
 
   const newLikeCount = countRow?.count ?? 0;
   res.json({ likeCount: newLikeCount, likedByMe: true });
@@ -324,52 +424,11 @@ router.post("/posts/:postId/like", async (req, res): Promise<void> => {
 });
 
 router.patch("/posts/:postId/anchor", async (req, res): Promise<void> => {
-  const rawId = Array.isArray(req.params.postId) ? req.params.postId[0] : req.params.postId;
-  const postId = parseInt(rawId, 10);
-  if (isNaN(postId)) { res.status(400).json({ error: "Invalid post id" }); return; }
-
-  const txHash = typeof req.body?.txHash === "string" ? req.body.txHash.trim() : null;
-  if (!txHash || !txHash.startsWith("0x")) { res.status(400).json({ error: "txHash must be a 0x-prefixed hex string" }); return; }
-
-  const walletAddress = getWalletAddress(req);
-  const currentUser = walletAddress ? await getUserByWallet(walletAddress) : null;
-  if (!currentUser) { res.status(401).json({ error: "Unauthorized" }); return; }
-
-  const [post] = await db.select().from(postsTable).where(eq(postsTable.id, postId));
-  if (!post) { res.status(404).json({ error: "Post not found" }); return; }
-  if (post.authorId !== currentUser.id) { res.status(403).json({ error: "Forbidden" }); return; }
-
-  const [updated] = await db
-    .update(postsTable)
-    .set({ onChainTxHash: txHash })
-    .where(eq(postsTable.id, postId))
-    .returning({ onChainTxHash: postsTable.onChainTxHash });
-
-  res.json({ onChainTxHash: updated.onChainTxHash });
-  broadcastActivity({ type: "post_anchored", postId, txHash });
+  res.status(405).json({ error: "Use receipt-verified publication. Unverified anchor updates are disabled." });
 });
 
 router.delete("/posts/:postId/like", async (req, res): Promise<void> => {
-  const rawId = Array.isArray(req.params.postId) ? req.params.postId[0] : req.params.postId;
-  const params = UnlikePostParams.safeParse({ postId: rawId });
-  if (!params.success) { res.status(400).json({ error: "Invalid post id" }); return; }
-
-  const walletAddress = getWalletAddress(req);
-  const currentUser = walletAddress ? await getUserByWallet(walletAddress) : null;
-  if (!currentUser) { res.status(401).json({ error: "Unauthorized" }); return; }
-
-  await db
-    .delete(postLikesTable)
-    .where(and(eq(postLikesTable.postId, params.data.postId), eq(postLikesTable.userId, currentUser.id)));
-
-  const [countRow] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(postLikesTable)
-    .where(eq(postLikesTable.postId, params.data.postId));
-
-  const newLikeCount = countRow?.count ?? 0;
-  res.json({ likeCount: newLikeCount, likedByMe: false });
-  broadcastActivity({ type: "post_liked", postId: params.data.postId, likeCount: newLikeCount, actorId: currentUser.id });
+  res.status(405).json({ error: "Monad registry likes cannot be undone. No unlike transaction exists." });
 });
 
 export default router;

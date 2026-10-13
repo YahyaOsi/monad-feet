@@ -4,6 +4,7 @@ import router from "./routes";
 import { logger } from "./lib/logger";
 import { protectApi } from "./lib/walletAuth";
 import { privateResponses } from "./lib/contentPrivacy";
+import { requestCapacity } from "./lib/requestCapacity";
 
 const app: Express = express();
 
@@ -26,6 +27,10 @@ app.use(
     },
   }),
 );
+// Liveness must not depend on sessions, full-table privacy scans or RPC.
+app.get(["/api", "/api/healthz"], (_req, res) => { res.json({ status: "ok" }); });
+app.use("/api/posts/recover", requestCapacity(4));
+app.use("/api", requestCapacity());
 // Browser same-origin clients do not need permissive cross-origin access.
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));

@@ -53,8 +53,8 @@ test("reject invalid points, event timestamp, duplicate game/invite events", () 
 });
 test("UTC rollover resets EACH action, daily cap is ten, lifetime total retained", () => {
   const day = timestamp / 86400n;
-  assert.deepEqual(gameActionState(day, [day, 10, 3, 0, 13n]).map(a => [a.remaining, a.nextPoints]), [[0, 0], [7, 56], [10, 15]]);
-  assert.deepEqual(gameActionState(day + 1n, [day, 10, 3, 0, 13n]).map(a => [a.count, a.nextPoints]), [[0, 5], [0, 7], [0, 15]]);
+  assert.deepEqual(gameActionState(day, [day, 10, 3, 0, 13n]).map(a => [a.remaining, a.nextPoints]), [[0, 0], [7, 56], [10, 30]]);
+  assert.deepEqual(gameActionState(day + 1n, [day, 10, 3, 0, 13n]).map(a => [a.count, a.nextPoints]), [[0, 5], [0, 7], [0, 30]]);
 });
 test("check-in must be matching nonpayable calldata and one timestamped event", () => {
   const { tx, receipt } = fixture();
