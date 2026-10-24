@@ -2,7 +2,6 @@
 
 **A wallet-based social and creator community on Monad.**
 
-[![Repository checks](https://github.com/YahyaOsi/monad-feet/actions/workflows/ci.yml/badge.svg)](https://github.com/YahyaOsi/monad-feet/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-purple.svg)](LICENSE)
 
 Monad Feet brings social posts, creator subscriptions, subscriber content,
@@ -17,7 +16,7 @@ for libraries, adapted components, fonts, and licensing qualifications.
 **Start here:** [Live app](https://monadfeet.social) ·
 [Three-minute walkthrough](docs/DEMO.md) · [Setup](#install) ·
 [Architecture](docs/ARCHITECTURE.md) · [Reviewer guide](docs/BUILD-WINDOW.md) ·
-[Verification](docs/VERIFICATION.md) ·
+[Verification](docs/VERIFICATION.md) · [CI setup](docs/CI.md) ·
 [License](LICENSE) · [Attribution](THIRD_PARTY_NOTICES.md)
 
 ![Monad Feet public landing page in the development preview](docs/images/landing.jpg)
@@ -175,8 +174,10 @@ pnpm --filter @workspace/api-server run build
 PORT=5173 BASE_PATH=/ pnpm --filter @workspace/monad-feet run build
 ```
 
-The GitHub workflow runs type checks, fixture tests, documentation checks, and
-builds. Its badge reports the actual workflow result, not an independent audit.
+The [ready-to-install GitHub workflow](docs/CI.md) runs type checks, fixture tests,
+documentation checks, and builds once activated. Automatic CI is not currently
+claimed as enabled: the connected GitHub integration rejected writing the
+workflow file. The same commands have been verified in the development workspace.
 For scope and excluded real-world checks, see [verification](docs/VERIFICATION.md).
 
 Regenerate API clients with `pnpm --filter @workspace/api-spec run codegen`
@@ -223,13 +224,18 @@ both the working tree and any history included in the distribution.
 
 ## Chain status
 
-See `docs/CHAIN-STATUS.md`. NFT access is not configured. The payment integration checks the supplied contract, treasury, and transaction receipt, but the deployed source has not been independently explorer-verified. Review wallet transactions before signing.
+See [chain verification notes](docs/CHAIN-STATUS.md) for the evidence available
+when those notes were written. Current CHOG Genesis admission is separate from
+the planned Monad Feet NFT collection, which is not an active admission route.
+Payment integration checks are not an independent contract audit or proof of
+deployed source equivalence. Review wallet transactions before signing.
 
 ## Documentation
 
 - [Three-minute judge walkthrough](docs/DEMO.md)
 - [Architecture and trust boundaries](docs/ARCHITECTURE.md)
 - [Verification and known limitations](docs/VERIFICATION.md)
+- [GitHub Actions activation](docs/CI.md)
 - [Reviewer and build-window guide](docs/BUILD-WINDOW.md)
 - [Full product and architecture guide](docs/PROJECT_GUIDE.md)
 - [Chain status and integration limits](docs/CHAIN-STATUS.md)
