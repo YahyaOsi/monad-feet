@@ -11,7 +11,7 @@ Checked on October 24, 2026 in the existing development workspace:
 | --- | --- |
 | Full workspace TypeScript check | Passed |
 | Allowlisted fixture tests | 123 passed, 0 failed, 0 skipped |
-| Documentation check | Passed: 9 files and 48 relative links |
+| Documentation check | Passed: relative links, fenced code blocks, and root license presence |
 | API production build | Passed |
 | Web production build | Passed, with dependency sourcemap/annotation and large-chunk warnings |
 | Component sandbox build | Passed |
@@ -32,9 +32,11 @@ PORT=5173 BASE_PATH=/ pnpm --filter @workspace/monad-feet run build
 PORT=5174 BASE_PATH=/__mockup/ pnpm --filter @workspace/mockup-sandbox run build
 ```
 
-The [GitHub workflow](../.github/workflows/ci.yml) runs these checks on pushes
-to `main` and pull requests, with read-only repository permissions and without
-production secrets. Its actual run status is visible in GitHub Actions.
+The [workflow template](ci/repository-checks.yml) is configured to run these
+checks on pushes to `main` and pull requests, with read-only repository permissions
+and without production secrets. It is not active in the public repository yet:
+the connected integration rejected writing `.github/workflows/ci.yml`.
+See [activation instructions](CI.md). A template is not a hosted CI result.
 
 ## What the fixture suite checks
 
