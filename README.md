@@ -1,10 +1,53 @@
 # Monad Feet
 
-Monad Feet is a pnpm workspace containing the React web app, Express API, shared database and API packages, and the Monad contract source.
+**A wallet-based social and creator community on Monad.**
+
+Monad Feet brings social posts, creator subscriptions, subscriber content,
+messaging, notifications, and community activities into one web app. This
+repository contains the React frontend, Express API, shared database and API
+packages, and Solidity contract source.
 
 Built by Monad Feet's solo founder/developer. Original project code is available
 under the [MIT License](LICENSE). See [third-party attribution](THIRD_PARTY_NOTICES.md)
 for libraries, adapted components, fonts, and licensing qualifications.
+
+**Start here:** [Setup](#install) · [Architecture](#architecture) ·
+[Reviewer guide](docs/BUILD-WINDOW.md) · [Product guide](docs/PROJECT_GUIDE.md) ·
+[License](LICENSE) · [Attribution](THIRD_PARTY_NOTICES.md)
+
+## Product overview
+
+- Wallet-based profiles and membership through eligible NFT ownership or an invite.
+- Social feeds, photo posts, comments, search, and discovery.
+- Creator subscriptions and subscriber-only content.
+- Direct messages, notifications, and live presence.
+- Daily activities, streaks, in-app points, and leaderboards.
+- Monad transaction integration for supported actions and publication evidence.
+
+Creator subscriptions and payments are live according to the founder's
+confirmation; this is not an independent security audit. Post text and media
+are stored off chain: on-chain publication evidence does not mean the entire
+app or its content is on chain. App points are not tokens or cash.
+
+The planned Monad Feet NFT collection and token are not released features.
+Do not infer eligibility, token allocation, or monetary value from points.
+
+## Architecture
+
+| Layer | Technology |
+| --- | --- |
+| Web app | React 19, TypeScript, Vite, Wouter |
+| Interface | Tailwind CSS, Radix UI / adapted shadcn components, Framer Motion |
+| Server state | TanStack Query |
+| Wallet integration | RainbowKit, wagmi, viem; Monad mainnet, chain ID 143 |
+| Backend | Node.js, Express 5, REST API, WebSockets |
+| Persistence | PostgreSQL, Drizzle ORM |
+| API contracts | OpenAPI, Orval-generated clients, Zod |
+| Uploads | Object storage integration with protected media routes |
+| Workspace | pnpm monorepo with shared TypeScript packages |
+
+The browser and API share an origin. Wallet authentication and content
+authorization are enforced by the API, not just hidden interface controls.
 
 ## Repository contents
 
@@ -120,6 +163,10 @@ pnpm --filter @workspace/monad-feet run dev
 
 ## Build history
 
+For official event references, dated source snapshots, and the distinction
+between build-window work and later maintenance, read the
+[reviewer and build-window guide](docs/BUILD-WINDOW.md).
+
 The existing repository history is preserved. Review dated commits with:
 
 ```sh
@@ -134,10 +181,25 @@ commits should be fabricated, backdated, or rewritten to imply eligibility.
 
 ## GitHub safety
 
-Review the repository and commit history before making it public. Do not commit private keys, `.env` files, database URLs, wallet seed phrases, session secrets, user exports, or deployment credentials. The contract address and WalletConnect project ID in frontend source are public configuration, not private keys.
+Do not commit private keys, `.env` files, database URLs, wallet seed phrases,
+session secrets, user exports, or deployment credentials. Conversation uploads,
+local agent state, and private application data are not part of the source export.
+The contract address and WalletConnect project ID in frontend source are public
+configuration, not private keys. Before redistributing code or artifacts, review
+both the working tree and any history included in the distribution.
 
 ## Chain status
 
 See `docs/CHAIN-STATUS.md`. NFT access is not configured. The payment integration checks the supplied contract, treasury, and transaction receipt, but the deployed source has not been independently explorer-verified. Review wallet transactions before signing.
 
-For the full product, architecture, feature, limitation, and next-steps guide, see [`docs/PROJECT_GUIDE.md`](docs/PROJECT_GUIDE.md).
+## Documentation
+
+- [Reviewer and build-window guide](docs/BUILD-WINDOW.md)
+- [Full product and architecture guide](docs/PROJECT_GUIDE.md)
+- [Chain status and integration limits](docs/CHAIN-STATUS.md)
+- [Launch readiness notes](docs/LAUNCH-READINESS.md)
+- [Testing instructions](scripts/testing/README.md)
+- [Third-party attribution and licensing qualifications](THIRD_PARTY_NOTICES.md)
+
+Operational and verification notes describe the evidence available when written.
+They should not be treated as independent security audits or guarantees.
