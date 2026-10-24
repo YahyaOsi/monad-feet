@@ -12,7 +12,7 @@ test("registration routes: preflight, renamed recovery, signed identity, atomic 
   const wallet = `0x${"11".repeat(20)}`, other = `0x${"22".repeat(20)}`, hash = `0x${"aa".repeat(32)}`;
   const reset = () => {
     rows = Object.fromEntries(names.map(name => [name, []])); nextId = 1; chainCalls = 0; failInsert = false; failDiscovery = false; denyAttempt = false;
-    rows.inviteCodesTable.push({ id: 1, code: "FRESH", usedById: null, ownerId: null });
+    rows.inviteCodesTable.push({ id: 1, code: "FRESH", usedById: null, usedAt: null, ownerId: null });
   };
   const column = c => c.split(".")[1];
   const eq = (c, v) => r => r[column(c)] === v;
@@ -38,8 +38,18 @@ test("registration routes: preflight, renamed recovery, signed identity, atomic 
       return { returning: async () => apply(), onConflictDoUpdate: async () => apply(),
         then: (resolve, reject) => Promise.resolve().then(apply).then(resolve, reject) };
     } }),
-    update: table => ({ set: value => ({ where: async predicate => {
-      for (const row of rows[table.name].filter(predicate)) Object.assign(row, value);
+    update: table => ({ set: value => ({ where: predicate => {
+      let result;
+      const apply = () => {
+        if (!result) {
+          const matched = rows[table.name].filter(predicate);
+          for (const row of matched) Object.assign(row, value);
+          result = structuredClone(matched);
+        }
+        return result;
+      };
+      return { returning: async () => apply(),
+        then: (resolve, reject) => Promise.resolve().then(apply).then(resolve, reject) };
     } }) }),
     transaction: callback => {
       const result = queue.then(async () => {
@@ -52,7 +62,8 @@ test("registration routes: preflight, renamed recovery, signed identity, atomic 
   const verified = async user => rows.verifiedRegistrationsTable.some(r => r.userId === user.id && r.txHash === user.registrationTxHash);
   globalThis.__registrationFixture = {
     ...tables, db, eq, sql, and: (...predicates) => r => predicates.every(p => p(r)),
-    isNull: c => r => r[column(c)] === null, verified,
+    isNull: c => r => r[column(c)] === null,
+    isNotNull: c => r => r[column(c)] !== null && r[column(c)] !== undefined, verified,
     allowAttempt: (key, limit) => { assert.ok(key.startsWith("registration-prepare:")); assert.equal(limit, 6); return !denyAttempt; },
     discover: async () => { chainCalls++; if (failDiscovery) throw new Error("RPC unavailable"); return { registered: true, txHash: hash }; },
     verify: async (h, w) => { chainCalls++; return h === hash && (w === wallet || w === other); },
@@ -72,7 +83,7 @@ test("registration routes: preflight, renamed recovery, signed identity, atomic 
           b.onLoad({ filter: /.*/, namespace: "fixture" }, args => {
             let contents;
             if (args.path === "@workspace/db") contents = `export const {db,${names.join(",")}}=globalThis.__registrationFixture;`;
-            else if (args.path === "drizzle-orm") contents = `export const {eq,sql,and,isNull}=globalThis.__registrationFixture; export const ilike=eq,or=and,desc=x=>x;`;
+            else if (args.path === "drizzle-orm") contents = `export const {eq,sql,and,isNull,isNotNull}=globalThis.__registrationFixture; export const ilike=eq,or=and,desc=x=>x;`;
             else if (args.path.endsWith("walletAuth")) contents = `export const hasVerifiedRegistration=globalThis.__registrationFixture.verified,allowAttempt=globalThis.__registrationFixture.allowAttempt;`;
             else if (args.path.endsWith("contentPrivacy")) contents = `export const bindNewImage=()=>{},viewerId=()=>null;`;
             else contents = `export {normalizeRegistrationUsername,isUniqueViolation} from ${JSON.stringify(new URL("./registrationChain.ts", import.meta.url).pathname)}; export const discoverRegistration=globalThis.__registrationFixture.discover,verifyRegistration=globalThis.__registrationFixture.verify;`;
@@ -149,7 +160,7 @@ test("registration routes: preflight, renamed recovery, signed identity, atomic 
     assert.equal(rows.usersTable.length, 1, "losing invite redemption rolls back account and rewards");
     assert.equal(rows.streaksTable.length, 1);
     reset();
-    rows.inviteCodesTable.push({ id: 2, code: "SECOND", usedById: null, ownerId: null });
+    rows.inviteCodesTable.push({ id: 2, code: "SECOND", usedById: null, usedAt: null, ownerId: null });
     const nameRace = await Promise.all([register(" SAME_NAME "), register("same_name", other, "SECOND")]);
     assert.deepEqual(nameRace.map(r => r.status).sort(), [201, 409]);
     assert.equal(nameRace.find(r => r.status === 409).body.code, "USERNAME_TAKEN");
