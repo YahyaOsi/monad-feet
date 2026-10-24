@@ -21,10 +21,14 @@ test("published copy does not contain dashes or underscores", () => {
   for (const text of copy) assert.doesNotMatch(text, /[-_\u2010-\u2015\u2212]/);
 });
 
-test("unreleased collection access and token milestones remain planned", () => {
-  for (const id of ["opensea", "nft-access", "mfeet"]) {
+test("unreleased collection and token milestones remain planned while CHOG admission is current", () => {
+  for (const id of ["opensea", "mfeet"]) {
     assert.equal(ROADMAP.find(stage => stage.id === id)?.status, "Planned");
   }
+  const admission = ROADMAP.find(stage => stage.id === "nft-access");
+  assert.equal(admission?.status, "Current");
+  assert.ok(admission?.points.some(point => point.includes("CHOG Genesis holders can join")));
+  assert.ok(admission?.points.some(point => point.includes("Monad Feet NFT admission is not available yet")));
   assert.equal(ROADMAP.find(stage => stage.id === "testnet")?.status, "Completed");
   assert.equal(ROADMAP.find(stage => stage.id === "mainnet-app")?.status, "Current");
 });
