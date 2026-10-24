@@ -11,6 +11,7 @@ const files = [
   "THIRD_PARTY_NOTICES.md",
   "docs/ARCHITECTURE.md",
   "docs/BUILD-WINDOW.md",
+  "docs/CI.md",
   "docs/DEMO.md",
   "docs/VERIFICATION.md",
   "scripts/testing/README.md",
