@@ -1,0 +1,49 @@
+name: Repository checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repository-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Types, fixture tests, docs and builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.26.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Check workspace types
+        run: pnpm run typecheck
+      - name: Run fixture-based tests without database credentials
+        run: pnpm run test:unit
+      - name: Check documentation links
+        run: pnpm run check:docs
+      - name: Build API
+        run: pnpm --filter @workspace/api-server run build
+      - name: Build web app
+        run: pnpm --filter @workspace/monad-feet run build
+        env:
+          PORT: "5173"
+          BASE_PATH: /
+      - name: Build component sandbox
+        run: pnpm --filter @workspace/mockup-sandbox run build
+        env:
+          PORT: "5174"
+          BASE_PATH: /__mockup/
