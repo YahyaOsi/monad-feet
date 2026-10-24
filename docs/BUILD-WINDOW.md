@@ -91,6 +91,8 @@ Current `main` is not the same as the October 13 snapshot.
 - The root MIT license, attribution inventory, and expanded setup instructions
   were added on October 24.
 - This reviewer guide and README refinements are also post-window documentation.
+- Automated repository checks, judge walkthrough, architecture/security guidance,
+  and test-fixture maintenance are post-window repository improvements.
 
 These updates improve the current repository. They must not be presented as
 evidence that those same changes were available before the event deadline.
