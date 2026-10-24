@@ -21,7 +21,7 @@ export const DOC_SECTIONS: DocSection[] = [
     title: "Getting in",
     paras: [
       "Join with an unused invite code or a CHOG Genesis NFT in your connected wallet. CHOG ownership is verified on Monad Mainnet against 0xc96d31f8626c6d03fae5dcd3d61e3fb9f4a73763. Registration still requires a successful wallet transaction and network gas.",
-      "CHOG and Monad Feet are separate collections. CHOG-admitted accounts must keep a CHOG NFT in their admission wallet. Ownership and the ChogNFT holder badge are rechecked, including for existing members. Invited accounts do not lose membership when they transfer an NFT. Monad Feet NFT access is not available; the mint is coming soon.",
+      "CHOG and Monad Feet are separate collections. Accounts admitted through CHOG must keep a CHOG NFT in their admission wallet. Ownership and the ChogNFT holder badge are rechecked, including for existing members. Invited accounts do not lose membership when they transfer an NFT. Monad Feet NFT access is not available; the mint is coming soon.",
     ],
   },
   {
@@ -45,15 +45,15 @@ export const DOC_SECTIONS: DocSection[] = [
     title: "Photo posts",
     paras: [
       "Share a photo with an optional caption. Creators can publish public posts or reserve content for paid subscribers. Public posts and profiles have links that can be shared outside the app.",
-      "Every new public or exclusive post requires an image and a successful transaction on Monad Mainnet. The wallet approval authorises the registry to record your authorship, post ID and content commitment; it does not authorise unrelated spending. Network gas is paid separately. Captions and images remain in app storage, not fully on-chain.",
+      "Every new public or exclusive post requires an image and a successful transaction on Monad Mainnet. The wallet approval authorises the registry to record your authorship, post ID and content commitment; it does not authorise unrelated spending. Network gas is paid separately. Captions and images remain in app storage, not fully on chain.",
       "A draft becomes visible only after the app verifies its successful matching receipt. Rejecting or reverting the transaction leaves it unpublished. If the transaction succeeds but app sync fails, resume the pending publication with its original hash instead of signing again.",
-      "No app user, including the author or an administrator, can delete a published post through the application. There is no removal from public app views through deletion. On-chain authorship, post IDs, commitments, transaction hashes and likes are permanent. Older unsigned records are preserved privately for their authors until they confirm publication.",
-      "Latest sorts by the app creation date with the newest posts first. Top ranks the loaded posts by verified recorded likes, with newer posts first when counts tie. App totals count verified publications stored here; the registry lifetime count may also include anchors still awaiting app recovery. Unconfirmed historical app-post records are counted separately and are excluded from the published total.",
+      "No app user, including the author or an administrator, can delete a published post through the application. There is no removal from public app views through deletion. On chain authorship, post IDs, commitments, transaction hashes and likes are permanent. Older unsigned records are preserved privately for their authors until they confirm publication.",
+      "Latest sorts by the app creation date with the newest posts first. Top ranks the loaded posts by verified recorded likes, with newer posts first when counts tie. App totals count verified publications stored here; the registry lifetime count may also include anchors still awaiting app recovery. Unconfirmed historical app post records are counted separately and are excluded from the published total.",
     ],
     items: [
       { t: "Public posts", d: "Visible to everyone who opens the link or browses the feed." },
       { t: "Paid posts", d: "Reserved for active verified subscribers of the creator, with the same signed publication requirement." },
-      { t: "Likes", d: "A new like requires its own successful Monad transaction. Already-recorded likes can be synced again without another transaction. The deployed registry has no unlike function, so confirmed likes cannot be reversed." },
+      { t: "Likes", d: "A new like requires its own successful Monad transaction. Already recorded likes can be synced again without another transaction. The deployed registry has no unlike function, so confirmed likes cannot be reversed." },
       { t: "Share links", d: "Visitors can read public posts and profiles without joining. Sharing a link does not grant access to paid content." },
     ],
   },
@@ -154,7 +154,7 @@ export const DOC_SECTIONS: DocSection[] = [
       { t: "Rare", d: "Planned app access and a medium point boost." },
       { t: "Epic", d: "Planned app access and a 3 percent point boost." },
       { t: "Legendary", d: "Planned app access and the maximum point boost." },
-      { t: "CHOG access", d: "CHOG is a separate collection with verified invite-free admission on Monad Mainnet. Hold it in the admission wallet to retain NFT-based access. Monad Feet rarity boosts do not apply to CHOG." },
+      { t: "CHOG access", d: "CHOG is a separate collection with verified admission without an invite on Monad Mainnet. Hold it in the admission wallet to retain NFT based access. Monad Feet rarity boosts do not apply to CHOG." },
     ],
   },
   {
@@ -270,7 +270,7 @@ export const ROADMAP: RoadmapStage[] = [
     title: "NFT admission",
     points: [
       "CHOG Genesis holders can join without an invite after live Monad ownership verification and signed registration.",
-      "New and existing current holders receive the ChogNFT holder badge. NFT-admitted accounts retain access while the NFT is in their admission wallet.",
+      "New and existing current holders receive the ChogNFT holder badge. Accounts admitted through an NFT retain access while the NFT is in their admission wallet.",
       "Monad Feet NFT admission is not available yet. The mint is coming soon; a date alone will not enable access.",
     ],
   },
