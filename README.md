@@ -2,6 +2,9 @@
 
 **A wallet-based social and creator community on Monad.**
 
+[![Repository checks](https://github.com/YahyaOsi/monad-feet/actions/workflows/ci.yml/badge.svg)](https://github.com/YahyaOsi/monad-feet/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-purple.svg)](LICENSE)
+
 Monad Feet brings social posts, creator subscriptions, subscriber content,
 messaging, notifications, and community activities into one web app. This
 repository contains the React frontend, Express API, shared database and API
@@ -11,9 +14,33 @@ Built by Monad Feet's solo founder/developer. Original project code is available
 under the [MIT License](LICENSE). See [third-party attribution](THIRD_PARTY_NOTICES.md)
 for libraries, adapted components, fonts, and licensing qualifications.
 
-**Start here:** [Setup](#install) · [Architecture](#architecture) ·
-[Reviewer guide](docs/BUILD-WINDOW.md) · [Product guide](docs/PROJECT_GUIDE.md) ·
+**Start here:** [Live app](https://monadfeet.social) ·
+[Three-minute walkthrough](docs/DEMO.md) · [Setup](#install) ·
+[Architecture](docs/ARCHITECTURE.md) · [Reviewer guide](docs/BUILD-WINDOW.md) ·
+[Verification](docs/VERIFICATION.md) ·
 [License](LICENSE) · [Attribution](THIRD_PARTY_NOTICES.md)
+
+![Monad Feet public landing page in the development preview](docs/images/landing.jpg)
+
+*Current signed-out development-preview screenshot. This is not a historical
+hackathon snapshot or evidence of authenticated/payment behavior.*
+
+## Why Monad Feet
+
+Creators and communities need more than a feed: they need a way to publish,
+support each other, and return to a shared space. Monad Feet combines those
+flows in a wallet-based product, rather than treating subscriptions, identity,
+and community activity as unrelated tools.
+
+Monad provides the EVM-compatible transaction layer for supported actions.
+The app combines wallet interaction and transaction evidence with a conventional
+database and protected media storage, keeping the chain/data boundary explicit.
+
+For reviewers, the most useful path is to follow the
+[short demo](docs/DEMO.md), inspect the [architecture](docs/ARCHITECTURE.md),
+and compare the [in-window source snapshots](docs/BUILD-WINDOW.md).
+The current repository includes later improvements; those are labeled rather
+than presented as pre-deadline work.
 
 ## Product overview
 
@@ -142,12 +169,18 @@ and connectivity to Monad mainnet; use caution with real funds.
 
 ```sh
 pnpm run typecheck
-pnpm --filter @workspace/api-spec run codegen
+pnpm run test:unit
+pnpm run check:docs
 pnpm --filter @workspace/api-server run build
 PORT=5173 BASE_PATH=/ pnpm --filter @workspace/monad-feet run build
 ```
 
-Regenerate API clients only after intentionally changing `lib/api-spec/openapi.yaml`.
+The GitHub workflow runs type checks, fixture tests, documentation checks, and
+builds. Its badge reports the actual workflow result, not an independent audit.
+For scope and excluded real-world checks, see [verification](docs/VERIFICATION.md).
+
+Regenerate API clients with `pnpm --filter @workspace/api-spec run codegen`
+only after intentionally changing `lib/api-spec/openapi.yaml`.
 Database-backed test commands require an isolated test database, not production.
 See [`scripts/testing/README.md`](scripts/testing/README.md).
 
@@ -194,12 +227,17 @@ See `docs/CHAIN-STATUS.md`. NFT access is not configured. The payment integratio
 
 ## Documentation
 
+- [Three-minute judge walkthrough](docs/DEMO.md)
+- [Architecture and trust boundaries](docs/ARCHITECTURE.md)
+- [Verification and known limitations](docs/VERIFICATION.md)
 - [Reviewer and build-window guide](docs/BUILD-WINDOW.md)
 - [Full product and architecture guide](docs/PROJECT_GUIDE.md)
 - [Chain status and integration limits](docs/CHAIN-STATUS.md)
 - [Launch readiness notes](docs/LAUNCH-READINESS.md)
 - [Testing instructions](scripts/testing/README.md)
 - [Third-party attribution and licensing qualifications](THIRD_PARTY_NOTICES.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security reporting](SECURITY.md)
 
 Operational and verification notes describe the evidence available when written.
 They should not be treated as independent security audits or guarantees.
